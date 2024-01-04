@@ -13,7 +13,7 @@ from node2vec import Node2Vec
 from karateclub import DeepWalk
 
 # Internal Libraries
-from ugaf.helper_functions import get_numb_of_nb_x_hops_away
+from NEExT.helper_functions import get_numb_of_nb_x_hops_away
 
 class Node_Embedding_Engine:
 

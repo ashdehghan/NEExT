@@ -18,8 +18,8 @@ from sklearn.decomposition import PCA
 
 # Internal Libraries
 # from ugaf.global_config import Global_Config
-from ugaf.helper_functions import get_nodes_x_hops_away
-from ugaf.node_embedding_engine import Node_Embedding_Engine
+from NEExT.helper_functions import get_nodes_x_hops_away
+from NEExT.node_embedding_engine import Node_Embedding_Engine
 
 
 class Feature_Engine:

@@ -19,12 +19,12 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.metrics.pairwise import cosine_similarity
 
 # Internal Modules
-from ugaf.ml_models import ML_Models
-from ugaf.global_config import Global_Config
-from ugaf.feature_engine import Feature_Engine
-from ugaf.helper_functions import divide_chunks
-from ugaf.graph_collection import Graph_Collection
-from ugaf.graph_embedding_engine import Graph_Embedding_Engine
+from NEExT.ml_models import ML_Models
+from NEExT.global_config import Global_Config
+from NEExT.feature_engine import Feature_Engine
+from NEExT.helper_functions import divide_chunks
+from NEExT.graph_collection import Graph_Collection
+from NEExT.graph_embedding_engine import Graph_Embedding_Engine
 
 
 class NEExT:
