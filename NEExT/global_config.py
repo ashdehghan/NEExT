@@ -13,7 +13,7 @@ class Global_Config:
 
 	def __init__(self):
 		self.config = None
-		self.quiet_mode = True
+		self.quiet_mode = False
 
 
 	def load_config(self, config, config_type):

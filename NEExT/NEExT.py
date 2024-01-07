@@ -30,106 +30,108 @@ from NEExT.graph_embedding_engine import Graph_Embedding_Engine
 class NEExT:
 
 
-	def __init__(self, config, config_type="file"):
+	def __init__(self):
 		self.global_config = Global_Config()
-		self.global_config.load_config(config, config_type)
-
 		self.graph_c = Graph_Collection(self.global_config)
 		self.feat_eng = Feature_Engine(self.global_config)
 		self.ml_model = ML_Models(self.global_config)
 		self.g_emb = Graph_Embedding_Engine(self.global_config)
-
 		self.graph_embedding = {}
 		self.similarity_matrix_stats = {}
 		self.ml_model_results = None
 
 
-	def build_graph_collection(self):
+	def load_data_from_csv(self, edge_file, node_graph_mapping_file, node_features_file=None, graph_label_file=None, filter_for_largest_cc=True, reset_node_indices=True):
 		"""
 			This method uses the Graph Collection class to build an object
 			which handels a set of graphs.
 		"""
-		self.graph_c.load_graphs()
-		if self.global_config.config["graph_collection"]["filter_for_largest_cc"] == "yes":
+		self.graph_c.load_graphs_from_csv(edge_file, node_graph_mapping_file, node_features_file)
+		if filter_for_largest_cc:
 			self.graph_c.filter_collection_for_largest_connected_component()
-		if self.global_config.config["graph_collection"]["reset_node_indices"] == "yes":
+		if reset_node_indices:
 			self.graph_c.reset_node_indices()
-
-
-	def add_graph_labels(self):
-		"""
-			This function takes as input a csv file for graph labels and uses the pre-built
-			graph collection object, to assign labels to graphs.
-		"""
-		self.graph_c.assign_graph_labels()
+		if graph_label_file:
+			self.graph_c.assign_graph_labels_from_csv(graph_label_file)
 		
-
-	def extract_graph_features(self):
-		"""
-			This method will use the Feature Engine object to build features
-			on the graph, which can then be used to compute graph embeddings
-			and other statistics on the graph.
-		"""
-		numb_of_chunks = int(len(self.graph_c.graph_collection)/5)
-		graph_chunks = list(divide_chunks(self.graph_c.graph_collection, numb_of_chunks))
-		processes = []
-		manager = multiprocessing.Manager()
-		return_dict = manager.dict()
-		for i in range(len(graph_chunks)):
-			p = multiprocessing.Process(target = self.run_graph_feature_extraction, args=(i, graph_chunks[i], return_dict))
-			p.start()
-			processes.append(p)
-		for p in processes:
-			p.join()
-		graph_obj_list = []
-		for process_numb in return_dict:
-			graph_obj_list += return_dict[process_numb]
-		self.graph_c.graph_collection = graph_obj_list[:]
-		self.standardize_graph_features_globaly()
-		if self.global_config.config["graph_features"]["gloabl_embedding"]["dim_reduction"]["flag"] == "yes":
-			self.apply_dim_reduction()
-
-
-	def run_graph_feature_extraction(self, process_numb, graph_chunks, return_dict):
-		for g_obj in tqdm(graph_chunks, desc="Building features", disable=self.global_config.quiet_mode):
+		
+	def compute_graph_feature(self, feat_name, feat_vect_len):
+		for g_obj in tqdm(self.graph_c.graph_collection, desc="Building features", disable=self.global_config.quiet_mode):			
 			G = g_obj["graph"]
 			graph_id = g_obj["graph_id"]
-			g_obj["graph_features"] = self.feat_eng.build_features(G, graph_id)
-		return_dict[process_numb] = graph_chunks
+			g_obj["graph_features"] = self.feat_eng.compute_feature(G, graph_id, feat_name, feat_vect_len)
 
 
-	def apply_dim_reduction(self):
+	def pool_graph_features(self, pool_method="concat"):
+		for g_obj in tqdm(self.graph_c.graph_collection, desc="Pooling features", disable=self.global_config.quiet_mode):			
+			G = g_obj["graph"]
+			graph_id = g_obj["graph_id"]
+			g_obj["graph_features"] = self.feat_eng.pool_features(graph_id, pool_method)
+		self.standardize_graph_features_globaly()
+
+
+	def standardize_graph_features_globaly(self):
+		"""
+			This method will standardize the graph features across all graphs.
+		"""
+		all_graph_feats = pd.DataFrame()
+		for g_obj in tqdm(self.graph_c.graph_collection, desc="Standardizing features", disable=self.global_config.quiet_mode):
+			df = g_obj["graph_features"]["pooled_features"]
+			if all_graph_feats.empty:
+				all_graph_feats = df.copy(deep=True)
+			else:
+				all_graph_feats = pd.concat([all_graph_feats, df])
+
+		# Grab graph feature embedding columns
+		feat_cols = []
+		for col in all_graph_feats.columns.tolist():
+			if "feat_" in col:
+				feat_cols.append(col)
+		# Standardize the embedding
+		node_ids = all_graph_feats["node_id"].tolist()
+		graph_ids = all_graph_feats["graph_id"].tolist()
+		feat_df = all_graph_feats[feat_cols].copy(deep=True)
+		# Normalize data
+		scaler = StandardScaler()
+		feat_df = pd.DataFrame(scaler.fit_transform(feat_df))
+		feat_df.columns = feat_cols
+		feat_df.insert(0, "node_id", node_ids)
+		feat_df.insert(1, "graph_id", graph_ids)
+		# Keep a collective global embedding
+		self.graph_c.global_embeddings = feat_df.copy(deep=True)
+		self.graph_c.global_embeddings_cols = feat_cols
+		# Re-assign global embeddings to each graph
+		for g_obj in tqdm(self.graph_c.graph_collection, desc="Updating features", disable=self.global_config.quiet_mode):
+			df = feat_df[feat_df["graph_id"] == g_obj["graph_id"]].copy(deep=True)
+			g_obj["graph_features"]["pooled_features"] = df
+
+
+
+	def apply_dim_reduc_to_graph_feats(self, dim_size, reducer_type):
 		"""
 			This method will apply dimensionality reduction to the gloabl feature embeddings.
 			Since many of the processses in UGAF require the use of the global feat embeddings
 			and their embedding columns, this function makes a copy of those to keep for record
 			and will replace the main feat embedding DataFrame and columns with the reduced ones.
 		"""
-		emb_dim = self.global_config.config["graph_features"]["gloabl_embedding"]["dim_reduction"]["emb_dim"]
-		reducer_type = self.global_config.config["graph_features"]["gloabl_embedding"]["dim_reduction"]["reducer_type"]
-		if emb_dim >= len(self.graph_c.global_embeddings_cols):
+		if dim_size >= len(self.graph_c.global_embeddings_cols):
 			if not self.global_config.quiet_mode:
 				print("The number of reduced dimension is > to actual dimensions.")
 			return
-
 		# Make copies
 		self.graph_c.global_embeddings_cols_arc = self.graph_c.global_embeddings_cols[:]
 		self.graph_c.global_embeddings_arc = self.graph_c.global_embeddings.copy(deep=True)
-
 		data = self.graph_c.global_embeddings[self.graph_c.global_embeddings_cols]
-
 		if reducer_type == "umap":		
-			reducer = umap.UMAP(n_components=emb_dim)
+			reducer = umap.UMAP(n_components=dim_size)
 			data = reducer.fit_transform(data)
 		elif reducer_type == "pca":
-			reducer = PCA(n_components=emb_dim)
+			reducer = PCA(n_components=dim_size)
 			data = reducer.fit_transform(data)
 		else:
 			raise ValueError("Wrong reducer selected.")
-
 		scaler = StandardScaler()
 		data = scaler.fit_transform(data)
-		
 		data = pd.DataFrame(data)
 		emb_cols = ["emb_"+str(i) for i in range(data.shape[1])]
 		data.columns = emb_cols
@@ -139,40 +141,17 @@ class NEExT:
 		self.graph_c.global_embeddings = data.copy(deep=True)
 
 
-	def standardize_graph_features_globaly(self):
-		"""
-			This method will standardize the graph features across all graphs.
-		"""
-		all_graph_feats = pd.DataFrame()
-		for g_obj in tqdm(self.graph_c.graph_collection, desc="Building features", disable=self.global_config.quiet_mode):
-			df = g_obj["graph_features"]["global_embedding"]
-			if all_graph_feats.empty:
-				all_graph_feats = df.copy(deep=True)
-			else:
-				all_graph_feats = pd.concat([all_graph_feats, df])
 
-		# Grab graph feature embedding columns
-		emb_cols = []
-		for col in all_graph_feats.columns.tolist():
-			if "emb_" in col:
-				emb_cols.append(col)
-		# Standardize the embedding
-		node_ids = all_graph_feats["node_id"].tolist()
-		graph_ids = all_graph_feats["graph_id"].tolist()
-		emb_df = all_graph_feats[emb_cols].copy(deep=True)
-		# Normalize data
-		scaler = StandardScaler()
-		emb_df = pd.DataFrame(scaler.fit_transform(emb_df))
-		emb_df.columns = emb_cols
-		emb_df.insert(0, "node_id", node_ids)
-		emb_df.insert(1, "graph_id", graph_ids)
-		# Keep a collective global embedding
-		self.graph_c.global_embeddings = emb_df.copy(deep=True)
-		self.graph_c.global_embeddings_cols = emb_cols
-		# Re-assign global embeddings to each graph
-		for g_obj in tqdm(self.graph_c.graph_collection, desc="Updating features", disable=self.global_config.quiet_mode):
-			df = emb_df[emb_df["graph_id"] == g_obj["graph_id"]].copy(deep=True)
-			g_obj["graph_features"]["global_embedding"] = df
+	def build_graph_embedding(self):
+		"""
+			This method uses the Graph Embedding Engine object to 
+			build a graph embedding for every graph in the graph collection.
+		"""
+		graph_embedding, graph_embedding_df = self.g_emb.build_graph_embedding(graph_c = self.graph_c)
+		self.graph_embedding = {}
+		self.graph_embedding["graph_embedding"] = graph_embedding
+		self.graph_embedding["graph_embedding_df"] = graph_embedding_df
+
 
 
 	def compute_similarity_matrix_stats(self):
@@ -218,16 +197,6 @@ class NEExT:
 		self.similarity_matrix_stats["metrics"] = ["largest_eigen_value", "similarity_matrix_mean"]
 		self.similarity_matrix_stats["metrics_pretty_name"] = ["Largest EigenValue", "Similarity Matrix Mean"]
 
-
-	def build_graph_embedding(self):
-		"""
-			This method uses the Graph Embedding Engine object to 
-			build a graph embedding for every graph in the graph collection.
-		"""
-		graph_embedding, graph_embedding_df = self.g_emb.build_graph_embedding(graph_c = self.graph_c)
-		self.graph_embedding = {}
-		self.graph_embedding["graph_embedding"] = graph_embedding
-		self.graph_embedding["graph_embedding_df"] = graph_embedding_df
 
 
 	def build_model(self):

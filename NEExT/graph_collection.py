@@ -29,22 +29,20 @@ class Graph_Collection:
 		self.global_embeddings_cols_arc = None
 		self.global_embeddings_arc = None
 
-	def load_graphs(self):
+
+	def load_graphs_from_csv(self, edge_file, node_graph_mapping_file, node_features_file=None):
 		"""
 			This method uses the user configuration to build a collection
 			of graphs object.
 		"""
-		edge_csv_path = self.global_config.config["data_files"]["edge_csv_path"]
-		node_graph_map_csv_path = self.global_config.config["data_files"]["node_graph_map_csv_path"]
-		edges = pd.read_csv(edge_csv_path)
+		edges = pd.read_csv(edge_file)
 		src_nodes = [int(i) for i in edges["node_a"].tolist()]
 		dst_nodes = [int(i) for i in edges["node_b"].tolist()]
 		edgelist = list(zip(src_nodes, dst_nodes))
 		G = nx.from_edgelist(edgelist)
 		# Add node features if exists
-		if "node_feature_csv_path" in self.global_config.config["data_files"]:
-			node_feature_csv_path = self.global_config.config["data_files"]["node_feature_csv_path"]
-			node_features = pd.read_csv(node_feature_csv_path)
+		if node_features_file:
+			node_features = pd.read_csv(node_features_file)
 			node_features_map = {}
 			for idx in tqdm(range(len(node_features)), desc="Loading node features:", disable=self.global_config.quiet_mode):
 				feats = dict(node_features.iloc[idx])
@@ -52,7 +50,7 @@ class Graph_Collection:
 				del feats["node_id"]
 				node_features_map[node_id] = feats
 			nx.set_node_attributes(G, node_features_map)
-		node_graph_map = pd.read_csv(node_graph_map_csv_path)
+		node_graph_map = pd.read_csv(node_graph_mapping_file)
 		node_graph_map["node_id"] = node_graph_map["node_id"].astype(int)
 		node_graph_map["graph_id"] = node_graph_map["graph_id"].astype(int)
 		graph_ids = node_graph_map["graph_id"].unique().tolist()
@@ -128,13 +126,12 @@ class Graph_Collection:
 		return stat_obj
 
 
-	def assign_graph_labels(self):
+	def assign_graph_labels_from_csv(self, graph_label_file):
 		"""
 			This function will take as input graph label csv path.
 			It will load the labels and assigns it to graphs in the collection.
 		"""
-		graph_label_csv_path = self.global_config.config["data_files"]["graph_label_map_csv_path"]
-		graph_labels = pd.read_csv(graph_label_csv_path)
+		graph_labels = pd.read_csv(graph_label_file)
 		self.grpah_labels_df = graph_labels.copy(deep=True)
 		self.graph_label_list_unique = graph_labels["graph_label"].unique().tolist()
 		graph_labels = graph_labels.set_index("graph_id")["graph_label"].to_dict()

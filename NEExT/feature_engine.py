@@ -28,171 +28,166 @@ class Feature_Engine:
 	def __init__(self, global_config):
 		self.global_config = global_config
 		self.node_emb_engine = Node_Embedding_Engine()
-		self.feature_functions = {}
-		self.feature_functions["basic_node_features"] = self.build_basic_node_features
-		self.feature_functions["lsme"] = self.build_lsme
-		self.feature_functions["basic_expansion"] = self.build_basic_expansion
-		self.feature_functions["self_walk"] = self.build_self_walk
-		self.feature_functions["structural_node_feature"] = self.build_structural_node_features
-		self.supported_structural_node_features = ["page_rank", "degree_centrality", "closeness_centrality", "load_centrality", "eigenvector_centrality"]
+		# Collection of features
+		self.feature_collection = {}
+		self.feature_collection["computed_features"] = set()
+		self.feature_collection["features"] = {}
+		# Feature functions
+		self.features = {}
+		self.features["lsme"] = self.compute_lsme
+		self.features["self_walk"] = self.compute_self_walk
+		self.features["basic_expansion"] = self.compute_basic_expansion
+		self.features["basic_node_features"] = self.compute_basic_node_features
+		self.features["page_rank"] = self.compute_structural_node_features
+		self.features["degree_centrality"] = self.compute_structural_node_features
+		self.features["closeness_centrality"] = self.compute_structural_node_features
+		self.features["load_centrality"] = self.compute_structural_node_features
+		self.features["eigenvector_centrality"] = self.compute_structural_node_features
 
 
-	def build_features(self, G, graph_id):
-		config = self.global_config.config["graph_features"]
-		node_samples = self.sample_graph(G, config)
-		feature_collection = {}
-		feature_collection["features"] = {}
-		for feature_obj in config["features"]:
-			feature_collection = self.feature_functions[feature_obj["feature_name"]](feature_collection, G, feature_obj, feature_obj["type"], node_samples, graph_id)
-		feature_collection = self.build_gloabal_embedding(feature_collection, node_samples, config)
-		return feature_collection
+	def compute_feature(self, G, graph_id, feat_name, feat_vect_len):
+		self.feature_collection["computed_features"].add(feat_name)
+		if graph_id not in self.feature_collection["features"]:
+			self.feature_collection["features"][graph_id] = {}
+		self.features[feat_name](G, feat_vect_len, feat_name, graph_id)
+		return self.feature_collection
 
 
-	def sample_graph(self, G, config):
-		"""
-			This method will sample the graph based on the information
-			given in the configuration.
-		"""
-		if self.global_config.config["graph_sample"]["flag"] == "no":
-			node_samples = list(G.nodes)
-		else:
-			sample_size = int(len(G.nodes) * config["graph_sample"]["sample_fraction"])
-			graph_nodes = list(G.nodes)[:]
-			random.shuffle(graph_nodes)
-			node_samples = graph_nodes[0:sample_size]
-		return node_samples
+	def compute_lsme(self, G, feat_vect_len, func_name, graph_id):
+		feats = self.node_emb_engine.run_lsme_embedding(G, feat_vect_len)
+		feat_cols = []
+		for col in feats.columns.tolist():
+			if "feat" in col:
+				feat_cols.append(col)
+		feats.insert(1, "graph_id", graph_id)
+		self.feature_collection["features"][graph_id][func_name] = {}
+		self.feature_collection["features"][graph_id][func_name]["feats"] = feats
+		self.feature_collection["features"][graph_id][func_name]["feats_cols"] = feat_cols
 
 
-	def build_gloabal_embedding(self, feature_collection, node_samples, config):
-		"""
-			This method will use the features built on the graph to construct
-			a global embedding for the nodes of the graph.
-		"""
-		global_emb_df = pd.DataFrame()
-		if config["gloabl_embedding"]["type"] == "concat":
-			for func_name in feature_collection["features"]:
-				if "embs" in feature_collection["features"][func_name]:
-					embs = feature_collection["features"][func_name]["embs"]
-					if global_emb_df.empty:
-						global_emb_df = embs.copy(deep=True)
-					else:
-						global_emb_df = global_emb_df.merge(embs, on=["node_id", "graph_id"], how="inner")
-			feature_collection["global_embedding"] = global_emb_df
-		else:
-			raise ValueError("Gloabl embedding type is not supported.")
-		return feature_collection
-
-
-
-	def build_self_walk(self, feature_collection, G, config, func_name, node_samples, graph_id):
+	def compute_self_walk(self, G, feat_vect_len, func_name, graph_id):
 		iG = ig.Graph.from_networkx(G)
 		A = np.array(iG.get_adjacency().data)
-		emb_dim = config["emb_dim"]
 		Ao = copy.deepcopy(A)
-		embs = {}
-		for i in range(2, emb_dim+2):
+		feats = {}
+		for i in range(2, feat_vect_len+2):
 			A = np.linalg.matrix_power(Ao, i)
 			diag_elem = np.diag(A)
-			embs["emb_selfwalk_"+str(i-2)] = list(diag_elem)
-		embs = pd.DataFrame(embs)
-		emb_cols = list(embs.columns)
-		embs.insert(0, "node_id", list(G.nodes))
-		embs.insert(1, "graph_id", graph_id)
-		feature_collection["features"][func_name] = {}
-		feature_collection["features"][func_name]["embs"] = embs
-		feature_collection["features"][func_name]["embs_cols"] = emb_cols
-		return feature_collection
-			
+			feats["feat_selfwalk_"+str(i-2)] = list(diag_elem)
+		feats = pd.DataFrame(feats)
+		feat_cols = list(feats.columns)
+		feats.insert(0, "node_id", list(G.nodes))
+		feats.insert(1, "graph_id", graph_id)
+		self.feature_collection["features"][graph_id][func_name] = {}
+		self.feature_collection["features"][graph_id][func_name]["feats"] = feats
+		self.feature_collection["features"][graph_id][func_name]["feats_cols"] = feat_cols
 
-	def build_basic_node_features(self, feature_collection, G, config, func_name, node_samples, graph_id):
+
+	def compute_basic_expansion(self, G, feat_vect_len, func_name, graph_id):
+		feats = self.node_emb_engine.run_expansion_embedding(G, feat_vect_len)
+		feat_cols = []
+		for col in feats.columns.tolist():
+			if "feat" in col:
+				feat_cols.append(col)
+		feats.insert(1, "graph_id", graph_id)
+		self.feature_collection["features"][graph_id][func_name] = {}
+		self.feature_collection["features"][graph_id][func_name]["feats"] = feats
+		self.feature_collection["features"][graph_id][func_name]["feats_cols"] = feat_cols
+
+
+	def compute_basic_node_features(self, G, feat_vect_len, func_name, graph_id):
 		node_feature_list = []
-		emb_cols = None
+		feat_cols = None
 		for node in G.nodes:
-			emb_cols = list(G.nodes[node].keys())
+			feat_cols = list(G.nodes[node].keys())
 			node_feature_list.append(list(G.nodes[node].values()))
-		embs = pd.DataFrame(node_feature_list)
-		emb_cols = ["emb_"+i for i in emb_cols]
-		embs.columns = emb_cols
-		embs.insert(0, "node_id", list(G.nodes))
-		embs.insert(1, "graph_id", graph_id)
-		feature_collection["features"][func_name] = {}
-		feature_collection["features"][func_name]["embs"] = embs
-		feature_collection["features"][func_name]["embs_cols"] = emb_cols
-		return feature_collection
+		feats = pd.DataFrame(node_feature_list)
+		feat_cols = ["feat_"+i for i in feat_cols]
+		feats.columns = feat_cols
+		feats.insert(0, "node_id", list(G.nodes))
+		feats.insert(1, "graph_id", graph_id)
+		self.feature_collection["features"][graph_id][func_name] = {}
+		self.feature_collection["features"][graph_id][func_name]["feats"] = feats
+		self.feature_collection["features"][graph_id][func_name]["feats_cols"] = feat_cols
 
 
-	def build_structural_node_features(self, feature_collection, G, config, func_name, node_samples, graph_id):
+	def compute_structural_node_features(self, G, feat_vect_len, func_name, graph_id):
 		"""
 			This method will compute structural node feature for every node up to 
 			emb_dim hops away neighbors.
 		"""
-		structural_feature_type = config["type"]
-		if structural_feature_type == "page_rank":
+		if func_name == "page_rank":
 			srtct_feat = nx.pagerank(G, alpha=0.9)
-		elif structural_feature_type == "degree_centrality":
+		elif func_name == "degree_centrality":
 			srtct_feat = nx.degree_centrality(G)
-		elif structural_feature_type == "closeness_centrality":
+		elif func_name == "closeness_centrality":
 			srtct_feat = nx.closeness_centrality(G)
-		elif structural_feature_type == "load_centrality":
+		elif func_name == "load_centrality":
 			srtct_feat = nx.load_centrality(G)
-		elif structural_feature_type == "eigenvector_centrality":
+		elif func_name == "eigenvector_centrality":
 			srtct_feat = nx.eigenvector_centrality(G, max_iter=1000, tol=1e-03)
 		else:
 			raise ValueError("The selected structural feature is not supported.")
-		emb_dim = int(config["emb_dim"])
 		nodes = []
 		features = []
 		for node in list(G.nodes):
-			if node in node_samples:
-				nodes.append(node)
-				feat_vect = []
-				nbs = get_nodes_x_hops_away(G, node, max_hop_length=emb_dim)
-				feat_vect.append(srtct_feat[node])
-				for i in range(1, emb_dim):
-					if i in nbs:
-						nbs_pr = [srtct_feat[j] for j in nbs[i]]
-						feat_vect.append(sum(nbs_pr)/len(nbs_pr))
-					else:
-						feat_vect.append(0.0)
-				features.append(feat_vect)
-		# Construct embedding df
-		embs = pd.DataFrame(features)
-		emb_cols = ["emb_"+func_name+"_"+str(i) for i in range(embs.shape[1])]
-		embs.columns = emb_cols
-		embs.insert(0, "node_id", nodes)
-		embs.insert(1, "graph_id", graph_id)
-		feature_collection["features"][func_name] = {}
-		feature_collection["features"][func_name]["embs"] = embs
-		feature_collection["features"][func_name]["embs_cols"] = emb_cols
-		return feature_collection
+			nodes.append(node)
+			feat_vect = []
+			nbs = get_nodes_x_hops_away(G, node, max_hop_length=feat_vect_len)
+			feat_vect.append(srtct_feat[node])
+			for i in range(1, feat_vect_len):
+				if i in nbs:
+					nbs_pr = [srtct_feat[j] for j in nbs[i]]
+					feat_vect.append(sum(nbs_pr)/len(nbs_pr))
+				else:
+					feat_vect.append(0.0)
+			features.append(feat_vect)
+		feats = pd.DataFrame(features)
+		feat_cols = ["feat_"+func_name+"_"+str(i) for i in range(feats.shape[1])]
+		feats.columns = feat_cols
+		feats.insert(0, "node_id", nodes)
+		feats.insert(1, "graph_id", graph_id)
+		self.feature_collection["features"][graph_id][func_name] = {}
+		self.feature_collection["features"][graph_id][func_name]["feats"] = feats
+		self.feature_collection["features"][graph_id][func_name]["feats_cols"] = feat_cols
 
 
-	def build_lsme(self, feature_collection, G, config, func_name, node_samples, graph_id):
-		emb_dim = config["emb_dim"]
-		embs = self.node_emb_engine.run_lsme_embedding(G, emb_dim, node_samples)
-		emb_cols = []
-		for col in embs.columns.tolist():
-			if "emb" in col:
-				emb_cols.append(col)
-		embs.insert(1, "graph_id", graph_id)
-		feature_collection["features"][func_name] = {}
-		feature_collection["features"][func_name]["embs"] = embs
-		feature_collection["features"][func_name]["embs_cols"] = emb_cols
-		return feature_collection
+
+	def pool_features(self, graph_id, pool_method="concat"):
+		"""
+			This method will use the features built on the graph to construct
+			a global embedding for the nodes of the graph.
+		"""
+		pooled_features = pd.DataFrame()		
+		if pool_method == "concat":
+			for feat_name in list(self.feature_collection["computed_features"]):
+				features = self.feature_collection["features"][graph_id][feat_name]["feats"]
+				if pooled_features.empty:
+					pooled_features = features.copy(deep=True)
+				else:
+					pooled_features = pooled_features.merge(features, on=["node_id", "graph_id"], how="inner")
+		else:
+			raise ValueError("Pooling type is not supported.")
+		self.feature_collection["pooled_features"] = pooled_features
+		return self.feature_collection
 
 
-	def build_basic_expansion(self, feature_collection, G, config, func_name, node_samples, graph_id):
-		emb_dim = config["emb_dim"]
-		embs = self.node_emb_engine.run_expansion_embedding(G, emb_dim, node_samples)
-		emb_cols = []
-		for col in embs.columns.tolist():
-			if "emb" in col:
-				emb_cols.append(col)
-		embs.insert(1, "graph_id", graph_id)
-		feature_collection["features"][func_name] = {}
-		feature_collection["features"][func_name]["embs"] = embs
-		feature_collection["features"][func_name]["embs_cols"] = emb_cols
-		return feature_collection
+
+
+
+
+			
+
+
+
+
+
+
+
+
+
+
+
 
 
 

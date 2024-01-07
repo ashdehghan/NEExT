@@ -7,7 +7,7 @@ NEExT is a tool for exploring and building graph embeddings. This tool allows fo
 * Creating node and structural features for nodes in the graph collection.
 * Creating embeddings for graphs.
 
-### Instalation Process
+### Installation Process
 NEExT uses Python 3.x (currently tested using Python 3.11).
 You can install NEExT using the following:
 ```console
@@ -15,7 +15,7 @@ pip install NEExT
 ```
 
 ### Graph Data Format
-You can use a few different data formats to upload data inot NEExT. Currently, it allows for:
+You can use a few different data formats to upload data into NEExT. Currently, it allows for:
 * CSV files
 * NetworkX Objects
 See below for examples of using different data formats.
@@ -64,7 +64,9 @@ Below we show example of how each of the above files should be formatted:
 |2|1.9| 1.3| .|
 |3|0.0| 2.2| .|
 |4|11.2| 12.3| .|
-|.|.| 0.0| .|
+|.|.| .| .|
 
+Note that NEExT can not handle non-numerical features. Some feature engineering on the node features must be done by the end-user.
+Data standardization, however, will be done.
 
 
