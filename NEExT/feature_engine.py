@@ -28,10 +28,6 @@ class Feature_Engine:
 	def __init__(self, global_config):
 		self.global_config = global_config
 		self.node_emb_engine = Node_Embedding_Engine()
-		# Collection of features
-		self.feature_collection = {}
-		self.feature_collection["computed_features"] = set()
-		self.feature_collection["features"] = {}
 		# Feature functions
 		self.features = {}
 		self.features["lsme"] = self.compute_lsme
@@ -45,27 +41,27 @@ class Feature_Engine:
 		self.features["eigenvector_centrality"] = self.compute_structural_node_features
 
 
-	def compute_feature(self, G, graph_id, feat_name, feat_vect_len):
-		self.feature_collection["computed_features"].add(feat_name)
-		if graph_id not in self.feature_collection["features"]:
-			self.feature_collection["features"][graph_id] = {}
-		self.features[feat_name](G, feat_vect_len, feat_name, graph_id)
-		return self.feature_collection
+	def compute_feature(self, g_obj, feat_name, feat_vect_len):
+		g_obj.computed_features.add(feat_name)
+		self.features[feat_name](g_obj, feat_vect_len, feat_name)
 
 
-	def compute_lsme(self, G, feat_vect_len, func_name, graph_id):
+	def compute_lsme(self, g_obj, feat_vect_len, func_name):
+		graph_id = g_obj.graph_id
 		feats = self.node_emb_engine.run_lsme_embedding(G, feat_vect_len)
 		feat_cols = []
 		for col in feats.columns.tolist():
 			if "feat" in col:
 				feat_cols.append(col)
 		feats.insert(1, "graph_id", graph_id)
-		self.feature_collection["features"][graph_id][func_name] = {}
-		self.feature_collection["features"][graph_id][func_name]["feats"] = feats
-		self.feature_collection["features"][graph_id][func_name]["feats_cols"] = feat_cols
+		g_obj.feature_collection["features"][func_name] = {}
+		g_obj.feature_collection["features"][func_name]["feats"] = feats
+		g_obj.feature_collection["features"][func_name]["feats_cols"] = feat_cols
 
 
-	def compute_self_walk(self, G, feat_vect_len, func_name, graph_id):
+	def compute_self_walk(self, g_obj, feat_vect_len, func_name):
+		graph_id = g_obj.graph_id
+		G = g_obj.graph
 		iG = ig.Graph.from_networkx(G)
 		A = np.array(iG.get_adjacency().data)
 		Ao = copy.deepcopy(A)
@@ -78,24 +74,28 @@ class Feature_Engine:
 		feat_cols = list(feats.columns)
 		feats.insert(0, "node_id", list(G.nodes))
 		feats.insert(1, "graph_id", graph_id)
-		self.feature_collection["features"][graph_id][func_name] = {}
-		self.feature_collection["features"][graph_id][func_name]["feats"] = feats
-		self.feature_collection["features"][graph_id][func_name]["feats_cols"] = feat_cols
+		g_obj.feature_collection["features"][func_name] = {}
+		g_obj.feature_collection["features"][func_name]["feats"] = feats
+		g_obj.feature_collection["features"][func_name]["feats_cols"] = feat_cols
 
 
-	def compute_basic_expansion(self, G, feat_vect_len, func_name, graph_id):
+	def compute_basic_expansion(self, g_obj, feat_vect_len, func_name):
+		graph_id = g_obj.graph_id
+		G = g_obj.graph
 		feats = self.node_emb_engine.run_expansion_embedding(G, feat_vect_len)
 		feat_cols = []
 		for col in feats.columns.tolist():
 			if "feat" in col:
 				feat_cols.append(col)
 		feats.insert(1, "graph_id", graph_id)
-		self.feature_collection["features"][graph_id][func_name] = {}
-		self.feature_collection["features"][graph_id][func_name]["feats"] = feats
-		self.feature_collection["features"][graph_id][func_name]["feats_cols"] = feat_cols
+		g_obj.feature_collection["features"][func_name] = {}
+		g_obj.feature_collection["features"][func_name]["feats"] = feats
+		g_obj.feature_collection["features"][func_name]["feats_cols"] = feat_cols
 
 
-	def compute_basic_node_features(self, G, feat_vect_len, func_name, graph_id):
+	def compute_basic_node_features(self, g_obj, feat_vect_len, func_name):
+		graph_id = g_obj.graph_id
+		G = g_obj.graph
 		node_feature_list = []
 		feat_cols = None
 		for node in G.nodes:
@@ -106,16 +106,18 @@ class Feature_Engine:
 		feats.columns = feat_cols
 		feats.insert(0, "node_id", list(G.nodes))
 		feats.insert(1, "graph_id", graph_id)
-		self.feature_collection["features"][graph_id][func_name] = {}
-		self.feature_collection["features"][graph_id][func_name]["feats"] = feats
-		self.feature_collection["features"][graph_id][func_name]["feats_cols"] = feat_cols
+		g_obj.feature_collection["features"][func_name] = {}
+		g_obj.feature_collection["features"][func_name]["feats"] = feats
+		g_obj.feature_collection["features"][func_name]["feats_cols"] = feat_cols
 
 
-	def compute_structural_node_features(self, G, feat_vect_len, func_name, graph_id):
+	def compute_structural_node_features(self, g_obj, feat_vect_len, func_name):
 		"""
 			This method will compute structural node feature for every node up to 
 			emb_dim hops away neighbors.
 		"""
+		graph_id = g_obj.graph_id
+		G = g_obj.graph
 		if func_name == "page_rank":
 			srtct_feat = nx.pagerank(G, alpha=0.9)
 		elif func_name == "degree_centrality":
@@ -147,29 +149,27 @@ class Feature_Engine:
 		feats.columns = feat_cols
 		feats.insert(0, "node_id", nodes)
 		feats.insert(1, "graph_id", graph_id)
-		self.feature_collection["features"][graph_id][func_name] = {}
-		self.feature_collection["features"][graph_id][func_name]["feats"] = feats
-		self.feature_collection["features"][graph_id][func_name]["feats_cols"] = feat_cols
+		g_obj.feature_collection["features"][func_name] = {}
+		g_obj.feature_collection["features"][func_name]["feats"] = feats
+		g_obj.feature_collection["features"][func_name]["feats_cols"] = feat_cols
 
 
-
-	def pool_features(self, graph_id, pool_method="concat"):
+	def pool_features(self, g_obj, pool_method="concat"):
 		"""
 			This method will use the features built on the graph to construct
 			a global embedding for the nodes of the graph.
 		"""
 		pooled_features = pd.DataFrame()		
 		if pool_method == "concat":
-			for feat_name in list(self.feature_collection["computed_features"]):
-				features = self.feature_collection["features"][graph_id][feat_name]["feats"]
+			for feat_name in list(g_obj.computed_features):
+				features = g_obj.feature_collection["features"][feat_name]["feats"]
 				if pooled_features.empty:
 					pooled_features = features.copy(deep=True)
 				else:
 					pooled_features = pooled_features.merge(features, on=["node_id", "graph_id"], how="inner")
 		else:
 			raise ValueError("Pooling type is not supported.")
-		self.feature_collection["pooled_features"] = pooled_features
-		return self.feature_collection
+		g_obj.feature_collection["pooled_features"] = pooled_features
 
 
 

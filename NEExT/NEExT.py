@@ -57,16 +57,12 @@ class NEExT:
 		
 	def compute_graph_feature(self, feat_name, feat_vect_len):
 		for g_obj in tqdm(self.graph_c.graph_collection, desc="Building features", disable=self.global_config.quiet_mode):			
-			G = g_obj["graph"]
-			graph_id = g_obj["graph_id"]
-			g_obj["graph_features"] = self.feat_eng.compute_feature(G, graph_id, feat_name, feat_vect_len)
+			self.feat_eng.compute_feature(g_obj, feat_name, feat_vect_len)
 
 
 	def pool_graph_features(self, pool_method="concat"):
-		for g_obj in tqdm(self.graph_c.graph_collection, desc="Pooling features", disable=self.global_config.quiet_mode):			
-			G = g_obj["graph"]
-			graph_id = g_obj["graph_id"]
-			g_obj["graph_features"] = self.feat_eng.pool_features(graph_id, pool_method)
+		for g_obj in tqdm(self.graph_c.graph_collection, desc="Pooling features", disable=self.global_config.quiet_mode):
+			self.feat_eng.pool_features(g_obj, pool_method)
 		self.standardize_graph_features_globaly()
 
 
@@ -76,7 +72,7 @@ class NEExT:
 		"""
 		all_graph_feats = pd.DataFrame()
 		for g_obj in tqdm(self.graph_c.graph_collection, desc="Standardizing features", disable=self.global_config.quiet_mode):
-			df = g_obj["graph_features"]["pooled_features"]
+			df = g_obj.feature_collection["pooled_features"]
 			if all_graph_feats.empty:
 				all_graph_feats = df.copy(deep=True)
 			else:
@@ -102,9 +98,8 @@ class NEExT:
 		self.graph_c.global_embeddings_cols = feat_cols
 		# Re-assign global embeddings to each graph
 		for g_obj in tqdm(self.graph_c.graph_collection, desc="Updating features", disable=self.global_config.quiet_mode):
-			df = feat_df[feat_df["graph_id"] == g_obj["graph_id"]].copy(deep=True)
-			g_obj["graph_features"]["pooled_features"] = df
-
+			df = feat_df[feat_df["graph_id"] == g_obj.graph_id].copy(deep=True)
+			g_obj.feature_collection["pooled_features"] = df
 
 
 	def apply_dim_reduc_to_graph_feats(self, dim_size, reducer_type):
@@ -141,17 +136,15 @@ class NEExT:
 		self.graph_c.global_embeddings = data.copy(deep=True)
 
 
-
-	def build_graph_embedding(self):
+	def build_graph_embedding(self, emb_dim_len, emb_engine):
 		"""
 			This method uses the Graph Embedding Engine object to 
 			build a graph embedding for every graph in the graph collection.
 		"""
-		graph_embedding, graph_embedding_df = self.g_emb.build_graph_embedding(graph_c = self.graph_c)
+		graph_embedding, graph_embedding_df = self.g_emb.build_graph_embedding(emb_dim_len, emb_engine, self.graph_c)
 		self.graph_embedding = {}
 		self.graph_embedding["graph_embedding"] = graph_embedding
 		self.graph_embedding["graph_embedding_df"] = graph_embedding_df
-
 
 
 	def compute_similarity_matrix_stats(self):

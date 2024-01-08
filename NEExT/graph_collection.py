@@ -12,7 +12,7 @@ import networkx as nx
 from tqdm import tqdm
 
 # Internal Modules
-# from ugaf.global_config import Global_Config
+from NEExT.graph_object import Graph_Object
 
 
 class Graph_Collection:
@@ -60,17 +60,16 @@ class Graph_Collection:
 			node_list = node_graph_map[node_graph_map["graph_id"] == graph_id]["node_id"].tolist()
 			g = nx.Graph(G.subgraph(node_list))
 			cc = list(nx.connected_components(g))
-			g_obj = {}
-			g_obj["graph"] = g
-			g_obj["numb_of_nodes"] = len(g.nodes)
-			g_obj["numb_of_edges"] = len(g.edges)
-			g_obj["embedding"] = {}
-			g_obj["numb_of_connected_components"] = len(cc)
-			g_obj["connected_components"] = sorted(cc, key=len, reverse=True)
-			g_obj["graph_id"] = graph_id
+			g_obj = Graph_Object()
+			g_obj.graph_id = graph_id
+			g_obj.graph = g
+			g_obj.numb_of_nodes = len(g.nodes)
+			g_obj.numb_of_edges = len(g.edges)
+			g_obj.numb_of_connected_components = len(cc)
+			g_obj.connected_components = sorted(cc, key=len, reverse=True)
 			self.graph_collection.append(g_obj)
 			self.total_numb_of_nodes += len(g.nodes)
-			self.graph_id_node_array.extend(np.repeat(g_obj["graph_id"], len(g.nodes)))
+			self.graph_id_node_array.extend(np.repeat(g_obj.graph_id, len(g.nodes)))
 
 
 	def filter_collection_for_largest_connected_component(self):
@@ -81,17 +80,17 @@ class Graph_Collection:
 		self.total_numb_of_nodes = 0
 		self.graph_id_node_array = []
 		for g_obj in tqdm(self.graph_collection, desc="Filtering graphs:", disable=self.global_config.quiet_mode):
-			largest_cc = list(g_obj["connected_components"][0])
-			g = nx.Graph(g_obj["graph"].subgraph(largest_cc))
+			largest_cc = list(g_obj.connected_components[0])
+			g = nx.Graph(g_obj.graph.subgraph(largest_cc))
 			cc = list(nx.connected_components(g))
-			g_obj["graph"] = g
-			g_obj["numb_of_nodes"] = len(g.nodes)
-			g_obj["numb_of_edges"] = len(g.edges)
-			g_obj["diameter"] = nx.diameter(g)
-			g_obj["numb_of_connected_components"] = len(cc)
-			g_obj["connected_components"] = sorted(cc, key=len, reverse=True)
+			g_obj.graph = g
+			g_obj.numb_of_nodes = len(g.nodes)
+			g_obj.numb_of_edges = len(g.edges)
+			g_obj.diameter = nx.diameter(g)
+			g_obj.numb_of_connected_components = len(cc)
+			g_obj.connected_components = sorted(cc, key=len, reverse=True)
 			self.total_numb_of_nodes += len(g.nodes)
-			self.graph_id_node_array.extend(np.repeat(g_obj["graph_id"], len(g.nodes)))
+			self.graph_id_node_array.extend(np.repeat(g_obj.graph_id, len(g.nodes)))
 
 
 	def reset_node_indices(self):
@@ -100,13 +99,13 @@ class Graph_Collection:
 			It will keep a mapping between old and new node indices.
 		"""
 		for g_obj in tqdm(self.graph_collection, desc="Resrting node indices:", disable=self.global_config.quiet_mode):
-			g = g_obj["graph"]
+			g = g_obj.graph
 			mapping = {}
 			current_nodes = list(g.nodes)
 			for idx, node in enumerate(current_nodes):
 				mapping[node] = idx
-			g_obj["graph"] = nx.relabel_nodes(g, mapping)
-			g_obj["re_index_map"] = mapping
+			g_obj.graph = nx.relabel_nodes(g, mapping)
+			g_obj.re_index_map = mapping
 
 
 	def export_graph_collection_stats(self):
@@ -117,7 +116,7 @@ class Graph_Collection:
 		stat_numb_of_nodes = []
 		stat_avg_node_degree = []
 		for g_obj in tqdm(self.graph_collection, desc="Building stats:", disable=self.global_config.quiet_mode):
-			g = g_obj["graph"]
+			g = g_obj.graph
 			stat_numb_of_nodes.append(len(g.nodes))
 			stat_avg_node_degree.append(np.mean(np.array(g.degree)[:,1]))
 		stat_obj = {}
@@ -137,9 +136,9 @@ class Graph_Collection:
 		graph_labels = graph_labels.set_index("graph_id")["graph_label"].to_dict()
 		no_label_counter = 0
 		for g_obj in tqdm(self.graph_collection, desc="Assigning graph labels:", disable=self.global_config.quiet_mode):
-			graph_id = g_obj["graph_id"]
+			graph_id = g_obj.graph_id
 			if graph_id in graph_labels:
-				g_obj["graph_label"] = graph_labels[graph_id]
+				g_obj.graph_label = graph_labels[graph_id]
 			else:
-				g_obj["graph_label"] = "unknown"
+				g_obj.graph_label = "unknown"
 				no_label_counter += 1
