@@ -30,8 +30,9 @@ from NEExT.graph_embedding_engine import Graph_Embedding_Engine
 class NEExT:
 
 
-	def __init__(self):
+	def __init__(self, quiet_mode="off"):
 		self.global_config = Global_Config()
+		self.global_config.set_output_mode(quiet_mode)
 		self.graph_c = Graph_Collection(self.global_config)
 		self.feat_eng = Feature_Engine(self.global_config)
 		self.ml_model = ML_Models(self.global_config)

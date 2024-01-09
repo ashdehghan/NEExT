@@ -16,6 +16,13 @@ class Global_Config:
 		self.quiet_mode = False
 
 
+	def set_output_mode(self, quiet_mode):
+		if quiet_mode == "on":
+			self.quiet_mode = True
+		else:
+			self.quiet_mode = False
+
+
 	def load_config(self, config, config_type):
 		"""
 			This method will simply load the global configuration
