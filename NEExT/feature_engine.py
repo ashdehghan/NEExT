@@ -41,6 +41,10 @@ class Feature_Engine:
 		self.features["eigenvector_centrality"] = self.compute_structural_node_features
 
 
+	def get_list_of_graph_features(self):
+		return list(self.features.keys())
+
+
 	def compute_feature(self, g_obj, feat_name, feat_vect_len):
 		g_obj.computed_features.add(feat_name)
 		self.features[feat_name](g_obj, feat_vect_len, feat_name)

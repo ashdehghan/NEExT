@@ -70,3 +70,16 @@ Note that NEExT can not handle non-numerical features. Some feature engineering 
 Data standardization, however, will be done.
 
 
+
+
+<iframe 
+  width="660"
+  height="375"
+  src="./example.html"
+  frameborder="0"
+  allow="accelerometer; autoplay; encrypted-media; gyroscope; picture-in-picture"
+  allowfullscreen>
+</iframe>
+
+
+

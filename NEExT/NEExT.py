@@ -54,7 +54,19 @@ class NEExT:
 		if graph_label_file:
 			self.graph_c.assign_graph_labels_from_csv(graph_label_file)
 		
+
+	def get_global_feature_vector(self):
+		return self.graph_c.global_feature_vector
+
+
+	def get_archived_global_feature_vector(self):
+		return self.graph_c.global_feature_vector_arc
+
 		
+	def get_list_of_graph_features(self):
+		return self.feat_eng.get_list_of_graph_features()
+
+
 	def compute_graph_feature(self, feat_name, feat_vect_len):
 		for g_obj in tqdm(self.graph_c.graph_collection, desc="Building features", disable=self.global_config.quiet_mode):			
 			self.feat_eng.compute_feature(g_obj, feat_name, feat_vect_len)
@@ -94,8 +106,8 @@ class NEExT:
 		feat_df.insert(0, "node_id", node_ids)
 		feat_df.insert(1, "graph_id", graph_ids)
 		# Keep a collective global embedding
-		self.graph_c.global_embeddings = feat_df.copy(deep=True)
-		self.graph_c.global_embeddings_cols = feat_cols
+		self.graph_c.global_feature_vector = feat_df.copy(deep=True)
+		self.graph_c.global_feature_vector_cols = feat_cols
 		# Re-assign global embeddings to each graph
 		for g_obj in tqdm(self.graph_c.graph_collection, desc="Updating features", disable=self.global_config.quiet_mode):
 			df = feat_df[feat_df["graph_id"] == g_obj.graph_id].copy(deep=True)
@@ -109,14 +121,14 @@ class NEExT:
 			and their embedding columns, this function makes a copy of those to keep for record
 			and will replace the main feat embedding DataFrame and columns with the reduced ones.
 		"""
-		if dim_size >= len(self.graph_c.global_embeddings_cols):
+		if dim_size >= len(self.graph_c.global_feature_vector_cols):
 			if not self.global_config.quiet_mode:
 				print("The number of reduced dimension is > to actual dimensions.")
 			return
 		# Make copies
-		self.graph_c.global_embeddings_cols_arc = self.graph_c.global_embeddings_cols[:]
-		self.graph_c.global_embeddings_arc = self.graph_c.global_embeddings.copy(deep=True)
-		data = self.graph_c.global_embeddings[self.graph_c.global_embeddings_cols]
+		self.graph_c.global_feature_vector_cols_arc = self.graph_c.global_feature_vector_cols[:]
+		self.graph_c.global_feature_vector_arc = self.graph_c.global_feature_vector.copy(deep=True)
+		data = self.graph_c.global_feature_vector[self.graph_c.global_feature_vector_cols]
 		if reducer_type == "umap":		
 			reducer = umap.UMAP(n_components=dim_size)
 			data = reducer.fit_transform(data)
@@ -130,10 +142,18 @@ class NEExT:
 		data = pd.DataFrame(data)
 		emb_cols = ["emb_"+str(i) for i in range(data.shape[1])]
 		data.columns = emb_cols
-		data.insert(0, "node_id", self.graph_c.global_embeddings["node_id"])
-		data.insert(1, "graph_id", self.graph_c.global_embeddings["graph_id"])
-		self.graph_c.global_embeddings_cols = emb_cols[:]
-		self.graph_c.global_embeddings = data.copy(deep=True)
+		data.insert(0, "node_id", self.graph_c.global_feature_vector["node_id"])
+		data.insert(1, "graph_id", self.graph_c.global_feature_vector["graph_id"])
+		self.graph_c.global_feature_vector_cols = emb_cols[:]
+		self.graph_c.global_feature_vector = data.copy(deep=True)
+
+
+	def get_list_of_graph_embedding_engines(self):
+		return self.g_emb.get_list_of_graph_embedding_engines()
+
+
+	def get_graph_embeddings(self):
+		return self.graph_embedding["graph_embedding_df"]
 
 
 	def build_graph_embedding(self, emb_dim_len, emb_engine):
@@ -142,7 +162,6 @@ class NEExT:
 			build a graph embedding for every graph in the graph collection.
 		"""
 		graph_embedding, graph_embedding_df = self.g_emb.build_graph_embedding(emb_dim_len, emb_engine, self.graph_c)
-		self.graph_embedding = {}
 		self.graph_embedding["graph_embedding"] = graph_embedding
 		self.graph_embedding["graph_embedding_df"] = graph_embedding_df
 
@@ -159,7 +178,7 @@ class NEExT:
 			sim_mean_list = []			
 			for feature in g_obj["graph_features"]["features"]:
 				
-				data = self.graph_c.global_embeddings[self.graph_c.global_embeddings["graph_id"] == g_obj["graph_id"]]
+				data = self.graph_c.global_feature_vector[self.graph_c.global_feature_vector["graph_id"] == g_obj["graph_id"]]
 				embs_cols = g_obj["graph_features"]["features"][feature]["embs_cols"]
 				
 				data = data[embs_cols].values
@@ -281,19 +300,10 @@ class NEExT:
 				
 		)
 		fig.update_layout(showlegend=True)
-		fig.update_layout(legend=dict(
-			yanchor="bottom",
-			y=0.01,
-			xanchor="left",
-			x=0.78,
-			bordercolor="Black",
-			borderwidth=1
-		))
-		# fig.update_traces({'orientation':'h'})
 		fig.update_xaxes(showgrid=False, gridwidth=0.5, gridcolor='#e3e1e1')
 		fig.update_yaxes(showgrid=False, gridwidth=0.5, gridcolor='grey')
 		fig.update_traces(marker_line_color='black', marker_line_width=1.5, opacity=0.6)
-		return fig, data
+		fig.show()
 
 
 	def visualize_similarity_matrix_stats(self, color_by_label=False):

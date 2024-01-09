@@ -10,24 +10,25 @@ import numpy as np
 import pandas as pd
 import networkx as nx
 
-# Internal Modules
-# from ugaf.global_config import Global_Config
 
 class Graph_Embedding_Engine:
 
 
 	def __init__(self, global_config):
 		self.global_config = global_config
+		self.embedding_engines = {}
+		self.embedding_engines["approx_wasserstein"] = self.build_approx_wasserstein_graph_embedding
+		self.embedding_engines["wasserstein"] = self.build_wasserstein_graph_embedding
+		self.embedding_engines["sinkhornvectorizer"] = self.build_sinkhornvectorizer_graph_embedding
+
+
+	def get_list_of_graph_embedding_engines(self):
+		return list(self.embedding_engines.keys())
 
 
 	def build_graph_embedding(self, emb_dim_len, emb_engine, graph_c):
-
-		if emb_engine == "approx_wasserstein":
-			graphs_embed, graph_embedding_df = self.build_approx_wasserstein_graph_embedding(graph_c, emb_dim_len)
-		elif emb_engine == "wasserstein":
-			graphs_embed, graph_embedding_df = self.build_wasserstein_graph_embedding(graph_c, emb_dim_len)
-		elif emb_engine == "sinkhornvectorizer":
-			graphs_embed, graph_embedding_df = self.build_sinkhornvectorizer_graph_embedding(graph_c, emb_dim_len)
+		if emb_engine in self.embedding_engines:
+			graphs_embed, graph_embedding_df = self.embedding_engines[emb_engine](graph_c, emb_dim_len)
 		else:
 			raise ValueError("Graph embedding type selected is not supported.")
 		return graphs_embed, graph_embedding_df
@@ -43,8 +44,8 @@ class Graph_Embedding_Engine:
 		rows = graph_c.graph_id_node_array
 		cols = np.arange(n)
 		incidence_matrix = scipy.sparse.csr_matrix((np.repeat(1.0,n).astype(np.float32), (rows, cols)))
-		embedding_collection = graph_c.global_embeddings[graph_c.global_embeddings_cols].values
-		graph_ids = graph_c.global_embeddings["graph_id"].unique().tolist()
+		embedding_collection = graph_c.global_feature_vector[graph_c.global_feature_vector_cols].values
+		graph_ids = graph_c.global_feature_vector["graph_id"].unique().tolist()
 		embedding_collection = np.array(embedding_collection, dtype=object)
 		embedding_collection = np.vstack(embedding_collection)
 		graphs_embed = vectorizers.ApproximateWassersteinVectorizer(
@@ -69,8 +70,8 @@ class Graph_Embedding_Engine:
 		rows = graph_c.graph_id_node_array
 		cols = np.arange(n)
 		incidence_matrix = scipy.sparse.csr_matrix((np.repeat(1.0,n).astype(np.float32), (rows, cols)))
-		embedding_collection = graph_c.global_embeddings[graph_c.global_embeddings_cols].values
-		graph_ids = graph_c.global_embeddings["graph_id"].unique().tolist()
+		embedding_collection = graph_c.global_feature_vector[graph_c.global_feature_vector_cols].values
+		graph_ids = graph_c.global_feature_vector["graph_id"].unique().tolist()
 		embedding_collection = np.array(embedding_collection, dtype=object)
 		embedding_collection = np.vstack(embedding_collection)
 		graphs_embed = vectorizers.WassersteinVectorizer(
@@ -95,8 +96,8 @@ class Graph_Embedding_Engine:
 		rows = graph_c.graph_id_node_array
 		cols = np.arange(n)
 		incidence_matrix = scipy.sparse.csr_matrix((np.repeat(1.0,n).astype(np.float32), (rows, cols)))
-		embedding_collection = graph_c.global_embeddings[graph_c.global_embeddings_cols].values
-		graph_ids = graph_c.global_embeddings["graph_id"].unique().tolist()
+		embedding_collection = graph_c.global_feature_vector[graph_c.global_feature_vector_cols].values
+		graph_ids = graph_c.global_feature_vector["graph_id"].unique().tolist()
 		embedding_collection = np.array(embedding_collection, dtype=object)
 		embedding_collection = np.vstack(embedding_collection)
 		graphs_embed = vectorizers.SinkhornVectorizer(
