@@ -15,8 +15,10 @@ from numpy import linalg as LA
 import matplotlib.pyplot as plt
 from sklearn.manifold import TSNE
 from sklearn.decomposition import PCA
+from scipy.stats import wasserstein_distance
 from sklearn.preprocessing import StandardScaler
 from sklearn.metrics.pairwise import cosine_similarity
+
 
 # Internal Modules
 from NEExT.ml_models import ML_Models
@@ -369,3 +371,28 @@ class NEExT:
 			return fig, data
 
 
+	def compute_feat_variability(self, plot_results=False):
+		graph_ids = self.graph_c.global_feature_vector["graph_id"].unique().tolist()
+		wd_list = []
+		feat_list = []
+		for feat_col_name in self.graph_c.global_feature_vector_cols:
+			ref_feat = self.graph_c.global_feature_vector[self.graph_c.global_feature_vector["graph_id"] == graph_ids[0]][feat_col_name].values
+			for i in range(1, len(graph_ids)):
+				feat = self.graph_c.global_feature_vector[self.graph_c.global_feature_vector["graph_id"] == graph_ids[i]][feat_col_name].values
+				wd = wasserstein_distance(ref_feat, feat)
+				wd_list.append(wd)
+				feat_list.append(feat_col_name)
+		res_df = pd.DataFrame()
+		res_df["Feature Name"] = feat_list
+		res_df["Feature Variability Score"] = wd_list
+		res_df = pd.DataFrame(res_df.groupby(by=["Feature Name"])["Feature Variability Score"].std()).reset_index()
+		res_df.sort_values(by=["Feature Variability Score"], ascending=False, inplace=True)
+		if plot_results:
+			x = res_df["Feature Name"].values
+			y = res_df["Feature Variability Score"].values
+			plt.bar(x, y)
+			plt.xlabel("Feature Name")
+			plt.ylabel("Variability Score")
+			plt.xticks(rotation=45)
+			plt.show()
+		return res_df

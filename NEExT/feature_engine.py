@@ -52,6 +52,7 @@ class Feature_Engine:
 
 	def compute_lsme(self, g_obj, feat_vect_len, func_name):
 		graph_id = g_obj.graph_id
+		G = g_obj.graph
 		feats = self.node_emb_engine.run_lsme_embedding(G, feat_vect_len)
 		feat_cols = []
 		for col in feats.columns.tolist():
