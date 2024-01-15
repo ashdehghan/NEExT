@@ -8,7 +8,7 @@ NEExT is a tool for exploring and building graph embeddings. This tool allows fo
 * Creating embeddings for graphs.
 
 ### Installation Process
-NEExT uses Python 3.x (currently tested using Python 3.11).
+NEExT uses Python >= 3.9 (currently tested using Python 3.11).
 You can install NEExT using the following:
 ```console
 pip install NEExT
@@ -88,7 +88,7 @@ Note that we have Graph Labels in this dataset, which are optional data, for usi
 
 ## Loading Data
 
-First we deine a path to the datasets. They are `csv` files, with format as defined in the README file.
+First we define a path to the datasets. They are `csv` files, with format as defined in the README file.
 
 
 ```python
@@ -156,7 +156,7 @@ nxt.compute_graph_feature(feat_name="degree_centrality", feat_vect_len=4)
 ## Building Global Feature Object
 
 Right now, we have 2 features computed on every node, for every graph. We can use these features to construct a overall pooled feature vector, which can be used to construct graph embeddings. <br>
-To do this, we can pool the features using the `pool_grpah_features` method.
+To do this, we can pool the features using the `pool_graph_features` method.
 
 
 ```python
@@ -364,7 +364,7 @@ We may wish to reduce the number of dimensions of our data, which could help dow
 nxt.apply_dim_reduc_to_graph_feats(dim_size=4, reducer_type="pca")
 ```
 
-If we take a look at the `global feature vector` we can see that it is upaded with the new size of dimension.
+If we take a look at the `global feature vector` we can see that it is updated with the new size of dimension.
 
 
 ```python
@@ -942,4 +942,4 @@ nxt.get_graph_embeddings()
 
 ## Visualize Embeddings
 
-You can use the builtin visualization function to gain quick insights into the performance of your embeddings. This can be done by using the method `visualize_graph_embedding`. If you have labels for your graph (like the case here), we can color the embedding distributions using the labels. By default, embeddings are not colored.
+You can use the built-in visualization function to gain quick insights into the performance of your embeddings. This can be done by using the method `visualize_graph_embedding`. If you have labels for your graph (like the case here), we can color the embedding distributions using the labels. By default, embeddings are not colored.
