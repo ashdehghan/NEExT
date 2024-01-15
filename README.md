@@ -168,7 +168,8 @@ You can access the global vector by using the `get_global_feature_vector` method
 
 
 ```python
-nxt.get_global_feature_vector()
+df = nxt.get_global_feature_vector()
+df.head(3)
 ```
 
 
@@ -194,14 +195,14 @@ nxt.get_global_feature_vector()
       <th></th>
       <th>node_id</th>
       <th>graph_id</th>
-      <th>feat_page_rank_0</th>
-      <th>feat_page_rank_1</th>
-      <th>feat_page_rank_2</th>
-      <th>feat_page_rank_3</th>
       <th>feat_degree_centrality_0</th>
       <th>feat_degree_centrality_1</th>
       <th>feat_degree_centrality_2</th>
       <th>feat_degree_centrality_3</th>
+      <th>feat_page_rank_0</th>
+      <th>feat_page_rank_1</th>
+      <th>feat_page_rank_2</th>
+      <th>feat_page_rank_3</th>
     </tr>
   </thead>
   <tbody>
@@ -209,148 +210,43 @@ nxt.get_global_feature_vector()
       <th>0</th>
       <td>0</td>
       <td>0</td>
-      <td>4.014656</td>
-      <td>1.645432</td>
-      <td>1.825315</td>
-      <td>2.003575</td>
       <td>4.094288</td>
       <td>1.632019</td>
       <td>1.723672</td>
       <td>2.023497</td>
+      <td>4.014656</td>
+      <td>1.645432</td>
+      <td>1.825315</td>
+      <td>2.003575</td>
     </tr>
     <tr>
       <th>1</th>
       <td>1</td>
       <td>0</td>
-      <td>2.651835</td>
-      <td>1.999918</td>
-      <td>1.745939</td>
-      <td>2.042548</td>
       <td>2.682074</td>
       <td>2.024244</td>
       <td>1.689427</td>
       <td>2.023497</td>
+      <td>2.651835</td>
+      <td>1.999918</td>
+      <td>1.745939</td>
+      <td>2.042548</td>
     </tr>
     <tr>
       <th>2</th>
       <td>2</td>
       <td>0</td>
-      <td>2.672592</td>
-      <td>1.917080</td>
-      <td>1.696518</td>
-      <td>2.058271</td>
       <td>2.682074</td>
       <td>1.915292</td>
       <td>1.578132</td>
       <td>2.120736</td>
-    </tr>
-    <tr>
-      <th>3</th>
-      <td>3</td>
-      <td>0</td>
-      <td>1.968745</td>
-      <td>1.937933</td>
-      <td>2.028736</td>
-      <td>1.879435</td>
-      <td>1.975967</td>
-      <td>1.993115</td>
-      <td>2.082671</td>
-      <td>1.851304</td>
-    </tr>
-    <tr>
-      <th>4</th>
-      <td>4</td>
-      <td>0</td>
-      <td>1.940827</td>
-      <td>2.407239</td>
-      <td>1.384500</td>
-      <td>2.274468</td>
-      <td>1.975967</td>
-      <td>2.491178</td>
-      <td>1.355541</td>
-      <td>2.346133</td>
-    </tr>
-    <tr>
-      <th>...</th>
-      <td>...</td>
-      <td>...</td>
-      <td>...</td>
-      <td>...</td>
-      <td>...</td>
-      <td>...</td>
-      <td>...</td>
-      <td>...</td>
-      <td>...</td>
-      <td>...</td>
-    </tr>
-    <tr>
-      <th>7495</th>
-      <td>395</td>
-      <td>24</td>
-      <td>-0.829459</td>
-      <td>-1.399973</td>
-      <td>-1.030338</td>
-      <td>-0.951132</td>
-      <td>-0.853770</td>
-      <td>-1.468206</td>
-      <td>-1.059412</td>
-      <td>-0.963018</td>
-    </tr>
-    <tr>
-      <th>7496</th>
-      <td>396</td>
-      <td>24</td>
-      <td>-1.149447</td>
-      <td>-1.507187</td>
-      <td>-1.014597</td>
-      <td>-0.950959</td>
-      <td>-1.205938</td>
-      <td>-1.598620</td>
-      <td>-1.042336</td>
-      <td>-0.959924</td>
-    </tr>
-    <tr>
-      <th>7497</th>
-      <td>397</td>
-      <td>24</td>
-      <td>-1.155132</td>
-      <td>-1.514255</td>
-      <td>-0.920724</td>
-      <td>-0.995089</td>
-      <td>-1.205938</td>
-      <td>-1.598620</td>
-      <td>-0.936739</td>
-      <td>-1.010254</td>
-    </tr>
-    <tr>
-      <th>7498</th>
-      <td>398</td>
-      <td>24</td>
-      <td>-1.159577</td>
-      <td>-1.429980</td>
-      <td>-1.003237</td>
-      <td>-0.983561</td>
-      <td>-1.205938</td>
-      <td>-1.511677</td>
-      <td>-1.031103</td>
-      <td>-0.995703</td>
-    </tr>
-    <tr>
-      <th>7499</th>
-      <td>399</td>
-      <td>24</td>
-      <td>-1.142376</td>
-      <td>-1.585013</td>
-      <td>-0.961202</td>
-      <td>-0.894351</td>
-      <td>-1.205938</td>
-      <td>-1.685562</td>
-      <td>-0.983921</td>
-      <td>-0.895910</td>
+      <td>2.672592</td>
+      <td>1.917080</td>
+      <td>1.696518</td>
+      <td>2.058271</td>
     </tr>
   </tbody>
 </table>
-<p>7500 rows × 10 columns</p>
 </div>
 
 
@@ -368,7 +264,8 @@ If we take a look at the `global feature vector` we can see that it is upaded wi
 
 
 ```python
-nxt.get_global_feature_vector()
+df = nxt.get_global_feature_vector()
+df.head()
 ```
 
 
@@ -394,10 +291,10 @@ nxt.get_global_feature_vector()
       <th></th>
       <th>node_id</th>
       <th>graph_id</th>
-      <th>emb_0</th>
-      <th>emb_1</th>
-      <th>emb_2</th>
-      <th>emb_3</th>
+      <th>feat_0</th>
+      <th>feat_1</th>
+      <th>feat_2</th>
+      <th>feat_3</th>
     </tr>
   </thead>
   <tbody>
@@ -446,63 +343,8 @@ nxt.get_global_feature_vector()
       <td>2.194223</td>
       <td>3.052554</td>
     </tr>
-    <tr>
-      <th>...</th>
-      <td>...</td>
-      <td>...</td>
-      <td>...</td>
-      <td>...</td>
-      <td>...</td>
-      <td>...</td>
-    </tr>
-    <tr>
-      <th>7495</th>
-      <td>395</td>
-      <td>24</td>
-      <td>-1.150994</td>
-      <td>0.263208</td>
-      <td>-1.147955</td>
-      <td>0.737321</td>
-    </tr>
-    <tr>
-      <th>7496</th>
-      <td>396</td>
-      <td>24</td>
-      <td>-1.258108</td>
-      <td>-0.154415</td>
-      <td>-1.594372</td>
-      <td>0.813288</td>
-    </tr>
-    <tr>
-      <th>7497</th>
-      <td>397</td>
-      <td>24</td>
-      <td>-1.245211</td>
-      <td>-0.174141</td>
-      <td>-1.731441</td>
-      <td>0.256937</td>
-    </tr>
-    <tr>
-      <th>7498</th>
-      <td>398</td>
-      <td>24</td>
-      <td>-1.243488</td>
-      <td>-0.198692</td>
-      <td>-1.372653</td>
-      <td>0.566846</td>
-    </tr>
-    <tr>
-      <th>7499</th>
-      <td>399</td>
-      <td>24</td>
-      <td>-1.247078</td>
-      <td>-0.143294</td>
-      <td>-1.960032</td>
-      <td>0.931437</td>
-    </tr>
   </tbody>
 </table>
-<p>7500 rows × 6 columns</p>
 </div>
 
 
@@ -511,7 +353,8 @@ You still have access to the pre-dimensionality reduction global vector by using
 
 
 ```python
-nxt.get_archived_global_feature_vector()
+df = nxt.get_archived_global_feature_vector()
+df.head()
 ```
 
 
@@ -537,14 +380,14 @@ nxt.get_archived_global_feature_vector()
       <th></th>
       <th>node_id</th>
       <th>graph_id</th>
-      <th>feat_page_rank_0</th>
-      <th>feat_page_rank_1</th>
-      <th>feat_page_rank_2</th>
-      <th>feat_page_rank_3</th>
       <th>feat_degree_centrality_0</th>
       <th>feat_degree_centrality_1</th>
       <th>feat_degree_centrality_2</th>
       <th>feat_degree_centrality_3</th>
+      <th>feat_page_rank_0</th>
+      <th>feat_page_rank_1</th>
+      <th>feat_page_rank_2</th>
+      <th>feat_page_rank_3</th>
     </tr>
   </thead>
   <tbody>
@@ -552,148 +395,69 @@ nxt.get_archived_global_feature_vector()
       <th>0</th>
       <td>0</td>
       <td>0</td>
-      <td>4.014656</td>
-      <td>1.645432</td>
-      <td>1.825315</td>
-      <td>2.003575</td>
       <td>4.094288</td>
       <td>1.632019</td>
       <td>1.723672</td>
       <td>2.023497</td>
+      <td>4.014656</td>
+      <td>1.645432</td>
+      <td>1.825315</td>
+      <td>2.003575</td>
     </tr>
     <tr>
       <th>1</th>
       <td>1</td>
       <td>0</td>
-      <td>2.651835</td>
-      <td>1.999918</td>
-      <td>1.745939</td>
-      <td>2.042548</td>
       <td>2.682074</td>
       <td>2.024244</td>
       <td>1.689427</td>
       <td>2.023497</td>
+      <td>2.651835</td>
+      <td>1.999918</td>
+      <td>1.745939</td>
+      <td>2.042548</td>
     </tr>
     <tr>
       <th>2</th>
       <td>2</td>
       <td>0</td>
-      <td>2.672592</td>
-      <td>1.917080</td>
-      <td>1.696518</td>
-      <td>2.058271</td>
       <td>2.682074</td>
       <td>1.915292</td>
       <td>1.578132</td>
       <td>2.120736</td>
+      <td>2.672592</td>
+      <td>1.917080</td>
+      <td>1.696518</td>
+      <td>2.058271</td>
     </tr>
     <tr>
       <th>3</th>
       <td>3</td>
       <td>0</td>
-      <td>1.968745</td>
-      <td>1.937933</td>
-      <td>2.028736</td>
-      <td>1.879435</td>
       <td>1.975967</td>
       <td>1.993115</td>
       <td>2.082671</td>
       <td>1.851304</td>
+      <td>1.968745</td>
+      <td>1.937933</td>
+      <td>2.028736</td>
+      <td>1.879435</td>
     </tr>
     <tr>
       <th>4</th>
       <td>4</td>
       <td>0</td>
-      <td>1.940827</td>
-      <td>2.407239</td>
-      <td>1.384500</td>
-      <td>2.274468</td>
       <td>1.975967</td>
       <td>2.491178</td>
       <td>1.355541</td>
       <td>2.346133</td>
-    </tr>
-    <tr>
-      <th>...</th>
-      <td>...</td>
-      <td>...</td>
-      <td>...</td>
-      <td>...</td>
-      <td>...</td>
-      <td>...</td>
-      <td>...</td>
-      <td>...</td>
-      <td>...</td>
-      <td>...</td>
-    </tr>
-    <tr>
-      <th>7495</th>
-      <td>395</td>
-      <td>24</td>
-      <td>-0.829459</td>
-      <td>-1.399973</td>
-      <td>-1.030338</td>
-      <td>-0.951132</td>
-      <td>-0.853770</td>
-      <td>-1.468206</td>
-      <td>-1.059412</td>
-      <td>-0.963018</td>
-    </tr>
-    <tr>
-      <th>7496</th>
-      <td>396</td>
-      <td>24</td>
-      <td>-1.149447</td>
-      <td>-1.507187</td>
-      <td>-1.014597</td>
-      <td>-0.950959</td>
-      <td>-1.205938</td>
-      <td>-1.598620</td>
-      <td>-1.042336</td>
-      <td>-0.959924</td>
-    </tr>
-    <tr>
-      <th>7497</th>
-      <td>397</td>
-      <td>24</td>
-      <td>-1.155132</td>
-      <td>-1.514255</td>
-      <td>-0.920724</td>
-      <td>-0.995089</td>
-      <td>-1.205938</td>
-      <td>-1.598620</td>
-      <td>-0.936739</td>
-      <td>-1.010254</td>
-    </tr>
-    <tr>
-      <th>7498</th>
-      <td>398</td>
-      <td>24</td>
-      <td>-1.159577</td>
-      <td>-1.429980</td>
-      <td>-1.003237</td>
-      <td>-0.983561</td>
-      <td>-1.205938</td>
-      <td>-1.511677</td>
-      <td>-1.031103</td>
-      <td>-0.995703</td>
-    </tr>
-    <tr>
-      <th>7499</th>
-      <td>399</td>
-      <td>24</td>
-      <td>-1.142376</td>
-      <td>-1.585013</td>
-      <td>-0.961202</td>
-      <td>-0.894351</td>
-      <td>-1.205938</td>
-      <td>-1.685562</td>
-      <td>-0.983921</td>
-      <td>-0.895910</td>
+      <td>1.940827</td>
+      <td>2.407239</td>
+      <td>1.384500</td>
+      <td>2.274468</td>
     </tr>
   </tbody>
 </table>
-<p>7500 rows × 10 columns</p>
 </div>
 
 
@@ -728,7 +492,8 @@ You can access the embedding results by using the method `get_graph_embeddings`.
 
 
 ```python
-nxt.get_graph_embeddings()
+df = nxt.get_graph_embeddings()
+df.head()
 ```
 
 
@@ -793,146 +558,6 @@ nxt.get_graph_embeddings()
       <td>0.656964</td>
       <td>0.077666</td>
       <td>4</td>
-    </tr>
-    <tr>
-      <th>5</th>
-      <td>2.033228</td>
-      <td>0.316619</td>
-      <td>-0.397285</td>
-      <td>5</td>
-    </tr>
-    <tr>
-      <th>6</th>
-      <td>0.855314</td>
-      <td>0.122401</td>
-      <td>0.094769</td>
-      <td>6</td>
-    </tr>
-    <tr>
-      <th>7</th>
-      <td>0.028675</td>
-      <td>0.177609</td>
-      <td>-0.180609</td>
-      <td>7</td>
-    </tr>
-    <tr>
-      <th>8</th>
-      <td>-0.708892</td>
-      <td>0.214789</td>
-      <td>-0.117356</td>
-      <td>8</td>
-    </tr>
-    <tr>
-      <th>9</th>
-      <td>-1.307526</td>
-      <td>0.197537</td>
-      <td>0.116854</td>
-      <td>9</td>
-    </tr>
-    <tr>
-      <th>10</th>
-      <td>2.042245</td>
-      <td>-0.204380</td>
-      <td>0.022146</td>
-      <td>10</td>
-    </tr>
-    <tr>
-      <th>11</th>
-      <td>0.858563</td>
-      <td>-0.171441</td>
-      <td>0.130683</td>
-      <td>11</td>
-    </tr>
-    <tr>
-      <th>12</th>
-      <td>0.038904</td>
-      <td>-0.273235</td>
-      <td>-0.191326</td>
-      <td>12</td>
-    </tr>
-    <tr>
-      <th>13</th>
-      <td>-0.703492</td>
-      <td>-0.078910</td>
-      <td>0.017633</td>
-      <td>13</td>
-    </tr>
-    <tr>
-      <th>14</th>
-      <td>-1.304300</td>
-      <td>-0.153512</td>
-      <td>0.000668</td>
-      <td>14</td>
-    </tr>
-    <tr>
-      <th>15</th>
-      <td>2.055063</td>
-      <td>-0.756504</td>
-      <td>0.304664</td>
-      <td>15</td>
-    </tr>
-    <tr>
-      <th>16</th>
-      <td>0.863735</td>
-      <td>-0.482437</td>
-      <td>0.351043</td>
-      <td>16</td>
-    </tr>
-    <tr>
-      <th>17</th>
-      <td>0.046502</td>
-      <td>-0.526162</td>
-      <td>0.008372</td>
-      <td>17</td>
-    </tr>
-    <tr>
-      <th>18</th>
-      <td>-0.704319</td>
-      <td>-0.339239</td>
-      <td>0.095141</td>
-      <td>18</td>
-    </tr>
-    <tr>
-      <th>19</th>
-      <td>-1.302084</td>
-      <td>-0.286804</td>
-      <td>0.075835</td>
-      <td>19</td>
-    </tr>
-    <tr>
-      <th>20</th>
-      <td>2.039145</td>
-      <td>-0.938570</td>
-      <td>-0.315529</td>
-      <td>20</td>
-    </tr>
-    <tr>
-      <th>21</th>
-      <td>0.859070</td>
-      <td>-0.545298</td>
-      <td>0.026595</td>
-      <td>21</td>
-    </tr>
-    <tr>
-      <th>22</th>
-      <td>0.045740</td>
-      <td>-0.657624</td>
-      <td>-0.056536</td>
-      <td>22</td>
-    </tr>
-    <tr>
-      <th>23</th>
-      <td>-0.701785</td>
-      <td>-0.471908</td>
-      <td>-0.042016</td>
-      <td>23</td>
-    </tr>
-    <tr>
-      <th>24</th>
-      <td>-1.299585</td>
-      <td>-0.387853</td>
-      <td>0.158255</td>
-      <td>24</td>
     </tr>
   </tbody>
 </table>

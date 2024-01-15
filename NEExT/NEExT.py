@@ -143,11 +143,11 @@ class NEExT:
 		scaler = StandardScaler()
 		data = scaler.fit_transform(data)
 		data = pd.DataFrame(data)
-		emb_cols = ["emb_"+str(i) for i in range(data.shape[1])]
-		data.columns = emb_cols
+		feat_cols = ["feat_"+str(i) for i in range(data.shape[1])]
+		data.columns = feat_cols
 		data.insert(0, "node_id", self.graph_c.global_feature_vector["node_id"])
 		data.insert(1, "graph_id", self.graph_c.global_feature_vector["graph_id"])
-		self.graph_c.global_feature_vector_cols = emb_cols[:]
+		self.graph_c.global_feature_vector_cols = feat_cols[:]
 		self.graph_c.global_feature_vector = data.copy(deep=True)
 
 
@@ -169,58 +169,28 @@ class NEExT:
 		self.graph_embedding["graph_embedding_df"] = graph_embedding_df
 
 
-	def compute_similarity_matrix_stats(self):
-		"""
-			This method will run through the features computes on the graph and computes
-			similarity matrices on those features per graph.
-		"""
+	def get_feature_importance_classification_technique(self, emb_engine="approx_wasserstein", sample_size=15, balance_classes=True):
 		res_df = pd.DataFrame()
-		for g_obj in tqdm(self.graph_c.graph_collection, desc="Computing similarity stats", disable=self.global_config.quiet_mode):
-			feature_list = []
-			eigen_val_list = []
-			sim_mean_list = []			
-			for feature in g_obj["graph_features"]["features"]:
-				
-				data = self.graph_c.global_feature_vector[self.graph_c.global_feature_vector["graph_id"] == g_obj["graph_id"]]
-				embs_cols = g_obj["graph_features"]["features"][feature]["embs_cols"]
-				
-				data = data[embs_cols].values
-			
-				sim_matrix = cosine_similarity(data, data)
-
-				eigenvalues, eigenvectors = LA.eig(sim_matrix)
-				eigenvalues = [i.real for i in eigenvalues]
-
-				max_ei = max(eigenvalues)
-
-				feature_list.append(feature)
-				eigen_val_list.append(max_ei)
-				sim_mean_list.append(sim_matrix.mean())
-
-			df = pd.DataFrame()
-			df["feature"] = feature_list
-			df["largest_eigen_value"] = eigen_val_list
-			df["similarity_matrix_mean"] = sim_mean_list
-			df.insert(0, "graph_id", g_obj["graph_id"])
-
+		for col in self.graph_c.global_feature_vector_cols:
+			graph_feat_cols = [col]
+			graph_embedding, graph_embedding_df = self.g_emb.build_graph_embedding(1, emb_engine, self.graph_c, graph_feat_cols)
+			data_obj = self.format_data_for_classification(graph_embedding_df)
+			ml_model_results = self.ml_model.build_classification_model(data_obj, sample_size, balance_classes)
+			df = pd.DataFrame(ml_model_results)
+			df["feature"] = col
 			if res_df.empty:
 				res_df = df.copy(deep=True)
 			else:
 				res_df = pd.concat([res_df, df])
+		
 
-		self.similarity_matrix_stats["data"] = res_df
-		self.similarity_matrix_stats["metrics"] = ["largest_eigen_value", "similarity_matrix_mean"]
-		self.similarity_matrix_stats["metrics_pretty_name"] = ["Largest EigenValue", "Similarity Matrix Mean"]
-
-
-
-	def build_model(self):
-		data_obj = self.format_data_for_classification()
-		self.ml_model_results = self.ml_model.build_model(data_obj)
-
-
-	def format_data_for_classification(self):
+	def build_classification_model(self, sample_size=50, balance_classes=False):
 		graph_emb = self.graph_embedding["graph_embedding_df"]
+		data_obj = self.format_data_for_classification(graph_emb)
+		self.ml_model_results = self.ml_model.build_classification_model(data_obj, sample_size, balance_classes)
+
+
+	def format_data_for_classification(self, graph_emb):
 		data = self.graph_c.grpah_labels_df.merge(graph_emb, on="graph_id")
 		x_cols = []
 		for col in data.columns.tolist():
@@ -307,68 +277,6 @@ class NEExT:
 		fig.update_yaxes(showgrid=False, gridwidth=0.5, gridcolor='grey')
 		fig.update_traces(marker_line_color='black', marker_line_width=1.5, opacity=0.6)
 		fig.show()
-
-
-	def visualize_similarity_matrix_stats(self, color_by_label=False):
-
-		for idx, metric in enumerate(self.similarity_matrix_stats["metrics"]):
-
-			y_name = self.similarity_matrix_stats["metrics_pretty_name"][idx]
-
-			if color_by_label:
-				data = self.similarity_matrix_stats["data"].merge(self.graph_c.grpah_labels_df, on="graph_id", how="inner")
-			else:
-				data = self.similarity_matrix_stats["data"].copy(deep=True)
-
-			# Generate eigen value plotly figures
-			if color_by_label:
-				fig = px.scatter(data, x="graph_label", y=metric)
-				x_name = "Graph Label"
-			else:
-				fig = px.scatter(data, x="graph_id", y=metric)
-				x_name = "Graph ID"
-
-			# Update figure layout
-			fig.update_layout(paper_bgcolor='white')
-			fig.update_layout(plot_bgcolor='white')
-			fig.update_yaxes(color='black')
-			fig.update_layout(
-				yaxis = dict(
-					title = y_name,
-					zeroline=True,
-					showline = True,
-					linecolor = 'black',
-					mirror=True,
-					linewidth = 2
-				),
-				xaxis = dict(
-					title = x_name,
-					mirror=True,
-					zeroline=True,
-					showline = True,
-					linecolor = 'black',
-					linewidth = 2,
-				),
-				width=600,
-				height=500,
-				font=dict(
-				size=15,
-				color="black")
-					
-			)
-			fig.update_layout(showlegend=True)
-			fig.update_layout(legend=dict(
-				yanchor="bottom",
-				y=0.01,
-				xanchor="left",
-				x=0.78,
-				bordercolor="Black",
-				borderwidth=1
-			))
-			fig.update_xaxes(showgrid=False, gridwidth=0.5, gridcolor='#e3e1e1')
-			fig.update_yaxes(showgrid=False, gridwidth=0.5, gridcolor='grey')
-			fig.update_traces(marker_line_color='black', marker_line_width=1.5, opacity=0.6)
-			return fig, data
 
 
 	def compute_feat_variability(self, plot_results=False):

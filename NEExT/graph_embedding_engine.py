@@ -26,15 +26,17 @@ class Graph_Embedding_Engine:
 		return list(self.embedding_engines.keys())
 
 
-	def build_graph_embedding(self, emb_dim_len, emb_engine, graph_c):
+	def build_graph_embedding(self, emb_dim_len, emb_engine, graph_c, graph_feat_cols=[]):
 		if emb_engine in self.embedding_engines:
-			graphs_embed, graph_embedding_df = self.embedding_engines[emb_engine](graph_c, emb_dim_len)
+			if len(graph_feat_cols) == 0:
+				graph_feat_cols = graph_c.global_feature_vector_cols
+			graphs_embed, graph_embedding_df = self.embedding_engines[emb_engine](graph_c, emb_dim_len, graph_feat_cols)
 		else:
 			raise ValueError("Graph embedding type selected is not supported.")
 		return graphs_embed, graph_embedding_df
 
 
-	def build_approx_wasserstein_graph_embedding(self, graph_c, emb_dim_len):
+	def build_approx_wasserstein_graph_embedding(self, graph_c, emb_dim_len, graph_feat_cols):
 		"""
 			This method uses the source node mebdding type and builds the graph
 			embedding using the Wasserstein method.
@@ -44,7 +46,7 @@ class Graph_Embedding_Engine:
 		rows = graph_c.graph_id_node_array
 		cols = np.arange(n)
 		incidence_matrix = scipy.sparse.csr_matrix((np.repeat(1.0,n).astype(np.float32), (rows, cols)))
-		embedding_collection = graph_c.global_feature_vector[graph_c.global_feature_vector_cols].values
+		embedding_collection = graph_c.global_feature_vector[graph_feat_cols].values
 		graph_ids = graph_c.global_feature_vector["graph_id"].unique().tolist()
 		embedding_collection = np.array(embedding_collection, dtype=object)
 		embedding_collection = np.vstack(embedding_collection)
@@ -60,7 +62,7 @@ class Graph_Embedding_Engine:
 		return graphs_embed, graph_embedding_df
 
 
-	def build_wasserstein_graph_embedding(self, graph_c, emb_dim_len):
+	def build_wasserstein_graph_embedding(self, graph_c, emb_dim_len, graph_feat_cols):
 		"""
 			This method uses the source node mebdding type and builds the graph
 			embedding using the Wasserstein method.
@@ -70,7 +72,7 @@ class Graph_Embedding_Engine:
 		rows = graph_c.graph_id_node_array
 		cols = np.arange(n)
 		incidence_matrix = scipy.sparse.csr_matrix((np.repeat(1.0,n).astype(np.float32), (rows, cols)))
-		embedding_collection = graph_c.global_feature_vector[graph_c.global_feature_vector_cols].values
+		embedding_collection = graph_c.global_feature_vector[graph_feat_cols].values
 		graph_ids = graph_c.global_feature_vector["graph_id"].unique().tolist()
 		embedding_collection = np.array(embedding_collection, dtype=object)
 		embedding_collection = np.vstack(embedding_collection)
@@ -86,7 +88,7 @@ class Graph_Embedding_Engine:
 		return graphs_embed, graph_embedding_df
 
 
-	def build_sinkhornvectorizer_graph_embedding(self, graph_c, emb_dim_len):
+	def build_sinkhornvectorizer_graph_embedding(self, graph_c, emb_dim_len, graph_feat_cols):
 		"""
 			This method uses the source node mebdding type and builds the graph
 			embedding using the Wasserstein method.
@@ -96,7 +98,7 @@ class Graph_Embedding_Engine:
 		rows = graph_c.graph_id_node_array
 		cols = np.arange(n)
 		incidence_matrix = scipy.sparse.csr_matrix((np.repeat(1.0,n).astype(np.float32), (rows, cols)))
-		embedding_collection = graph_c.global_feature_vector[graph_c.global_feature_vector_cols].values
+		embedding_collection = graph_c.global_feature_vector[graph_feat_cols].values
 		graph_ids = graph_c.global_feature_vector["graph_id"].unique().tolist()
 		embedding_collection = np.array(embedding_collection, dtype=object)
 		embedding_collection = np.vstack(embedding_collection)
