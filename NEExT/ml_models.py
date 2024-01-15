@@ -16,8 +16,6 @@ from sklearn.metrics import mean_absolute_error
 from sklearn.preprocessing import StandardScaler
 from sklearn.model_selection import train_test_split
 
-# Internal Modules
-# from ugaf.global_config import Global_Config
 
 class ML_Models:
 
@@ -26,27 +24,20 @@ class ML_Models:
 		self.global_config = global_config
 
 
-	def build_model(self, data_obj):
-		model_type = self.global_config.config["machine_learning_modelling"]["type"]
-		if model_type == "regression":
-			model_result = self.run_regression_models(data_obj)
-		elif model_type == "classification":
-			data_obj = self.format_classes(data_obj)
-			model_result = self.run_classification_models(data_obj)
-		else:
-			raise ValueError("Model type not supported.")
+	def build_classification_model(self, data_obj, sample_size, balance_classes):
+		data_obj = self.format_classes(data_obj)
+		model_result = self.run_classification_models(data_obj, sample_size, balance_classes)
 		return model_result
 
 
-	def run_classification_models(self, data_obj):
-		sample_size = self.global_config.config["machine_learning_modelling"]["sample_size"]
+	def run_classification_models(self, data_obj, sample_size, balance_classes):
 		result = {}
 		result["accuracy"] = []
 		result["precision"] = []
 		result["recall"] = []
 		result["f1"] = []
 		for i in tqdm(range(sample_size), desc="Building models:", disable=self.global_config.quiet_mode):
-			data_obj = self.format_data(data_obj)
+			data_obj = self.format_data(data_obj, balance_classes)
 			accuracy, precision, recall, f1 = self.build_xgboost_classification(data_obj)
 			result["accuracy"].append(accuracy)
 			result["precision"].append(precision)
@@ -55,8 +46,7 @@ class ML_Models:
 		return result
 
 
-	def run_regression_models(self, data_obj):
-		sample_size = self.global_config.config["machine_learning_modelling"]["sample_size"]
+	def run_regression_models(self, data_obj, sample_size):
 		result = {}
 		result["mse"] = []
 		result["mae"] = []
@@ -101,13 +91,13 @@ class ML_Models:
 		return data_obj
 
 
-	def format_data(self, data_obj):
+	def format_data(self, data_obj, balance_classes=False):
 		"""
 			This function will take the raw data object and will create a 
 			normalized train, test and validation sets.
 		"""
 		df = data_obj["data"].copy(deep=True)		
-		if self.global_config.config["machine_learning_modelling"]["balance_data"] == "yes":
+		if balance_classes:
 			labels = list(df["graph_label"].unique())
 			ldf = []
 			ldf_size = []
