@@ -31,7 +31,6 @@ from NEExT.graph_embedding_engine import Graph_Embedding_Engine
 
 class NEExT:
 
-
 	def __init__(self, quiet_mode="off"):
 		self.global_config = Global_Config()
 		self.global_config.set_output_mode(quiet_mode)
@@ -74,12 +73,21 @@ class NEExT:
 		for g_obj in tqdm(self.graph_c.graph_collection, desc="Building features", disable=self.global_config.quiet_mode):			
 			self.feat_eng.compute_feature(g_obj, feat_name, feat_vect_len)
 
+	def discard_all_graph_features(self):
+		for g_obj in tqdm(self.graph_c.graph_collection, desc="Discarding features", disable=self.global_config.quiet_mode):
+			for feat in g_obj.computed_features:
+				g_obj.feature_collection["features"].pop(feat)
+			g_obj.computed_features = set()	
+	
+	def discard_graph_feature(self, feat_name):
+		for g_obj in tqdm(self.graph_c.graph_collection, desc="Discarding features", disable=self.global_config.quiet_mode):
+			g_obj.feature_collection["features"].pop(feat_name)
+			g_obj.computed_features.remove(feat_name)
 
 	def pool_graph_features(self, pool_method="concat"):
 		for g_obj in tqdm(self.graph_c.graph_collection, desc="Pooling features", disable=self.global_config.quiet_mode):
 			self.feat_eng.pool_features(g_obj, pool_method)
 		self.standardize_graph_features_globaly()
-
 
 	def standardize_graph_features_globaly(self):
 		"""
