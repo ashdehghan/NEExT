@@ -43,7 +43,12 @@ class Graph_Embedding_Engine:
 			** Note this method does not make sense for classical node embeddings.
 		"""
 		n = graph_c.total_numb_of_nodes
+
+		# since the graph_id_node_array is not necessarily a valid index, we need to map it to a valid index
 		rows = graph_c.graph_id_node_array
+		mapper = {i : j for j, i in enumerate(np.sort(np.unique(rows)))}
+		rows = np.array([mapper[i] for i in rows])
+
 		cols = np.arange(n)
 		incidence_matrix = scipy.sparse.csr_matrix((np.repeat(1.0,n).astype(np.float32), (rows, cols)))
 		embedding_collection = graph_c.global_feature_vector[graph_feat_cols].values
@@ -69,7 +74,12 @@ class Graph_Embedding_Engine:
 			** Note this method does not make sense for classical node embeddings.
 		"""
 		n = graph_c.total_numb_of_nodes
+
+		# since the graph_id_node_array is not necessarily a valid index, we need to map it to a valid index
 		rows = graph_c.graph_id_node_array
+		mapper = {i : j for j, i in enumerate(np.sort(np.unique(rows)))}
+		rows = np.array([mapper[i] for i in rows])
+
 		cols = np.arange(n)
 		incidence_matrix = scipy.sparse.csr_matrix((np.repeat(1.0,n).astype(np.float32), (rows, cols)))
 		embedding_collection = graph_c.global_feature_vector[graph_feat_cols].values
@@ -95,7 +105,12 @@ class Graph_Embedding_Engine:
 			** Note this method does not make sense for classical node embeddings.
 		"""
 		n = graph_c.total_numb_of_nodes
+
+		# since the graph_id_node_array is not necessarily a valid index, we need to map it to a valid index
 		rows = graph_c.graph_id_node_array
+		mapper = {i : j for j, i in enumerate(np.sort(np.unique(rows)))}
+		rows = np.array([mapper[i] for i in rows])
+
 		cols = np.arange(n)
 		incidence_matrix = scipy.sparse.csr_matrix((np.repeat(1.0,n).astype(np.float32), (rows, cols)))
 		embedding_collection = graph_c.global_feature_vector[graph_feat_cols].values
@@ -112,6 +127,4 @@ class Graph_Embedding_Engine:
 		graph_embedding_df.columns = emb_cols
 		graph_embedding_df["graph_id"] = graph_ids
 		return graphs_embed, graph_embedding_df
-
-
 
