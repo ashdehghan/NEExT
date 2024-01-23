@@ -58,12 +58,13 @@ def get_nodes_x_hops_away(G, node, max_hop_length):
 				node_list.append(nb)
 				dist_to_source = len(nx.shortest_path(G, source=node, target=nb)) - 1
 				node_dict[nb] = dist_to_source
+				if dist_to_source > max_hop_length:
+					keep_going = False
+					break
 				if dist_to_source not in dist_dict:
 					dist_dict[dist_to_source] = [nb]
 				else:
 					dist_dict[dist_to_source].append(nb)
-				if dist_to_source >= max_hop_length:
-					keep_going = False
 		if len(node_list) == 0:
 			keep_going = False
 	return dist_dict

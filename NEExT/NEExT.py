@@ -177,6 +177,36 @@ class NEExT:
 		self.graph_embedding["graph_embedding_df"] = graph_embedding_df
 
 
+	def compute_feat_variability(self):
+		graph_ids = self.graph_c.global_feature_vector["graph_id"].unique().tolist()
+		wd_list = []
+		feat_list = []
+		graph_id_i = []
+		graph_id_j = []
+		for feat_col_name in tqdm(self.graph_c.global_feature_vector_cols, desc="Standardizing features", disable=self.global_config.quiet_mode):
+
+			for i in range(0, len(graph_ids)):
+				ref_feat = self.graph_c.global_feature_vector[self.graph_c.global_feature_vector["graph_id"] == graph_ids[i]][feat_col_name].values
+				for j in range(0, len(graph_ids)):
+					feat = self.graph_c.global_feature_vector[self.graph_c.global_feature_vector["graph_id"] == graph_ids[j]][feat_col_name].values
+					wd = wasserstein_distance(ref_feat, feat)
+					
+					wd_list.append(wd)
+					feat_list.append(feat_col_name)
+					graph_id_i.append(i)
+					graph_id_j.append(j)
+		
+		res_df = pd.DataFrame()
+		res_df["graph_id_i"] = graph_id_i
+		res_df["graph_id_j"] = graph_id_j
+		res_df["feature_name"] = feat_list
+		res_df["score"] = wd_list
+		# res_df = pd.DataFrame(res_df.groupby(by=["Feature Name"])["Feature Variability Score"].std()).reset_index()
+		# res_df.sort_values(by=["Feature Variability Score"], ascending=False, inplace=True)
+
+		return res_df
+
+
 	def get_feature_importance_classification_technique(self, emb_engine="approx_wasserstein", sample_size=15, balance_classes=True):
 		res_df = pd.DataFrame()
 		for col in self.graph_c.global_feature_vector_cols:
@@ -190,6 +220,7 @@ class NEExT:
 				res_df = df.copy(deep=True)
 			else:
 				res_df = pd.concat([res_df, df])
+		return res_df
 		
 
 	def build_classification_model(self, sample_size=50, balance_classes=False):
@@ -287,28 +318,3 @@ class NEExT:
 		fig.show()
 
 
-	def compute_feat_variability(self, plot_results=False):
-		graph_ids = self.graph_c.global_feature_vector["graph_id"].unique().tolist()
-		wd_list = []
-		feat_list = []
-		for feat_col_name in self.graph_c.global_feature_vector_cols:
-			ref_feat = self.graph_c.global_feature_vector[self.graph_c.global_feature_vector["graph_id"] == graph_ids[0]][feat_col_name].values
-			for i in range(1, len(graph_ids)):
-				feat = self.graph_c.global_feature_vector[self.graph_c.global_feature_vector["graph_id"] == graph_ids[i]][feat_col_name].values
-				wd = wasserstein_distance(ref_feat, feat)
-				wd_list.append(wd)
-				feat_list.append(feat_col_name)
-		res_df = pd.DataFrame()
-		res_df["Feature Name"] = feat_list
-		res_df["Feature Variability Score"] = wd_list
-		res_df = pd.DataFrame(res_df.groupby(by=["Feature Name"])["Feature Variability Score"].std()).reset_index()
-		res_df.sort_values(by=["Feature Variability Score"], ascending=False, inplace=True)
-		if plot_results:
-			x = res_df["Feature Name"].values
-			y = res_df["Feature Variability Score"].values
-			plt.bar(x, y)
-			plt.xlabel("Feature Name")
-			plt.ylabel("Variability Score")
-			plt.xticks(rotation=45)
-			plt.show()
-		return res_df
