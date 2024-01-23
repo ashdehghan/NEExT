@@ -57,6 +57,10 @@ class NEExT:
 			self.graph_c.assign_graph_labels_from_csv(graph_label_file)
 		
 
+	def build_node_sample_collection(self, sample_rate):
+		self.graph_c.build_node_sample_collection(sample_rate=sample_rate)
+
+
 	def get_global_feature_vector(self):
 		return self.graph_c.global_feature_vector
 

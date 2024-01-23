@@ -13,3 +13,5 @@ class Graph_Object:
 		self.feature_collection["features"] = {}
 		self.feature_collection["pooled_features"] = None
 		self.computed_features = set()
+		self.node_samples = []
+		self.graph_node_source = "all"

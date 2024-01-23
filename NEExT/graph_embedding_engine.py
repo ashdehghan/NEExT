@@ -42,8 +42,11 @@ class Graph_Embedding_Engine:
 			embedding using the Wasserstein method.
 			** Note this method does not make sense for classical node embeddings.
 		"""
-		n = graph_c.total_numb_of_nodes
-
+		if graph_c.use_sampled_nodes:
+			n = graph_c.total_numb_of_sampled_nodes
+		else:
+			n = graph_c.total_numb_of_nodes
+		
 		# since the graph_id_node_array is not necessarily a valid index, we need to map it to a valid index
 		rows = graph_c.graph_id_node_array
 		mapper = {i : j for j, i in enumerate(np.sort(np.unique(rows)))}
@@ -73,7 +76,10 @@ class Graph_Embedding_Engine:
 			embedding using the Wasserstein method.
 			** Note this method does not make sense for classical node embeddings.
 		"""
-		n = graph_c.total_numb_of_nodes
+		if graph_c.use_sampled_nodes:
+			n = graph_c.total_numb_of_sampled_nodes
+		else:
+			n = graph_c.total_numb_of_nodes
 
 		# since the graph_id_node_array is not necessarily a valid index, we need to map it to a valid index
 		rows = graph_c.graph_id_node_array
@@ -104,7 +110,10 @@ class Graph_Embedding_Engine:
 			embedding using the Wasserstein method.
 			** Note this method does not make sense for classical node embeddings.
 		"""
-		n = graph_c.total_numb_of_nodes
+		if graph_c.use_sampled_nodes:
+			n = graph_c.total_numb_of_sampled_nodes
+		else:
+			n = graph_c.total_numb_of_nodes
 
 		# since the graph_id_node_array is not necessarily a valid index, we need to map it to a valid index
 		rows = graph_c.graph_id_node_array

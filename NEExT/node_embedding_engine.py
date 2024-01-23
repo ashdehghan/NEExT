@@ -9,8 +9,6 @@ import random
 import numpy as np
 import pandas as pd
 import networkx as nx
-from node2vec import Node2Vec
-from karateclub import DeepWalk
 
 # Internal Libraries
 from NEExT.helper_functions import get_numb_of_nb_x_hops_away
@@ -22,26 +20,14 @@ class Node_Embedding_Engine:
 		pass
 
 
-	def run_node2vec_embedding(self, G, emb_dim):
-		"""
-			This method takes as input a networkx graph object
-			and runs a Node2Vec embedding using default values.
-		"""
-		node2vec = Node2Vec(G, dimensions=emb_dim, walk_length=30, num_walks=50, workers=4, quiet=True)
-		model = node2vec.fit(window=10, min_count=1, batch_words=4)
-		embeddings = {node: list(model.wv[node]) for node in G.nodes()}
-		return embeddings
-
-
-	def run_lsme_embedding(self, G, emb_dim):
+	def run_lsme_embedding(self, G, emb_dim, selected_nodes):
 		"""
 			This method takes as input a networkx graph object
 			and runs a LSME structural embedding.
 		"""
-		nodes = list(G.nodes)
 		embeddings = []
 		node_list = []
-		for node in nodes:
+		for node in selected_nodes:
 			node_list.append(node)
 			emb = self.lsme_run_random_walk(node, G, sample_size=50, rw_length=10)
 			if len(emb) < emb_dim:
@@ -95,21 +81,7 @@ class Node_Embedding_Engine:
 		return emb
 
 
-	def run_deepwalk_embedding(self, G, emb_dim):
-		"""
-			This method takes as input a networkx graph object
-			and runs a DeepWalk node embedding.
-		"""
-		model =  DeepWalk(dimensions=emb_dim)
-		model.fit(G)
-		dw_emb = model.get_embedding()
-		embeddings = {}
-		for index, node in enumerate(list(G.nodes)):
-			embeddings[node] = list(dw_emb[index])
-		return embeddings
-
-
-	def run_expansion_embedding(self, G, emb_dim):
+	def run_expansion_embedding(self, G, emb_dim, selected_nodes):
 		"""
 			This method takes as input a networkx graph object
 			and runs a simple expansion property embedding.
@@ -117,7 +89,7 @@ class Node_Embedding_Engine:
 		embeddings = []
 		node_list = []
 		d = (2 * len(G.edges))/len(G.nodes)
-		for node in G.nodes:
+		for node in selected_nodes:
 			node_list.append(node)
 			dist_list = get_numb_of_nb_x_hops_away(G, node, emb_dim)
 			norm_list = []

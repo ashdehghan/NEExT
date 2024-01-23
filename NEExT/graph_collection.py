@@ -6,6 +6,7 @@
 """
 
 # External Libraries
+import random
 import numpy as np
 import pandas as pd
 import networkx as nx
@@ -21,6 +22,7 @@ class Graph_Collection:
 		self.global_config = global_config
 		self.graph_collection = []
 		self.total_numb_of_nodes = None
+		self.total_numb_of_sampled_nodes = None
 		self.graph_id_node_array = None
 		self.graph_label_list_unique = None
 		self.grpah_labels_df = None
@@ -28,6 +30,7 @@ class Graph_Collection:
 		self.global_embeddings = None
 		self.global_embeddings_cols_arc = None
 		self.global_embeddings_arc = None
+		self.use_sampled_nodes = False
 
 
 	def load_graphs_from_csv(self, edge_file, node_graph_mapping_file, node_features_file=None):
@@ -142,3 +145,19 @@ class Graph_Collection:
 			else:
 				g_obj.graph_label = "unknown"
 				no_label_counter += 1
+
+
+	def build_node_sample_collection(self, sample_rate):
+		"""
+			This method will, for every sub-graph, compute a sample of nodes
+			that will be used for downstream tasks such as feature construction.
+			This method can be used for large graphs.
+		"""
+		self.total_numb_of_sampled_nodes = 0
+		self.graph_id_node_array = []
+		for g_obj in tqdm(self.graph_collection, desc="Building node samples:", disable=self.global_config.quiet_mode):
+			g_obj.node_samples = random.sample(list(g_obj.graph.nodes), int(sample_rate * len(g_obj.graph.nodes)))
+			g_obj.graph_node_source = "sample"
+			self.graph_id_node_array.extend(np.repeat(g_obj.graph_id, len(g_obj.node_samples)))
+			self.total_numb_of_sampled_nodes += len(g_obj.node_samples)
+		self.use_sampled_nodes = True

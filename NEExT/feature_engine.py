@@ -53,7 +53,11 @@ class Feature_Engine:
 	def compute_lsme(self, g_obj, feat_vect_len, func_name):
 		graph_id = g_obj.graph_id
 		G = g_obj.graph
-		feats = self.node_emb_engine.run_lsme_embedding(G, feat_vect_len)
+		if g_obj.graph_node_source == "sample":
+			selected_nodes = g_obj.node_samples
+		else:
+			selected_nodes = list(G.nodes)
+		feats = self.node_emb_engine.run_lsme_embedding(G, feat_vect_len, selected_nodes)
 		feat_cols = []
 		for col in feats.columns.tolist():
 			if "feat" in col:
@@ -67,6 +71,10 @@ class Feature_Engine:
 	def compute_self_walk(self, g_obj, feat_vect_len, func_name):
 		graph_id = g_obj.graph_id
 		G = g_obj.graph
+		if g_obj.graph_node_source == "sample":
+			selected_nodes = g_obj.node_samples
+		else:
+			selected_nodes = list(G.nodes)
 		iG = ig.Graph.from_networkx(G)
 		A = np.array(iG.get_adjacency().data)
 		Ao = copy.deepcopy(A)
@@ -79,6 +87,8 @@ class Feature_Engine:
 		feat_cols = list(feats.columns)
 		feats.insert(0, "node_id", list(G.nodes))
 		feats.insert(1, "graph_id", graph_id)
+		# This is not a cleanest way of doing this, but for now, it is ok.
+		feats = feats[feats["node_id"].isin(selected_nodes)]
 		g_obj.feature_collection["features"][func_name] = {}
 		g_obj.feature_collection["features"][func_name]["feats"] = feats
 		g_obj.feature_collection["features"][func_name]["feats_cols"] = feat_cols
@@ -87,7 +97,11 @@ class Feature_Engine:
 	def compute_basic_expansion(self, g_obj, feat_vect_len, func_name):
 		graph_id = g_obj.graph_id
 		G = g_obj.graph
-		feats = self.node_emb_engine.run_expansion_embedding(G, feat_vect_len)
+		if g_obj.graph_node_source == "sample":
+			selected_nodes = g_obj.node_samples
+		else:
+			selected_nodes = list(G.nodes)
+		feats = self.node_emb_engine.run_expansion_embedding(G, feat_vect_len, selected_nodes)
 		feat_cols = []
 		for col in feats.columns.tolist():
 			if "feat" in col:
@@ -101,9 +115,13 @@ class Feature_Engine:
 	def compute_basic_node_features(self, g_obj, feat_vect_len, func_name):
 		graph_id = g_obj.graph_id
 		G = g_obj.graph
+		if g_obj.graph_node_source == "sample":
+			selected_nodes = g_obj.node_samples
+		else:
+			selected_nodes = list(G.nodes)
 		node_feature_list = []
 		feat_cols = None
-		for node in G.nodes:
+		for node in selected_nodes:
 			feat_cols = list(G.nodes[node].keys())
 			node_feature_list.append(list(G.nodes[node].values()))
 		feats = pd.DataFrame(node_feature_list)
@@ -123,6 +141,10 @@ class Feature_Engine:
 		"""
 		graph_id = g_obj.graph_id
 		G = g_obj.graph
+		if g_obj.graph_node_source == "sample":
+			selected_nodes = g_obj.node_samples
+		else:
+			selected_nodes = list(G.nodes)
 		if func_name == "page_rank":
 			srtct_feat = nx.pagerank(G, alpha=0.9)
 		elif func_name == "degree_centrality":
@@ -137,7 +159,7 @@ class Feature_Engine:
 			raise ValueError("The selected structural feature is not supported.")
 		nodes = []
 		features = []
-		for node in list(G.nodes):
+		for node in selected_nodes:
 			nodes.append(node)
 			feat_vect = []
 			nbs = get_nodes_x_hops_away(G, node, max_hop_length=feat_vect_len)
