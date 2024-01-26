@@ -1,7 +1,7 @@
 """
-	Author: Ash Dehghan
+	Author: Ash Dehghan, Lourens Touwen
 	Description: This class provides some builtin node and structural embedding
-	solutions to be used by UGAF. The user could provide their own node embeddings.
+	solutions to be used by NEExT. The user could provide their own node embeddings.
 """
 
 # External Libraries
@@ -15,10 +15,8 @@ from NEExT.helper_functions import get_numb_of_nb_x_hops_away
 
 class Node_Embedding_Engine:
 
-
 	def __init__(self):
 		pass
-
 
 	def run_lsme_embedding(self, G, emb_dim, selected_nodes):
 		"""
@@ -80,46 +78,35 @@ class Node_Embedding_Engine:
 		emb = emb[3:len(emb)+1]
 		return emb
 
-
 	def run_expansion_embedding(self, G, emb_dim, selected_nodes):
 		"""
 			This method takes as input a networkx graph object
 			and runs a simple expansion property embedding.
+
+			The expansion embedding of dimension $k$ is given by:
+			$$E(v) = \left( \frac {n_1}{1 \cdot d}, \frac {n_2}{n_1 \cdot d}, \ldots, \frac {n_k}{n_{k-1} \cdot d} \right)$$
+			where $n_i$ is the number of nodes at distance $i$ from $v$ and $d$ is the average degree of the graph.
+			
+			source: https://github.com/ftheberge/EmbeddingOfGraphs/blob/main/Notebooks/StructuralNodeEmbedding.ipynb
+
 		"""
 		embeddings = []
-		node_list = []
+		# calculate average degree
 		d = (2 * len(G.edges))/len(G.nodes)
 		for node in selected_nodes:
-			node_list.append(node)
-			dist_list = get_numb_of_nb_x_hops_away(G, node, emb_dim)
-			norm_list = []
-			for i in range(len(dist_list)):
-				if i == 0:
-					norm_val = 1 * d
-				else:
-					norm_val = dist_list[i] - 1
-					if norm_val <= 0:
-						norm_val = 1
-				norm_list.append(norm_val * d)
-			emb = [dist_list[i]/norm_list[i] for i in range(len(dist_list))]
+			# get the number of neighbors at each hop away from the node
+			nr_of_neighbors_list = get_numb_of_nb_x_hops_away(G, node, emb_dim)
+			# calculate the expansion embedding
+			emb = []
+			emb.append(nr_of_neighbors_list[0]/d)
+			for i in range(1, len(nr_of_neighbors_list)):
+				emb.append(nr_of_neighbors_list[i]/(d*nr_of_neighbors_list[i-1]))
 			embeddings.append(emb)
+		
+		# format the embeddings as a dataframe
 		embeddings = pd.DataFrame(embeddings)
 		emb_cols = ["feat_basic_expansion_"+str(i) for i in range(embeddings.shape[1])]
 		embeddings.columns = emb_cols
-		embeddings.insert(0, "node_id", node_list)
+		embeddings.insert(0, "node_id", selected_nodes)
 		return embeddings
-					
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+	
