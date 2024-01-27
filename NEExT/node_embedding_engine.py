@@ -100,7 +100,10 @@ class Node_Embedding_Engine:
 			emb = []
 			emb.append(nr_of_neighbors_list[0]/d)
 			for i in range(1, len(nr_of_neighbors_list)):
-				emb.append(nr_of_neighbors_list[i]/(d*nr_of_neighbors_list[i-1]))
+				if nr_of_neighbors_list[i-1] == 0:
+					emb.append(0)
+				else:
+					emb.append(nr_of_neighbors_list[i]/(d*nr_of_neighbors_list[i-1]))
 			embeddings.append(emb)
 		
 		# format the embeddings as a dataframe
