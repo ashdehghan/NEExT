@@ -1,6 +1,7 @@
 from typing import List, Callable
 
 def test_wrapper(func):
+	print(f"Running test {func.__name__}...")
 	try:
 		res = func()
 		if res:
