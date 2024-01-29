@@ -246,10 +246,10 @@ class NEExT:
 		return data_obj
 
 
-	def visualize_graph_embedding(self, color_by="nothing", color_target_type="classes"):
+	def visualize_graph_embedding(self, color_by="nothing", color_target_type="classes", dim_reduction="UMAP"):
 		"""
 			This method uses the the graph embedding and UMAP to
-			visulize the embeddings in two dimensions. It can also color the
+			visualize the embeddings in two dimensions. It can also color the
 			points if there are labels available for the graph.
 		"""
 		if color_by == "graph_label":
@@ -257,6 +257,8 @@ class NEExT:
 			data.rename(columns={"graph_label":"Graph Label"}, inplace=True)
 			if color_target_type == "classes":
 				data["Graph Label"] = data["Graph Label"].astype(str)
+			elif color_target_type == 'continuous':
+				data["Graph Label"] = data["Graph Label"].astype(float)
 		elif color_by == "similarity_matrix_mean":
 			data = self.graph_embedding["graph_embedding_df"].merge(self.similarity_matrix_stats["data"], on="graph_id", how="inner")
 			data.rename(columns={"similarity_matrix_mean":"Similarity Matrix Mean"}, inplace=True)
@@ -273,10 +275,16 @@ class NEExT:
 			if "emb" in col:
 				emb_cols.append(col)
 		# Perform dimensionality reduction
-		reducer = umap.UMAP()
-		redu_emb = reducer.fit_transform(data[emb_cols])
-		data["x"] = redu_emb[:,0]
-		data["y"] = redu_emb[:,1]
+		if dim_reduction == "UMAP":
+			reducer = umap.UMAP()
+			redu_emb = reducer.fit_transform(data[emb_cols])
+			data["x"] = redu_emb[:,0]
+			data["y"] = redu_emb[:,1]
+		elif dim_reduction == "first_two":
+			data["x"] = data[emb_cols[0]]
+			data["y"] = data[emb_cols[1]]
+		# TODO add t-sne
+		# TODO add PCA
 		# Generate plotly figures
 		if color_by == "graph_label":
 			fig = px.scatter(data, x="x", y="y", color="Graph Label", size=[4]*len(data))		
@@ -319,6 +327,7 @@ class NEExT:
 		fig.update_xaxes(showgrid=False, gridwidth=0.5, gridcolor='#e3e1e1')
 		fig.update_yaxes(showgrid=False, gridwidth=0.5, gridcolor='grey')
 		fig.update_traces(marker_line_color='black', marker_line_width=1.5, opacity=0.6)
+		return fig, data
 		fig.show()
 
 

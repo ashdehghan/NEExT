@@ -46,6 +46,8 @@ class Feature_Engine:
 
 
 	def compute_feature(self, g_obj, feat_name, feat_vect_len):
+		if feat_name not in self.features:
+			raise ValueError("The selected feature is not supported.")
 		g_obj.computed_features.add(feat_name)
 		self.features[feat_name](g_obj, feat_vect_len, feat_name)
 
@@ -197,28 +199,3 @@ class Feature_Engine:
 		else:
 			raise ValueError("Pooling type is not supported.")
 		g_obj.feature_collection["pooled_features"] = pooled_features
-
-
-
-
-
-
-			
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-		
-
-		
-
