@@ -135,7 +135,7 @@ class Feature_Engine:
         else:
             selected_nodes = list(G.nodes)
         if func_name == "page_rank":
-            srtct_feat = nx.pagerank(G, alpha=0.9)
+            srtct_feat = nx.pagerank(G, alpha=0.9, max_iter=1000)
         elif func_name == "degree_centrality":
             srtct_feat = nx.degree_centrality(G)
         elif func_name == "closeness_centrality":
@@ -154,7 +154,7 @@ class Feature_Engine:
             nbs = get_nodes_x_hops_away(G, node, max_hop_length=feat_vect_len)
             feat_vect.append(srtct_feat[node])
             for i in range(1, feat_vect_len):
-                if i in nbs:
+                if len(nbs[i]) > 0:
                     nbs_pr = [srtct_feat[j] for j in nbs[i]]
                     feat_vect.append(sum(nbs_pr)/len(nbs_pr))
                 else:
