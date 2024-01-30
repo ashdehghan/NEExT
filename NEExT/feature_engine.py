@@ -154,7 +154,7 @@ class Feature_Engine:
             nbs = get_nodes_x_hops_away(G, node, max_hop_length=feat_vect_len)
             feat_vect.append(srtct_feat[node])
             for i in range(1, feat_vect_len):
-                if i in nbs:
+                if len(nbs[i]) > 0:
                     nbs_pr = [srtct_feat[j] for j in nbs[i]]
                     feat_vect.append(sum(nbs_pr)/len(nbs_pr))
                 else:
