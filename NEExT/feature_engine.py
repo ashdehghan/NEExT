@@ -135,7 +135,7 @@ class Feature_Engine:
         else:
             selected_nodes = list(G.nodes)
         if func_name == "page_rank":
-            srtct_feat = nx.pagerank(G, alpha=0.9)
+            srtct_feat = nx.pagerank(G, alpha=0.9, max_iter=1000)
         elif func_name == "degree_centrality":
             srtct_feat = nx.degree_centrality(G)
         elif func_name == "closeness_centrality":
