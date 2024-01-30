@@ -36,8 +36,8 @@ class NEExT:
                            graph_label_file=None, filter_for_largest_cc=True,
                            reset_node_indices=True):
         """
-            This method uses the Graph Collection class to build an object
-            which handels a set of graphs.
+        This method uses the Graph Collection class to build an object
+        which handels a set of graphs.
         """
         self.graph_c.load_graphs_from_csv(edge_file, node_graph_mapping_file, node_features_file)
         if filter_for_largest_cc:
@@ -163,8 +163,8 @@ class NEExT:
 
     def build_graph_embedding(self, emb_dim_len, emb_engine):
         """
-            This method uses the Graph Embedding Engine object to
-            build a graph embedding for every graph in the graph collection.
+        This method uses the Graph Embedding Engine object to
+        build a graph embedding for every graph in the graph collection.
         """
         graph_embedding, graph_embedding_df = self.g_emb.build_graph_embedding(emb_dim_len,
                                                                                emb_engine,
@@ -251,9 +251,9 @@ class NEExT:
     def visualize_graph_embedding(self, color_by="nothing", color_target_type="classes",
                                   dim_reduction="UMAP"):
         """
-            This method uses the the graph embedding and UMAP to
-            visualize the embeddings in two dimensions. It can also color the
-            points if there are labels available for the graph.
+        This method uses the the graph embedding and UMAP to
+        visualize the embeddings in two dimensions. It can also color the
+        points if there are labels available for the graph.
         """
         if color_by == "graph_label":
             data = self.graph_embedding["graph_embedding_df"].merge(self.graph_c.grpah_labels_df,
