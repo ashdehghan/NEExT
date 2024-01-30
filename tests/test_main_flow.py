@@ -1,11 +1,10 @@
 import sys
 sys.path.append("../")
-
 from NEExT.NEExT import NEExT
 
 
 def test_readme_code():
-    """ 
+    """
     Test the code in the README.md file. Does not check for correctness, just that the code runs without errors.
     """
     edge_file = "https://raw.githubusercontent.com/elmspace/ugaf_experiments_data/main/abcd/xi_n/edge_file.csv"
@@ -17,12 +16,12 @@ def test_readme_code():
     nxt.compute_graph_feature(feat_name="page_rank", feat_vect_len=4)
     nxt.compute_graph_feature(feat_name="degree_centrality", feat_vect_len=4)
     nxt.pool_graph_features(pool_method="concat")
-    df = nxt.get_global_feature_vector()
+    nxt.get_global_feature_vector()
     nxt.apply_dim_reduc_to_graph_feats(dim_size=4, reducer_type="pca")
-    df = nxt.get_global_feature_vector()
-    df = nxt.get_archived_global_feature_vector()
+    nxt.get_global_feature_vector()
+    nxt.get_archived_global_feature_vector()
     nxt.get_list_of_graph_embedding_engines()
     nxt.build_graph_embedding(emb_dim_len=3, emb_engine="approx_wasserstein")
-    df = nxt.get_graph_embeddings()
+    nxt.get_graph_embeddings()
 
     return True

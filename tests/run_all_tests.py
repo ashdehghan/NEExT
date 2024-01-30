@@ -7,7 +7,7 @@ from test_main_flow import test_readme_code
 # ADD ALL TESTS TO THIS LIST
 tests = [
     test_get_nodes_x_hops_away,
-    test_get_numb_of_nb_x_hops_away, 
+    test_get_numb_of_nb_x_hops_away,
     test_readme_code
 ]
 
