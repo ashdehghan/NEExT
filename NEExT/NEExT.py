@@ -4,27 +4,17 @@
 
 # External Libraries
 import umap
-import scipy
-import vectorizers
-import numpy as np
 import pandas as pd
 from tqdm import tqdm
-import multiprocessing
 import plotly.express as px
-from numpy import linalg as LA
-import matplotlib.pyplot as plt
-from sklearn.manifold import TSNE
 from sklearn.decomposition import PCA
 from scipy.stats import wasserstein_distance
 from sklearn.preprocessing import StandardScaler
-from sklearn.metrics.pairwise import cosine_similarity
-
 
 # Internal Modules
 from NEExT.ml_models import ML_Models
 from NEExT.global_config import Global_Config
 from NEExT.feature_engine import Feature_Engine
-from NEExT.helper_functions import divide_chunks
 from NEExT.graph_collection import Graph_Collection
 from NEExT.graph_embedding_engine import Graph_Embedding_Engine
 
@@ -42,7 +32,9 @@ class NEExT:
         self.similarity_matrix_stats = {}
         self.ml_model_results = None
 
-    def load_data_from_csv(self, edge_file, node_graph_mapping_file, node_features_file=None, graph_label_file=None, filter_for_largest_cc=True, reset_node_indices=True):
+    def load_data_from_csv(self, edge_file, node_graph_mapping_file, node_features_file=None,
+                           graph_label_file=None, filter_for_largest_cc=True,
+                           reset_node_indices=True):
         """
             This method uses the Graph Collection class to build an object
             which handels a set of graphs.
@@ -68,22 +60,26 @@ class NEExT:
         return self.feat_eng.get_list_of_graph_features()
 
     def compute_graph_feature(self, feat_name, feat_vect_len):
-        for g_obj in tqdm(self.graph_c.graph_collection, desc="Building features", disable=self.global_config.quiet_mode):			
+        for g_obj in tqdm(self.graph_c.graph_collection, desc="Building features",
+                          disable=self.global_config.quiet_mode):
             self.feat_eng.compute_feature(g_obj, feat_name, feat_vect_len)
 
     def discard_all_graph_features(self):
-        for g_obj in tqdm(self.graph_c.graph_collection, desc="Discarding features", disable=self.global_config.quiet_mode):
+        for g_obj in tqdm(self.graph_c.graph_collection, desc="Discarding features",
+                          disable=self.global_config.quiet_mode):
             for feat in g_obj.computed_features:
                 g_obj.feature_collection["features"].pop(feat)
-            g_obj.computed_features = set()	
+            g_obj.computed_features = set()
 
     def discard_graph_feature(self, feat_name):
-        for g_obj in tqdm(self.graph_c.graph_collection, desc="Discarding features", disable=self.global_config.quiet_mode):
+        for g_obj in tqdm(self.graph_c.graph_collection, desc="Discarding features",
+                          disable=self.global_config.quiet_mode):
             g_obj.feature_collection["features"].pop(feat_name)
             g_obj.computed_features.remove(feat_name)
 
     def pool_graph_features(self, pool_method="concat"):
-        for g_obj in tqdm(self.graph_c.graph_collection, desc="Pooling features", disable=self.global_config.quiet_mode):
+        for g_obj in tqdm(self.graph_c.graph_collection, desc="Pooling features",
+                          disable=self.global_config.quiet_mode):
             self.feat_eng.pool_features(g_obj, pool_method)
         self.standardize_graph_features_globaly()
 
@@ -92,7 +88,8 @@ class NEExT:
             This method will standardize the graph features across all graphs.
         """
         all_graph_feats = pd.DataFrame()
-        for g_obj in tqdm(self.graph_c.graph_collection, desc="Standardizing features", disable=self.global_config.quiet_mode):
+        for g_obj in tqdm(self.graph_c.graph_collection, desc="Standardizing features",
+                          disable=self.global_config.quiet_mode):
             df = g_obj.feature_collection["pooled_features"]
             if all_graph_feats.empty:
                 all_graph_feats = df.copy(deep=True)
@@ -118,17 +115,18 @@ class NEExT:
         self.graph_c.global_feature_vector = feat_df.copy(deep=True)
         self.graph_c.global_feature_vector_cols = feat_cols
         # Re-assign global embeddings to each graph
-        for g_obj in tqdm(self.graph_c.graph_collection, desc="Updating features", disable=self.global_config.quiet_mode):
+        for g_obj in tqdm(self.graph_c.graph_collection, desc="Updating features",
+                          disable=self.global_config.quiet_mode):
             df = feat_df[feat_df["graph_id"] == g_obj.graph_id].copy(deep=True)
             g_obj.feature_collection["pooled_features"] = df
 
     def apply_dim_reduc_to_graph_feats(self, dim_size, reducer_type):
         """
-        This method will apply dimensionality reduction to the 
-        global feature embeddings. Since many of the processses in UGAF 
+        This method will apply dimensionality reduction to the
+        global feature embeddings. Since many of the processses in UGAF
         require the use of the global feature embeddings and their embedding
         columns, this function makes a copy of those to keep for record
-        and will replace the main feat embedding DataFrame and columns 
+        and will replace the main feat embedding DataFrame and columns
         with the reduced ones.
         """
         if dim_size >= len(self.graph_c.global_feature_vector_cols):
@@ -139,7 +137,7 @@ class NEExT:
         self.graph_c.global_feature_vector_cols_arc = self.graph_c.global_feature_vector_cols[:]
         self.graph_c.global_feature_vector_arc = self.graph_c.global_feature_vector.copy(deep=True)
         data = self.graph_c.global_feature_vector[self.graph_c.global_feature_vector_cols]
-        if reducer_type == "umap":		
+        if reducer_type == "umap":
             reducer = umap.UMAP(n_components=dim_size)
             data = reducer.fit_transform(data)
         elif reducer_type == "pca":
@@ -165,10 +163,12 @@ class NEExT:
 
     def build_graph_embedding(self, emb_dim_len, emb_engine):
         """
-            This method uses the Graph Embedding Engine object to 
+            This method uses the Graph Embedding Engine object to
             build a graph embedding for every graph in the graph collection.
         """
-        graph_embedding, graph_embedding_df = self.g_emb.build_graph_embedding(emb_dim_len, emb_engine, self.graph_c)
+        graph_embedding, graph_embedding_df = self.g_emb.build_graph_embedding(emb_dim_len,
+                                                                               emb_engine,
+                                                                               self.graph_c)
         self.graph_embedding["graph_embedding"] = graph_embedding
         self.graph_embedding["graph_embedding_df"] = graph_embedding_df
 
@@ -178,12 +178,19 @@ class NEExT:
         feat_list = []
         graph_id_i = []
         graph_id_j = []
-        for feat_col_name in tqdm(self.graph_c.global_feature_vector_cols, desc="Standardizing features", disable=self.global_config.quiet_mode):
+        for feat_col_name in tqdm(self.graph_c.global_feature_vector_cols,
+                                  desc="Standardizing features",
+                                  disable=self.global_config.quiet_mode):
 
             for i in range(0, len(graph_ids)):
-                ref_feat = self.graph_c.global_feature_vector[self.graph_c.global_feature_vector["graph_id"] == graph_ids[i]][feat_col_name].values
+                ref_feat = self.graph_c.global_feature_vector[
+                    self.graph_c.global_feature_vector["graph_id"] == graph_ids[i]
+                    ][feat_col_name].values
+
                 for j in range(0, len(graph_ids)):
-                    feat = self.graph_c.global_feature_vector[self.graph_c.global_feature_vector["graph_id"] == graph_ids[j]][feat_col_name].values
+                    feat = self.graph_c.global_feature_vector[
+                        self.graph_c.global_feature_vector["graph_id"] == graph_ids[j]
+                        ][feat_col_name].values
                     wd = wasserstein_distance(ref_feat, feat)
                     wd_list.append(wd)
                     feat_list.append(feat_col_name)
@@ -195,18 +202,26 @@ class NEExT:
         res_df["graph_id_j"] = graph_id_j
         res_df["feature_name"] = feat_list
         res_df["score"] = wd_list
-        # res_df = pd.DataFrame(res_df.groupby(by=["Feature Name"])["Feature Variability Score"].std()).reset_index()
+        # res_df = pd.DataFrame(
+        #     res_df.groupby(by=["Feature Name"])[
+        #         "Feature Variability Score"
+        #         ].std()
+        #     ).reset_index()
         # res_df.sort_values(by=["Feature Variability Score"], ascending=False, inplace=True)
 
         return res_df
 
-    def get_feature_importance_classification_technique(self, emb_engine="approx_wasserstein", sample_size=15, balance_classes=True):
+    def get_feature_importance_classification_technique(self, emb_engine="approx_wasserstein",
+                                                        sample_size=15, balance_classes=True):
         res_df = pd.DataFrame()
         for col in self.graph_c.global_feature_vector_cols:
             graph_feat_cols = [col]
-            graph_embedding, graph_embedding_df = self.g_emb.build_graph_embedding(1, emb_engine, self.graph_c, graph_feat_cols)
+            graph_embedding, graph_embedding_df = self.g_emb.build_graph_embedding(1, emb_engine,
+                                                                                   self.graph_c,
+                                                                                   graph_feat_cols)
             data_obj = self.format_data_for_classification(graph_embedding_df)
-            ml_model_results = self.ml_model.build_classification_model(data_obj, sample_size, balance_classes)
+            ml_model_results = self.ml_model.build_classification_model(data_obj, sample_size,
+                                                                        balance_classes)
             df = pd.DataFrame(ml_model_results)
             df["feature"] = col
             if res_df.empty:
@@ -218,7 +233,8 @@ class NEExT:
     def build_classification_model(self, sample_size=50, balance_classes=False):
         graph_emb = self.graph_embedding["graph_embedding_df"]
         data_obj = self.format_data_for_classification(graph_emb)
-        self.ml_model_results = self.ml_model.build_classification_model(data_obj, sample_size, balance_classes)
+        self.ml_model_results = self.ml_model.build_classification_model(data_obj, sample_size,
+                                                                         balance_classes)
 
     def format_data_for_classification(self, graph_emb):
         data = self.graph_c.grpah_labels_df.merge(graph_emb, on="graph_id")
@@ -232,22 +248,25 @@ class NEExT:
         data_obj["y_col"] = "graph_label"
         return data_obj
 
-    def visualize_graph_embedding(self, color_by="nothing", color_target_type="classes", dim_reduction="UMAP"):
+    def visualize_graph_embedding(self, color_by="nothing", color_target_type="classes",
+                                  dim_reduction="UMAP"):
         """
             This method uses the the graph embedding and UMAP to
             visualize the embeddings in two dimensions. It can also color the
             points if there are labels available for the graph.
         """
         if color_by == "graph_label":
-            data = self.graph_embedding["graph_embedding_df"].merge(self.graph_c.grpah_labels_df, on="graph_id", how="inner")
-            data.rename(columns={"graph_label":"Graph Label"}, inplace=True)
+            data = self.graph_embedding["graph_embedding_df"].merge(self.graph_c.grpah_labels_df,
+                                                                    on="graph_id", how="inner")
+            data.rename(columns={"graph_label": "Graph Label"}, inplace=True)
             if color_target_type == "classes":
                 data["Graph Label"] = data["Graph Label"].astype(str)
             elif color_target_type == 'continuous':
                 data["Graph Label"] = data["Graph Label"].astype(float)
         elif color_by == "similarity_matrix_mean":
-            data = self.graph_embedding["graph_embedding_df"].merge(self.similarity_matrix_stats["data"], on="graph_id", how="inner")
-            data.rename(columns={"similarity_matrix_mean":"Similarity Matrix Mean"}, inplace=True)
+            data = self.graph_embedding["graph_embedding_df"].merge(
+                self.similarity_matrix_stats["data"], on="graph_id", how="inner")
+            data.rename(columns={"similarity_matrix_mean": "Similarity Matrix Mean"}, inplace=True)
             if color_target_type == "classes":
                 data["Graph Label"] = data["Graph Label"].astype(str)
         elif color_by == "nothing":
@@ -264,8 +283,8 @@ class NEExT:
         if dim_reduction == "UMAP":
             reducer = umap.UMAP()
             redu_emb = reducer.fit_transform(data[emb_cols])
-            data["x"] = redu_emb[:,0]
-            data["y"] = redu_emb[:,1]
+            data["x"] = redu_emb[:, 0]
+            data["y"] = redu_emb[:, 1]
         elif dim_reduction == "first_two":
             data["x"] = data[emb_cols[0]]
             data["y"] = data[emb_cols[1]]
@@ -273,9 +292,10 @@ class NEExT:
         # TODO add PCA
         # Generate plotly figures
         if color_by == "graph_label":
-            fig = px.scatter(data, x="x", y="y", color="Graph Label", size=[4]*len(data))		
+            fig = px.scatter(data, x="x", y="y", color="Graph Label", size=[4]*len(data))
         elif color_by == "similarity_matrix_mean":
-            fig = px.scatter(data, x="x", y="y", color="Similarity Matrix Mean", size=[4]*len(data))
+            fig = px.scatter(data, x="x", y="y", color="Similarity Matrix Mean",
+                             size=[4]*len(data))
         elif color_by == "nothing":
             fig = px.scatter(data, x="x", y="y", size=[4]*len(data))
         else:
