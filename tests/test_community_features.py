@@ -8,10 +8,10 @@ import networkx as nx
 
 
 def test_compute_community_aware_features():
-    G = nx.cycle_graph(6)
+    G = nx.random_graphs.erdos_renyi_graph(100, 0.1)
     g_obj = Graph_Object()
     g_obj.graph = G
-    g_obj.graph_id = 0
+    g_obj.graph_id = 42
     g_obj.graph_node_source = "all"
 
     feature_engine.compute_community_aware_features(g_obj, 3, 'anomaly_score_CADA')

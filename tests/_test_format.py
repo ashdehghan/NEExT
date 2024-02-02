@@ -5,12 +5,13 @@ def test_wrapper(func):
     print(f"Running test {func.__name__}...")
     try:
         res = func()
-        if res:
-            print(f"Test {func.__name__} passed.")
-            return True
-        else:
+        if res is False:
             print(f"Test {func.__name__} failed.")
             return False
+        
+        # if res is True or None
+        print(f"Test {func.__name__} passed.")
+        return True
 
     except Exception as e:
         print(e)

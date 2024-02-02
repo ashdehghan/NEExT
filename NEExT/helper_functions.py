@@ -87,7 +87,7 @@ def get_own_in_community_degree(G, node_id, community_partition: List[List[int]]
 
 def community_volume(G, community_partition: List[List[int]]) -> List[int]:
     """
-    This method will compute the volume of each community in the graph. 
+    This method will compute the volume of each community in the graph.
     The volume is the sum of all the degrees of the nodes in the community.
 
     Returns a list of integers, where each integer is the volume of the community.
@@ -95,6 +95,6 @@ def community_volume(G, community_partition: List[List[int]]) -> List[int]:
 
     community_volumes = []
     for community in community_partition:
-        community_volume.append(sum([G.degree[node] for node in community]))
+        community_volumes.append(sum([G.degree[node] for node in community]))
 
     return community_volumes
