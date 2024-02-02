@@ -13,7 +13,7 @@ import pandas as pd
 import networkx as nx
 
 # Internal Libraries
-from NEExT.helper_functions import get_nodes_x_hops_away
+from NEExT.helper_functions import get_nodes_x_hops_away, get_all_in_community_degrees, get_own_in_community_degree, community_volume
 from NEExT.node_embedding_engine import Node_Embedding_Engine
 
 
@@ -164,6 +164,64 @@ class Feature_Engine:
         feat_cols = ["feat_"+func_name+"_"+str(i) for i in range(feats.shape[1])]
         feats.columns = feat_cols
         feats.insert(0, "node_id", nodes)
+        feats.insert(1, "graph_id", graph_id)
+        g_obj.feature_collection["features"][func_name] = {}
+        g_obj.feature_collection["features"][func_name]["feats"] = feats
+        g_obj.feature_collection["features"][func_name]["feats_cols"] = feat_cols
+
+    def compute_community_aware_features(self, g_obj, feat_vect_len, func_name):
+        """
+        Calculates node features
+        that use the modularity-optimizing Leiden community detection algorithm.
+
+        Node that the community detection algorithm uses all nodes in the graph, 
+        not just the sample. This might have computational implications.
+        """
+        graph_id = g_obj.graph_id
+        G = g_obj.graph
+        if g_obj.graph_node_source == "sample":
+            selected_nodes = g_obj.node_samples
+            # get neighbors of selected nodes for feat_vect_len hops
+            calculated_nodes = list(
+                set([
+                    n for node in selected_nodes
+                    for n in get_nodes_x_hops_away(G, node, feat_vect_len)
+                    ])
+                )
+        else:
+            selected_nodes = list(G.nodes)
+            calculated_nodes = selected_nodes
+
+        iG = ig.Graph.from_networkx(G)
+        partition = iG.community_leiden(objective_function="modularity")
+
+        if func_name == 'anomaly_score_CADA':
+            comm_feat = {
+                node: G.degree(node) / max(get_all_in_community_degrees(G, node, partition))
+                for node in calculated_nodes
+            }
+        if func_name == 'normalized_anomaly_score_CADA':
+            comm_feat = {
+                node: G.degree(node) / get_own_in_community_degree(G, node, partition)
+                for node in calculated_nodes
+            }
+
+        features = []
+        for i, node in enumerate(selected_nodes):
+            feat_vect = []
+            nbs = get_nodes_x_hops_away(G, node, max_hop_length=feat_vect_len)
+            feat_vect.append(comm_feat[node])
+            for i in range(1, feat_vect_len):
+                if len(nbs[i]) > 0:
+                    nbs_pr = [comm_feat[j] for j in nbs[i]]
+                    feat_vect.append(sum(nbs_pr)/len(nbs_pr))
+                else:
+                    feat_vect.append(0.0)
+            features.append(feat_vect)
+        feats = pd.DataFrame(features)
+        feat_cols = ["feat_"+func_name+"_"+str(i) for i in range(feats.shape[1])]
+        feats.columns = feat_cols
+        feats.insert(0, "node_id", selected_nodes)
         feats.insert(1, "graph_id", graph_id)
         g_obj.feature_collection["features"][func_name] = {}
         g_obj.feature_collection["features"][func_name]["feats"] = feats

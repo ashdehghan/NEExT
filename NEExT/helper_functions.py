@@ -45,3 +45,45 @@ def get_nodes_x_hops_away(G, node, max_hop_length) -> List[Set]:
         seen.update(boundary)
 
     return hop_list
+
+
+def get_all_in_community_degrees(G, node_id, community_partition: List[List[int]]) -> List[int]:
+    """
+    This method will compute the community degree of a node for each of the communities.
+
+    Returns a list of integers,
+    where each integer is the in-community degree of the node for that community.
+    """
+    neighbors = list(G.neighbors(node_id))
+    in_community_degrees = []
+    for community in community_partition:
+        in_community_degrees.append(len([n for n in neighbors if n in community]))
+
+    return in_community_degrees
+
+
+def get_own_in_community_degree(G, node_id, community_partition: List[List[int]]) -> int:
+    """
+    This method will compute the community degree of a node for the community it is in.
+
+    Returns an integer, which is the in-community degree of the node for its community.
+    """
+    neighbors = list(G.neighbors(node_id))
+    for community in community_partition:
+        if node_id in community:
+            return len([n for n in neighbors if n in community])
+
+
+def community_volume(G, community_partition: List[List[int]]) -> List[int]:
+    """
+    This method will compute the volume of each community in the graph. 
+    The volume is the sum of all the degrees of the nodes in the community.
+
+    Returns a list of integers, where each integer is the volume of the community.
+    """
+
+    community_volumes = []
+    for community in community_partition:
+        community_volume.append(sum([G.degree[node] for node in community]))
+
+    return community_volumes
