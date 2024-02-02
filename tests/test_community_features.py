@@ -1,12 +1,10 @@
 import sys
 sys.path.append("../")
-from NEExT.feature_engine import Feature_Engine
+from NEExT import feature_engine
 from NEExT.graph_object import Graph_Object
 
 # from _test_format import run_list_of_tests
 import networkx as nx
-
-feat_eng = Feature_Engine(None)
 
 
 def test_compute_community_aware_features():
@@ -16,12 +14,13 @@ def test_compute_community_aware_features():
     g_obj.graph_id = 0
     g_obj.graph_node_source = "all"
 
-    feat_eng.compute_community_aware_features(g_obj, 3, 'anomaly_score_CADA')
-    feat_eng.compute_community_aware_features(g_obj, 3, 'normalized_anomaly_score_CADA')
-    feat_eng.compute_community_aware_features(g_obj, 3, 'participation_coefficient')
-    feat_eng.compute_community_aware_features(g_obj, 3, 'normalized_within_module_degree')
-    feat_eng.compute_community_aware_features(g_obj, 3, 'participation_coefficient')
-    print(g_obj.feature_collection['features'])
+    feature_engine.compute_community_aware_features(g_obj, 3, 'anomaly_score_CADA')
+    feature_engine.compute_community_aware_features(g_obj, 3, 'normalized_anomaly_score_CADA')
+    feature_engine.compute_community_aware_features(g_obj, 3, 'participation_coefficient')
+    feature_engine.compute_community_aware_features(g_obj, 3, 'normalized_within_module_degree')
+    feature_engine.compute_community_aware_features(g_obj, 3, 'participation_coefficient')
+
+    return True
 
 
 if __name__ == "__main__":

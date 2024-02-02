@@ -14,9 +14,9 @@ from sklearn.preprocessing import StandardScaler
 # Internal Modules
 from NEExT.ml_models import ML_Models
 from NEExT.global_config import Global_Config
-from NEExT.feature_engine import Feature_Engine
+from NEExT import feature_engine
 from NEExT.graph_collection import Graph_Collection
-from NEExT.graph_embedding_engine import Graph_Embedding_Engine
+from NEExT import graph_embedding_engine
 
 
 class NEExT:
@@ -25,9 +25,7 @@ class NEExT:
         self.global_config = Global_Config()
         self.global_config.set_output_mode(quiet_mode)
         self.graph_c = Graph_Collection(self.global_config)
-        self.feat_eng = Feature_Engine(self.global_config)
         self.ml_model = ML_Models(self.global_config)
-        self.g_emb = Graph_Embedding_Engine(self.global_config)
         self.graph_embedding = {}
         self.similarity_matrix_stats = {}
         self.ml_model_results = None
@@ -57,12 +55,12 @@ class NEExT:
         return self.graph_c.global_feature_vector_arc
 
     def get_list_of_graph_features(self):
-        return self.feat_eng.get_list_of_graph_features()
+        return feature_engine.get_list_of_graph_features()
 
     def compute_graph_feature(self, feat_name, feat_vect_len):
         for g_obj in tqdm(self.graph_c.graph_collection, desc="Building features",
                           disable=self.global_config.quiet_mode):
-            self.feat_eng.compute_feature(g_obj, feat_name, feat_vect_len)
+            feature_engine.compute_feature(g_obj, feat_name, feat_vect_len)
 
     def discard_all_graph_features(self):
         for g_obj in tqdm(self.graph_c.graph_collection, desc="Discarding features",
@@ -80,7 +78,7 @@ class NEExT:
     def pool_graph_features(self, pool_method="concat"):
         for g_obj in tqdm(self.graph_c.graph_collection, desc="Pooling features",
                           disable=self.global_config.quiet_mode):
-            self.feat_eng.pool_features(g_obj, pool_method)
+            feature_engine.pool_features(g_obj, pool_method)
         self.standardize_graph_features_globaly()
 
     def standardize_graph_features_globaly(self):
@@ -156,7 +154,7 @@ class NEExT:
         self.graph_c.global_feature_vector = data.copy(deep=True)
 
     def get_list_of_graph_embedding_engines(self):
-        return self.g_emb.get_list_of_graph_embedding_engines()
+        return graph_embedding_engine.get_list_of_graph_embedding_engines()
 
     def get_graph_embeddings(self):
         return self.graph_embedding["graph_embedding_df"]
@@ -166,9 +164,12 @@ class NEExT:
         This method uses the Graph Embedding Engine object to
         build a graph embedding for every graph in the graph collection.
         """
-        graph_embedding, graph_embedding_df = self.g_emb.build_graph_embedding(emb_dim_len,
-                                                                               emb_engine,
-                                                                               self.graph_c)
+        graph_embedding, graph_embedding_df = \
+            graph_embedding_engine.build_graph_embedding(emb_dim_len,
+                                                         emb_engine,
+                                                         self.graph_c
+                                                         )
+
         self.graph_embedding["graph_embedding"] = graph_embedding
         self.graph_embedding["graph_embedding_df"] = graph_embedding_df
 
@@ -216,9 +217,11 @@ class NEExT:
         res_df = pd.DataFrame()
         for col in self.graph_c.global_feature_vector_cols:
             graph_feat_cols = [col]
-            graph_embedding, graph_embedding_df = self.g_emb.build_graph_embedding(1, emb_engine,
-                                                                                   self.graph_c,
-                                                                                   graph_feat_cols)
+            graph_embedding, graph_embedding_df = graph_embedding_engine(1, emb_engine,
+                                                                         self.graph_c,
+                                                                         graph_feat_cols
+                                                                         )
+
             data_obj = self.format_data_for_classification(graph_embedding_df)
             ml_model_results = self.ml_model.build_classification_model(data_obj, sample_size,
                                                                         balance_classes)
