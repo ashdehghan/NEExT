@@ -18,6 +18,9 @@ def test_compute_community_aware_features():
 
     feat_eng.compute_community_aware_features(g_obj, 3, 'anomaly_score_CADA')
     feat_eng.compute_community_aware_features(g_obj, 3, 'normalized_anomaly_score_CADA')
+    feat_eng.compute_community_aware_features(g_obj, 3, 'participation_coefficient')
+    feat_eng.compute_community_aware_features(g_obj, 3, 'normalized_within_module_degree')
+    feat_eng.compute_community_aware_features(g_obj, 3, 'participation_coefficient')
     print(g_obj.feature_collection['features'])
 
 

@@ -13,7 +13,8 @@ import pandas as pd
 import networkx as nx
 
 # Internal Libraries
-from NEExT.helper_functions import get_nodes_x_hops_away, get_all_in_community_degrees, get_own_in_community_degree, community_volume
+from NEExT.helper_functions import get_nodes_x_hops_away, get_all_in_community_degrees, \
+      get_own_in_community_degree, get_specific_in_community_degree, community_volume
 from NEExT.node_embedding_engine import Node_Embedding_Engine
 
 
@@ -174,7 +175,7 @@ class Feature_Engine:
         Calculates node features
         that use the modularity-optimizing Leiden community detection algorithm.
 
-        Node that the community detection algorithm uses all nodes in the graph, 
+        Node that the community detection algorithm uses all nodes in the graph,
         not just the sample. This might have computational implications.
         """
         graph_id = g_obj.graph_id
@@ -192,19 +193,71 @@ class Feature_Engine:
             selected_nodes = list(G.nodes)
             calculated_nodes = selected_nodes
 
+        # get the Leiden community partition
+        # TODO repeat this? to guarantee stable result
+        resolution_lambda = 1
         iG = ig.Graph.from_networkx(G)
-        partition = iG.community_leiden(objective_function="modularity")
+        partition = iG.community_leiden(objective_function="modularity",
+                                        resolution_parameter=resolution_lambda
+                                        )
 
         if func_name == 'anomaly_score_CADA':
             comm_feat = {
                 node: G.degree(node) / max(get_all_in_community_degrees(G, node, partition))
                 for node in calculated_nodes
             }
-        if func_name == 'normalized_anomaly_score_CADA':
+        elif func_name == 'normalized_anomaly_score_CADA':
             comm_feat = {
-                node: G.degree(node) / get_own_in_community_degree(G, node, partition)
+                node: get_own_in_community_degree(G, node, partition) / G.degree(node)
                 for node in calculated_nodes
             }
+        elif func_name == 'community_association_strength':
+            comm_feat = {
+                node: 2*(
+                    (get_own_in_community_degree(G, node, partition)/G.degree(node))
+                    -
+                    resolution_lambda*(
+                        (community_volume(G, node, partition) - G.degree(node))
+                        /
+                        (2*G.number_of_edges())
+                    )
+                )
+                for node in calculated_nodes
+            }
+        elif func_name == 'normalized_within_module_degree':
+            # the mean and std of the indegree of nodes in the same community
+            mu_per_community = {}
+            sigma_per_community = {}
+
+            comm_feat = {}
+            for node in calculated_nodes:
+                # get index of the community the node belongs to
+                comm_index = [ i for i, community in enumerate(partition) if node in community][0]
+                if node not in mu_per_community:
+                    in_community_degrees = [
+                        get_specific_in_community_degree(G, v, partition, comm_index)
+                        for v in partition[comm_index]
+                    ]
+                    mu_per_community[comm_index] = np.mean(in_community_degrees)
+                    sigma_per_community[comm_index] = np.std(in_community_degrees)
+
+                if sigma_per_community[comm_index] == 0:
+                    comm_feat[node] = 0
+                else:
+                    comm_feat[node] = (
+                        (get_specific_in_community_degree(G, node, partition, comm_index)
+                        - mu_per_community[comm_index]) / sigma_per_community[comm_index]
+                    )
+        elif func_name == 'participation_coefficient':
+            comm_feat = {
+                node: 1 - sum(
+                    (in_degree / G.degree(node))**2
+                    for in_degree in get_all_in_community_degrees(G, node, partition)
+                )
+                for node in calculated_nodes
+            }
+        else:
+            raise ValueError("The selected structural feature is not supported.")
 
         features = []
         for i, node in enumerate(selected_nodes):

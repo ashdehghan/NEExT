@@ -47,6 +47,17 @@ def get_nodes_x_hops_away(G, node, max_hop_length) -> List[Set]:
     return hop_list
 
 
+def get_specific_in_community_degree(G, node_id, community_partition: List[List[int]],
+                                     community_id: int) -> int:
+    """
+    This method will compute the community degree of a node for a specific community.
+
+    Returns an integer, which is the in-community degree of the node for the specified community.
+    """
+    neighbors = list(G.neighbors(node_id))
+    return len([n for n in neighbors if n in community_partition[community_id]])
+
+
 def get_all_in_community_degrees(G, node_id, community_partition: List[List[int]]) -> List[int]:
     """
     This method will compute the community degree of a node for each of the communities.
@@ -54,10 +65,11 @@ def get_all_in_community_degrees(G, node_id, community_partition: List[List[int]
     Returns a list of integers,
     where each integer is the in-community degree of the node for that community.
     """
-    neighbors = list(G.neighbors(node_id))
     in_community_degrees = []
-    for community in community_partition:
-        in_community_degrees.append(len([n for n in neighbors if n in community]))
+    for i, community in enumerate(community_partition):
+        in_community_degrees.append(
+            get_specific_in_community_degree(G, node_id, community_partition, i)
+            )
 
     return in_community_degrees
 
@@ -68,10 +80,9 @@ def get_own_in_community_degree(G, node_id, community_partition: List[List[int]]
 
     Returns an integer, which is the in-community degree of the node for its community.
     """
-    neighbors = list(G.neighbors(node_id))
-    for community in community_partition:
+    for i, community in enumerate(community_partition):
         if node_id in community:
-            return len([n for n in neighbors if n in community])
+            return get_specific_in_community_degree(G, node_id, community_partition, i)
 
 
 def community_volume(G, community_partition: List[List[int]]) -> List[int]:
