@@ -14,7 +14,7 @@ import networkx as nx
 
 # Internal Libraries
 from NEExT.helper_functions import get_nodes_x_hops_away, get_all_in_community_degrees, \
-      get_own_in_community_degree, get_specific_in_community_degree, community_volume
+      get_own_in_community_degree, get_specific_in_community_degree, get_own_community_volume
 
 from NEExT import node_embedding_engine
 
@@ -209,7 +209,7 @@ def compute_community_aware_features(g_obj, feat_vect_len, func_name):
                 (get_own_in_community_degree(G, node, partition)/G.degree(node))
                 -
                 resolution_lambda*(
-                    (community_volume(G, node, partition) - G.degree(node))
+                    (get_own_community_volume(G, node, partition) - G.degree(node))
                     /
                     (2*G.number_of_edges())
                 )
@@ -225,7 +225,7 @@ def compute_community_aware_features(g_obj, feat_vect_len, func_name):
         for node in calculated_nodes:
             # get index of the community the node belongs to
             comm_index = [i for i, community in enumerate(partition) if node in community][0]
-            if node not in mu_per_community:
+            if comm_index not in mu_per_community:
                 in_community_degrees = [
                     get_specific_in_community_degree(G, v, partition, comm_index)
                     for v in partition[comm_index]
@@ -302,5 +302,10 @@ features = {
     "degree_centrality": compute_structural_node_features,
     "closeness_centrality": compute_structural_node_features,
     "load_centrality": compute_structural_node_features,
-    "eigenvector_centrality": compute_structural_node_features
+    "eigenvector_centrality": compute_structural_node_features,
+    "anomaly_score_CADA": compute_community_aware_features,
+    "normalized_anomaly_score_CADA": compute_community_aware_features,
+    "community_association_strength": compute_community_aware_features,
+    "normalized_within_module_degree": compute_community_aware_features,
+    "participation_coefficient": compute_community_aware_features
 }

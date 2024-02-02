@@ -4,7 +4,8 @@ import sys
 sys.path.append("../")
 from NEExT.helper_functions import get_nodes_x_hops_away, get_numb_of_nb_x_hops_away, \
     get_specific_in_community_degree, get_all_in_community_degrees, \
-    get_own_in_community_degree, community_volume
+    get_own_in_community_degree, get_specific_community_volume, \
+    get_all_community_volumes, get_own_community_volume
 from _test_format import run_list_of_tests
 
 
@@ -32,12 +33,15 @@ def test_in_degree_calculators():
     assert get_all_in_community_degrees(G, 1, partition) == [2, 0], "Error in get_all_in_community_degrees"
 
 
-def test_community_volume():
+def test_community_volume_calculators():
     G = nx.cycle_graph(6)
     partition = [[0, 1, 2], [3, 4, 5]]
-    return community_volume(G, partition) == [6, 6], "Error in community_volume"
+    assert get_specific_community_volume(G, partition, 0) == 6, "Error in get_specific_community_volume"
+    assert get_specific_community_volume(G, partition, 1) == 6, "Error in get_specific_community_volume"
+    assert get_own_community_volume(G, 0, partition) == 6, "Error in get_own_community_volume"
+    assert get_all_community_volumes(G, partition) == [6, 6], "Error in get_all_community_volumes"
 
 
 if __name__ == "__main__":
-    run_list_of_tests([test_get_nodes_x_hops_away, test_get_numb_of_nb_x_hops_away, 
-                       test_in_degree_calculators, test_community_volume])
+    run_list_of_tests([test_get_nodes_x_hops_away, test_get_numb_of_nb_x_hops_away,
+                       test_in_degree_calculators, test_community_volume_calculators])
