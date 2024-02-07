@@ -5,7 +5,7 @@ with open("README.md", "r", encoding="utf-8") as fh:
 
 setuptools.setup(
 	name='NEExT',
-	version='0.2.5',
+	version='0.2.6',
 	author='Ashkan Dehghan',
 	author_email='ash.dehghan@gmail.com',
 	description='Unsupervised Graph Analysis Framework.',
