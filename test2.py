@@ -30,19 +30,11 @@ for samp_rate in tqdm(range(5, 105, 5)):
 	nxt.build_graph_embedding(emb_dim_len=6, emb_engine="approx_wasserstein")
 
 	df = nxt.get_graph_embeddings()
+
 	df["sample_rate"] = samp_rate/100
 	if res.empty:
 		res = df.copy(deep=True)
 	else:
 		res = pd.concat([res, df])
 	
-res.to_csv("post_feature_creation_sampling_synthetic.csv", index=False)
-
-
-
-
-
-# nxt.get_feature_importance_classification_technique(emb_engine="approx_wasserstein")
-
-# res = nxt.compute_feat_variability()
-# print(res)
+res.to_csv("pre_feature_creation_sampling_synthetic.csv", index=False)
