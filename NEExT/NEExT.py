@@ -62,6 +62,9 @@ class NEExT:
                           disable=self.global_config.quiet_mode):
             feature_engine.compute_feature(g_obj, feat_name, feat_vect_len)
 
+    def load_custom_node_feature_function(self, function, function_name):
+        feature_engine.load_function(function, function_name)
+
     def discard_all_graph_features(self):
         for g_obj in tqdm(self.graph_c.graph_collection, desc="Discarding features",
                           disable=self.global_config.quiet_mode):

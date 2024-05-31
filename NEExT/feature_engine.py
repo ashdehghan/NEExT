@@ -293,6 +293,26 @@ def pool_features(g_obj, pool_method="concat"):
     g_obj.feature_collection["pooled_features"] = pooled_features
 
 
+def load_function(function, func_name):
+    def user_function(g_obj, feat_vect_len, feat_name):
+        if g_obj.graph_node_source == "sample":
+            selected_nodes = g_obj.node_samples
+            G = g_obj.graph
+            H = G.subgraph(selected_nodes)
+        else:
+            H = g_obj.graph
+        feats = function(H, feat_vect_len)
+        feat_cols = ["feat_"+feat_name+"_"+str(i) for i in range(feat_vect_len)]
+        df = pd.DataFrame(feats.values())
+        df.columns = feat_cols
+        df.insert(0, "node_id", list(feats.keys()))
+        df.insert(1, "graph_id", g_obj.graph_id)
+        g_obj.feature_collection["features"][feat_name] = {}
+        g_obj.feature_collection["features"][feat_name]["feats"] = df
+        g_obj.feature_collection["features"][feat_name]["feats_cols"] = feat_cols
+    features[func_name] = user_function
+
+
 features = {
     "lsme": compute_lsme,
     "self_walk": compute_self_walk,

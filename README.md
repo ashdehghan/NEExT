@@ -133,7 +133,12 @@ nxt.get_list_of_graph_features()
      'degree_centrality',
      'closeness_centrality',
      'load_centrality',
-     'eigenvector_centrality']
+     'eigenvector_centrality',
+     'anomaly_score_CADA',
+     'normalized_anomaly_score_CADA',
+     'community_association_strength',
+     'normalized_within_module_degree',
+     'participation_coefficient']
 
 
 
@@ -211,39 +216,39 @@ df.head(3)
       <td>0</td>
       <td>0</td>
       <td>4.094288</td>
-      <td>1.632019</td>
       <td>1.723672</td>
       <td>2.023497</td>
+      <td>2.122162</td>
       <td>4.014656</td>
-      <td>1.645432</td>
       <td>1.825315</td>
       <td>2.003575</td>
+      <td>2.062771</td>
     </tr>
     <tr>
       <th>1</th>
       <td>1</td>
       <td>0</td>
       <td>2.682074</td>
-      <td>2.024244</td>
       <td>1.689427</td>
       <td>2.023497</td>
+      <td>2.082461</td>
       <td>2.651835</td>
-      <td>1.999918</td>
       <td>1.745939</td>
       <td>2.042548</td>
+      <td>2.045115</td>
     </tr>
     <tr>
       <th>2</th>
       <td>2</td>
       <td>0</td>
       <td>2.682074</td>
-      <td>1.915292</td>
       <td>1.578132</td>
       <td>2.120736</td>
+      <td>2.131372</td>
       <td>2.672592</td>
-      <td>1.917080</td>
       <td>1.696518</td>
       <td>2.058271</td>
+      <td>2.071704</td>
     </tr>
   </tbody>
 </table>
@@ -302,46 +307,46 @@ df.head()
       <th>0</th>
       <td>0</td>
       <td>0</td>
-      <td>2.471714</td>
-      <td>3.577450</td>
-      <td>0.394070</td>
-      <td>0.779143</td>
+      <td>2.560267</td>
+      <td>3.463473</td>
+      <td>1.190519</td>
+      <td>1.075334</td>
     </tr>
     <tr>
       <th>1</th>
       <td>1</td>
       <td>0</td>
-      <td>2.232913</td>
-      <td>1.420164</td>
-      <td>0.969629</td>
-      <td>0.912235</td>
+      <td>2.219077</td>
+      <td>1.481326</td>
+      <td>1.365794</td>
+      <td>0.532872</td>
     </tr>
     <tr>
       <th>2</th>
       <td>2</td>
       <td>0</td>
-      <td>2.202837</td>
-      <td>1.494916</td>
-      <td>0.809437</td>
-      <td>1.537148</td>
+      <td>2.225506</td>
+      <td>1.488865</td>
+      <td>1.925751</td>
+      <td>0.467088</td>
     </tr>
     <tr>
       <th>3</th>
       <td>3</td>
       <td>0</td>
-      <td>2.102230</td>
-      <td>0.403983</td>
-      <td>0.199739</td>
-      <td>-0.931054</td>
+      <td>2.129568</td>
+      <td>0.363245</td>
+      <td>-0.311636</td>
+      <td>1.752476</td>
     </tr>
     <tr>
       <th>4</th>
       <td>4</td>
       <td>0</td>
-      <td>2.164103</td>
-      <td>0.202613</td>
-      <td>2.194223</td>
-      <td>3.052554</td>
+      <td>2.009336</td>
+      <td>0.529704</td>
+      <td>3.251858</td>
+      <td>-1.665345</td>
     </tr>
   </tbody>
 </table>
@@ -396,65 +401,65 @@ df.head()
       <td>0</td>
       <td>0</td>
       <td>4.094288</td>
-      <td>1.632019</td>
       <td>1.723672</td>
       <td>2.023497</td>
+      <td>2.122162</td>
       <td>4.014656</td>
-      <td>1.645432</td>
       <td>1.825315</td>
       <td>2.003575</td>
+      <td>2.062771</td>
     </tr>
     <tr>
       <th>1</th>
       <td>1</td>
       <td>0</td>
       <td>2.682074</td>
-      <td>2.024244</td>
       <td>1.689427</td>
       <td>2.023497</td>
+      <td>2.082461</td>
       <td>2.651835</td>
-      <td>1.999918</td>
       <td>1.745939</td>
       <td>2.042548</td>
+      <td>2.045115</td>
     </tr>
     <tr>
       <th>2</th>
       <td>2</td>
       <td>0</td>
       <td>2.682074</td>
-      <td>1.915292</td>
       <td>1.578132</td>
       <td>2.120736</td>
+      <td>2.131372</td>
       <td>2.672592</td>
-      <td>1.917080</td>
       <td>1.696518</td>
       <td>2.058271</td>
+      <td>2.071704</td>
     </tr>
     <tr>
       <th>3</th>
       <td>3</td>
       <td>0</td>
       <td>1.975967</td>
-      <td>1.993115</td>
       <td>2.082671</td>
       <td>1.851304</td>
+      <td>2.161749</td>
       <td>1.968745</td>
-      <td>1.937933</td>
       <td>2.028736</td>
       <td>1.879435</td>
+      <td>2.154684</td>
     </tr>
     <tr>
       <th>4</th>
       <td>4</td>
       <td>0</td>
       <td>1.975967</td>
-      <td>2.491178</td>
       <td>1.355541</td>
       <td>2.346133</td>
+      <td>1.966471</td>
       <td>1.940827</td>
-      <td>2.407239</td>
       <td>1.384500</td>
       <td>2.274468</td>
+      <td>1.972817</td>
     </tr>
   </tbody>
 </table>
@@ -526,37 +531,37 @@ df.head()
   <tbody>
     <tr>
       <th>0</th>
-      <td>2.038486</td>
-      <td>1.463379</td>
-      <td>0.080776</td>
+      <td>2.121117</td>
+      <td>1.715908</td>
+      <td>0.420738</td>
       <td>0</td>
     </tr>
     <tr>
       <th>1</th>
-      <td>0.874913</td>
-      <td>1.535265</td>
-      <td>0.475480</td>
+      <td>0.927579</td>
+      <td>1.293987</td>
+      <td>1.120732</td>
       <td>1</td>
     </tr>
     <tr>
       <th>2</th>
-      <td>0.021950</td>
-      <td>0.849217</td>
-      <td>-0.418307</td>
+      <td>0.070954</td>
+      <td>1.024027</td>
+      <td>0.343173</td>
       <td>2</td>
     </tr>
     <tr>
       <th>3</th>
-      <td>-0.726050</td>
-      <td>0.750470</td>
-      <td>-0.317739</td>
+      <td>-0.682049</td>
+      <td>0.990811</td>
+      <td>0.106760</td>
       <td>3</td>
     </tr>
     <tr>
       <th>4</th>
-      <td>-1.313531</td>
-      <td>0.656964</td>
-      <td>0.077666</td>
+      <td>-1.281254</td>
+      <td>0.773949</td>
+      <td>0.212976</td>
       <td>4</td>
     </tr>
   </tbody>
@@ -576,4 +581,183 @@ We may often have to deal with large graphs, both in the number of sub-graphs in
 
 ```python
 nxt.build_node_sample_collection(sample_rate=0.1)
+```
+
+## Adding Custom Node Feature Function
+
+You can define and load into `NEExT` you own node feature function. Below, we show an example of loading a custom function into `NEExT` and using it to compute node features. The only thing to keep in mind is the interface for the function, meaning the input and output format.
+
+#### Input:
+Your custom function should have the following inputs:
+```
+func(G, feat_vect_len):
+    ...
+```
+Where `G` is a `NetworkX` graph object and `feat_vect_len` is an `int` indicating the length of the node feature vector.
+#### Output:
+Your function should have the following output:
+```
+func(G, feat_vect_len):
+    ...
+    feat_vect = {node_id : [v1, v2, v3, ...], ...}
+    return feat_vect
+```
+Where the output is a `dict`, where the keys are the node ids and the values of list, with elements being the values of features for that node. The length of the feature vector should be the same as the input `feat_vect_len`.
+
+One thing to note is that, if you have applied `sampling` (as we have done above), `NEExT` will automatically load a sampled version of the graphs into your custom function. The NetworkX graph G passed to your function is a sub-graph with only a fraction of nodes, as defined by the sampling rate.
+
+Below, we show an example of:
+* Creating a custom function, where we have a feature vector of only zero (you can do something more complicated)
+* Loading the custom function into NEExT using `load_custom_node_feature_function` with two parameters (function and function_name)
+* Calling the custom function to compute features.
+* Concatinating the new features with the old one (from above)
+* Displaying the new gloabl feature DataFrame.
+
+
+```python
+def my_custom_node_feature(G, feat_vect_len):
+    feat_vect = {}
+    for i in G.nodes:
+        feat_vect[i] = [0]*feat_vect_len
+    return feat_vect
+
+nxt.load_custom_node_feature_function(function=my_custom_node_feature, function_name="my_custom_node_feature")
+nxt.get_list_of_graph_features()
+```
+
+
+
+
+    ['lsme',
+     'self_walk',
+     'basic_expansion',
+     'basic_node_features',
+     'page_rank',
+     'degree_centrality',
+     'closeness_centrality',
+     'load_centrality',
+     'eigenvector_centrality',
+     'anomaly_score_CADA',
+     'normalized_anomaly_score_CADA',
+     'community_association_strength',
+     'normalized_within_module_degree',
+     'participation_coefficient',
+     'my_custom_node_feature']
+
+
+
+
+```python
+nxt.compute_graph_feature(feat_name="my_custom_node_feature", feat_vect_len=4)
+```
+
+
+```python
+nxt.pool_graph_features(pool_method="concat")
+```
+
+
+```python
+df = nxt.get_global_feature_vector()
+df.head(3)
+```
+
+
+
+
+<div>
+<style scoped>
+    .dataframe tbody tr th:only-of-type {
+        vertical-align: middle;
+    }
+
+    .dataframe tbody tr th {
+        vertical-align: top;
+    }
+
+    .dataframe thead th {
+        text-align: right;
+    }
+</style>
+<table border="1" class="dataframe">
+  <thead>
+    <tr style="text-align: right;">
+      <th></th>
+      <th>node_id</th>
+      <th>graph_id</th>
+      <th>feat_degree_centrality_0</th>
+      <th>feat_degree_centrality_1</th>
+      <th>feat_degree_centrality_2</th>
+      <th>feat_degree_centrality_3</th>
+      <th>feat_page_rank_0</th>
+      <th>feat_page_rank_1</th>
+      <th>feat_page_rank_2</th>
+      <th>feat_page_rank_3</th>
+      <th>feat_my_custom_node_feature_0</th>
+      <th>feat_my_custom_node_feature_1</th>
+      <th>feat_my_custom_node_feature_2</th>
+      <th>feat_my_custom_node_feature_3</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <th>0</th>
+      <td>4</td>
+      <td>0</td>
+      <td>2.005123</td>
+      <td>1.354005</td>
+      <td>2.347066</td>
+      <td>1.959329</td>
+      <td>1.977187</td>
+      <td>1.385398</td>
+      <td>2.273995</td>
+      <td>1.966959</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+    </tr>
+    <tr>
+      <th>1</th>
+      <td>14</td>
+      <td>0</td>
+      <td>2.005123</td>
+      <td>2.268527</td>
+      <td>2.061383</td>
+      <td>1.982474</td>
+      <td>1.972862</td>
+      <td>2.141328</td>
+      <td>2.009107</td>
+      <td>2.031782</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+    </tr>
+    <tr>
+      <th>2</th>
+      <td>30</td>
+      <td>0</td>
+      <td>0.553677</td>
+      <td>1.141169</td>
+      <td>1.825850</td>
+      <td>2.434965</td>
+      <td>0.834835</td>
+      <td>1.422558</td>
+      <td>1.834757</td>
+      <td>2.336032</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+    </tr>
+  </tbody>
+</table>
+</div>
+
+
+
+
+```python
+
 ```
