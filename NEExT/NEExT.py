@@ -219,11 +219,11 @@ class NEExT:
                                                         sample_size=15, balance_classes=True):
         res_df = pd.DataFrame()
         for col in self.graph_c.global_feature_vector_cols:
-            graph_feat_cols = [col]
-            graph_embedding, graph_embedding_df = graph_embedding_engine(1, emb_engine,
-                                                                         self.graph_c,
-                                                                         graph_feat_cols
-                                                                         )
+
+            graph_embedding, graph_embedding_df = graph_embedding_engine.build_graph_embedding(emb_dim_len=1,
+                                                         emb_engine=emb_engine,
+                                                         graph_c=self.graph_c,
+                                                         graph_feat_cols=[col])
 
             data_obj = self.format_data_for_classification(graph_embedding_df)
             ml_model_results = self.ml_model.build_classification_model(data_obj, sample_size,

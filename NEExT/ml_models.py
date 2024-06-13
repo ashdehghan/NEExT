@@ -55,7 +55,7 @@ class ML_Models:
         return result
 
     def build_xgboost_classification(self, data_obj):
-        model = xgboost.XGBClassifier(n_estimators=1000, max_depth=5, eta=0.1, subsample=0.7,
+        model = xgboost.XGBClassifier(n_estimators=10, max_depth=5, eta=0.1, subsample=0.7,
                                       colsample_bytree=0.8)
         model.fit(data_obj["X_train"], data_obj["y_train"])
         y_pred = model.predict(data_obj["X_test"]).flatten()
