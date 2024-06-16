@@ -6,8 +6,10 @@
 import xgboost
 import pandas as pd
 from tqdm import tqdm
+from sklearn.svm import SVC
 from sklearn.metrics import f1_score
 from sklearn.metrics import recall_score
+from sklearn.feature_selection import RFE
 from sklearn.metrics import accuracy_score
 from sklearn.metrics import precision_score
 from sklearn.metrics import mean_squared_error
@@ -20,6 +22,7 @@ class ML_Models:
 
     def __init__(self, global_config):
         self.global_config = global_config
+
 
     def build_classification_model(self, data_obj, sample_size, balance_classes):
         data_obj = self.format_classes(data_obj)
@@ -55,7 +58,7 @@ class ML_Models:
         return result
 
     def build_xgboost_classification(self, data_obj):
-        model = xgboost.XGBClassifier(n_estimators=10, max_depth=5, eta=0.1, subsample=0.7,
+        model = xgboost.XGBClassifier(n_estimators=500, max_depth=5, eta=0.1, subsample=0.7,
                                       colsample_bytree=0.8)
         model.fit(data_obj["X_train"], data_obj["y_train"])
         y_pred = model.predict(data_obj["X_test"]).flatten()

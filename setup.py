@@ -29,5 +29,6 @@ setuptools.setup(
 	"jupyter==1.0.0",
 	"plotly==5.18.0",
 	"xgboost==2.0.2",
-	"igraph==0.11.3"]
+	"igraph==0.11.3",
+	"bayesian-optimization==1.4.3"]
 )

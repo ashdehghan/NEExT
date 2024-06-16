@@ -4,12 +4,15 @@
 
 # External Libraries
 import umap
+import copy
+import numpy as np
 import pandas as pd
 from tqdm import tqdm
 import plotly.express as px
 from sklearn.decomposition import PCA
 from scipy.stats import wasserstein_distance
 from sklearn.preprocessing import StandardScaler
+from bayes_opt import BayesianOptimization
 
 # Internal Modules
 from NEExT.ml_models import ML_Models
@@ -114,6 +117,7 @@ class NEExT:
         feat_df.insert(1, "graph_id", graph_ids)
         # Keep a collective global embedding
         self.graph_c.global_feature_vector = feat_df.copy(deep=True)
+        self.graph_c.global_feature_vector_original = self.graph_c.global_feature_vector.copy(deep=True)
         self.graph_c.global_feature_vector_cols = feat_cols
         # Re-assign global embeddings to each graph
         for g_obj in tqdm(self.graph_c.graph_collection, desc="Updating features",
@@ -155,6 +159,7 @@ class NEExT:
         data.insert(1, "graph_id", self.graph_c.global_feature_vector["graph_id"])
         self.graph_c.global_feature_vector_cols = feat_cols[:]
         self.graph_c.global_feature_vector = data.copy(deep=True)
+        self.graph_c.global_feature_vector_original = self.graph_c.global_feature_vector.copy(deep=True)
 
     def get_list_of_graph_embedding_engines(self):
         return graph_embedding_engine.get_list_of_graph_embedding_engines()
@@ -176,44 +181,83 @@ class NEExT:
         self.graph_embedding["graph_embedding"] = graph_embedding
         self.graph_embedding["graph_embedding_df"] = graph_embedding_df
 
-    def compute_feat_variability(self):
-        graph_ids = self.graph_c.global_feature_vector["graph_id"].unique().tolist()
-        wd_list = []
-        feat_list = []
-        graph_id_i = []
-        graph_id_j = []
-        for feat_col_name in tqdm(self.graph_c.global_feature_vector_cols,
-                                  desc="Standardizing features",
-                                  disable=self.global_config.quiet_mode):
+    # def compute_feat_variability(self):
+    #     graph_ids = self.graph_c.global_feature_vector["graph_id"].unique().tolist()
+    #     wd_list = []
+    #     feat_list = []
+    #     graph_id_i = []
+    #     graph_id_j = []
+    #     for feat_col_name in tqdm(self.graph_c.global_feature_vector_cols,
+    #                               desc="Standardizing features",
+    #                               disable=self.global_config.quiet_mode):
 
-            for i in range(0, len(graph_ids)):
-                ref_feat = self.graph_c.global_feature_vector[
-                    self.graph_c.global_feature_vector["graph_id"] == graph_ids[i]
-                    ][feat_col_name].values
+    #         for i in range(0, len(graph_ids)):
+    #             ref_feat = self.graph_c.global_feature_vector[
+    #                 self.graph_c.global_feature_vector["graph_id"] == graph_ids[i]
+    #                 ][feat_col_name].values
 
-                for j in range(0, len(graph_ids)):
-                    feat = self.graph_c.global_feature_vector[
-                        self.graph_c.global_feature_vector["graph_id"] == graph_ids[j]
-                        ][feat_col_name].values
-                    wd = wasserstein_distance(ref_feat, feat)
-                    wd_list.append(wd)
-                    feat_list.append(feat_col_name)
-                    graph_id_i.append(i)
-                    graph_id_j.append(j)
+    #             for j in range(0, len(graph_ids)):
+    #                 feat = self.graph_c.global_feature_vector[
+    #                     self.graph_c.global_feature_vector["graph_id"] == graph_ids[j]
+    #                     ][feat_col_name].values
+    #                 wd = wasserstein_distance(ref_feat, feat)
+    #                 wd_list.append(wd)
+    #                 feat_list.append(feat_col_name)
+    #                 graph_id_i.append(i)
+    #                 graph_id_j.append(j)
 
-        res_df = pd.DataFrame()
-        res_df["graph_id_i"] = graph_id_i
-        res_df["graph_id_j"] = graph_id_j
-        res_df["feature_name"] = feat_list
-        res_df["score"] = wd_list
-        # res_df = pd.DataFrame(
-        #     res_df.groupby(by=["Feature Name"])[
-        #         "Feature Variability Score"
-        #         ].std()
-        #     ).reset_index()
-        # res_df.sort_values(by=["Feature Variability Score"], ascending=False, inplace=True)
+    #     res_df = pd.DataFrame()
+    #     res_df["graph_id_i"] = graph_id_i
+    #     res_df["graph_id_j"] = graph_id_j
+    #     res_df["feature_name"] = feat_list
+    #     res_df["score"] = wd_list
+    #     # res_df = pd.DataFrame(
+    #     #     res_df.groupby(by=["Feature Name"])[
+    #     #         "Feature Variability Score"
+    #     #         ].std()
+    #     #     ).reset_index()
+    #     # res_df.sort_values(by=["Feature Variability Score"], ascending=False, inplace=True)
 
-        return res_df
+    #     return res_df
+
+
+    def black_box_function(self, **kwargs):
+        self.graph_c.global_feature_vector = self.graph_c.global_feature_vector_original.copy(deep=True)
+        sum_of_w = sum(list(kwargs.values()))
+        for col in self.graph_c.global_feature_vector_cols:
+            w = kwargs[col]/sum_of_w
+            self.graph_c.global_feature_vector[col] *= w
+
+        emb_dim_len = len(self.graph_c.global_feature_vector_cols)
+        _, graph_embedding_df = graph_embedding_engine.build_graph_embedding(
+            graph_c=self.graph_c,
+            emb_dim_len=emb_dim_len,
+            emb_engine="approx_wasserstein"
+            )
+        data_obj = self.format_data_for_classification(graph_embedding_df)
+        ml_model_results = self.ml_model.build_classification_model(data_obj, 30, True)
+        metric = np.mean(np.array(ml_model_results["accuracy"]))
+        return metric
+
+
+
+    def get_supervised_feature_importance(self):
+        pbounds = {}
+        for col in self.graph_c.global_feature_vector_cols:
+            pbounds[col] = (0, 1)
+        optimizer = BayesianOptimization(
+            f=self.black_box_function,
+            pbounds=pbounds,
+            random_state=1,
+        )
+        optimizer.maximize(
+            init_points=5,
+            n_iter=20,
+        )
+        print(optimizer.max)
+
+        
+
 
     def get_feature_importance_classification_technique(self, emb_engine="approx_wasserstein",
                                                         sample_size=15, balance_classes=True):

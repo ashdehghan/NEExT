@@ -31,6 +31,10 @@ class Graph_Collection:
         self.global_embeddings_cols_arc = None
         self.global_embeddings_arc = None
         self.use_sampled_nodes = False
+        self.global_feature_vector = None
+        self.global_feature_vector_cols = None
+        self.global_feature_vector_arc = None
+        self.global_feature_vector_original = None
 
     def load_graphs_from_csv(self, edge_file, node_graph_mapping_file, node_features_file=None):
         """
