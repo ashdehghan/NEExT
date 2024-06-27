@@ -220,12 +220,18 @@ class NEExT:
 
     #     return res_df
 
+# {'target': 0.8447368421052632, 'params': {'feat_basic_expansion_0': 0.39676747423066994, 'feat_page_rank_0': 0.538816734003357}}
+# {'target': 0.8421052631578949, 'params': {'feat_basic_expansion_0': 0.20050017663542263, 'feat_page_rank_0': 0.6165392570147974}}
 
     def black_box_function(self, **kwargs):
+        # sum_of_w = sum(list(kwargs.values()))
         self.graph_c.global_feature_vector = self.graph_c.global_feature_vector_original.copy(deep=True)
-        sum_of_w = sum(list(kwargs.values()))
         for col in self.graph_c.global_feature_vector_cols:
-            w = kwargs[col]/sum_of_w
+            w = kwargs[col]
+            if w <= 0.5:
+                w = 0
+            else:
+                w = 1
             self.graph_c.global_feature_vector[col] *= w
 
         emb_dim_len = len(self.graph_c.global_feature_vector_cols)
@@ -251,8 +257,8 @@ class NEExT:
             random_state=1,
         )
         optimizer.maximize(
-            init_points=5,
-            n_iter=20,
+            init_points=2,
+            n_iter=5,
         )
         print(optimizer.max)
 
