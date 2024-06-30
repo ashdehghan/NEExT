@@ -2,24 +2,26 @@
     Author : Ash Dehghan
 """
 
-# External Libraries
-import umap
 import copy
+
 import numpy as np
 import pandas as pd
-from tqdm import tqdm
 import plotly.express as px
-from sklearn.decomposition import PCA
-from scipy.stats import wasserstein_distance
-from sklearn.preprocessing import StandardScaler
+
+# External Libraries
+import umap
 from bayes_opt import BayesianOptimization
+from scipy.stats import wasserstein_distance
+from sklearn.decomposition import PCA
+from sklearn.preprocessing import StandardScaler
+from tqdm import tqdm
+
+from NEExT import feature_engine, graph_embedding_engine
+from NEExT.global_config import Global_Config
+from NEExT.graph_collection import Graph_Collection
 
 # Internal Modules
 from NEExT.ml_models import ML_Models
-from NEExT.global_config import Global_Config
-from NEExT import feature_engine
-from NEExT.graph_collection import Graph_Collection
-from NEExT import graph_embedding_engine
 
 
 class NEExT:
@@ -33,9 +35,7 @@ class NEExT:
         self.similarity_matrix_stats = {}
         self.ml_model_results = None
 
-    def load_data_from_csv(self, edge_file, node_graph_mapping_file, node_features_file=None,
-                           graph_label_file=None, filter_for_largest_cc=True,
-                           reset_node_indices=True):
+    def load_data_from_csv(self, edge_file, node_graph_mapping_file, node_features_file=None, graph_label_file=None, filter_for_largest_cc=True, reset_node_indices=True):
         """
         This method uses the Graph Collection class to build an object
         which handels a set of graphs.
@@ -61,39 +61,34 @@ class NEExT:
         return feature_engine.get_list_of_graph_features()
 
     def compute_graph_feature(self, feat_name, feat_vect_len):
-        for g_obj in tqdm(self.graph_c.graph_collection, desc="Building features",
-                          disable=self.global_config.quiet_mode):
+        for g_obj in tqdm(self.graph_c.graph_collection, desc="Building features", disable=self.global_config.quiet_mode):
             feature_engine.compute_feature(g_obj, feat_name, feat_vect_len)
 
     def load_custom_node_feature_function(self, function, function_name):
         feature_engine.load_function(function, function_name)
 
     def discard_all_graph_features(self):
-        for g_obj in tqdm(self.graph_c.graph_collection, desc="Discarding features",
-                          disable=self.global_config.quiet_mode):
+        for g_obj in tqdm(self.graph_c.graph_collection, desc="Discarding features", disable=self.global_config.quiet_mode):
             for feat in g_obj.computed_features:
                 g_obj.feature_collection["features"].pop(feat)
             g_obj.computed_features = set()
 
     def discard_graph_feature(self, feat_name):
-        for g_obj in tqdm(self.graph_c.graph_collection, desc="Discarding features",
-                          disable=self.global_config.quiet_mode):
+        for g_obj in tqdm(self.graph_c.graph_collection, desc="Discarding features", disable=self.global_config.quiet_mode):
             g_obj.feature_collection["features"].pop(feat_name)
             g_obj.computed_features.remove(feat_name)
 
     def pool_graph_features(self, pool_method="concat"):
-        for g_obj in tqdm(self.graph_c.graph_collection, desc="Pooling features",
-                          disable=self.global_config.quiet_mode):
+        for g_obj in tqdm(self.graph_c.graph_collection, desc="Pooling features", disable=self.global_config.quiet_mode):
             feature_engine.pool_features(g_obj, pool_method)
         self.standardize_graph_features_globaly()
 
     def standardize_graph_features_globaly(self):
         """
-            This method will standardize the graph features across all graphs.
+        This method will standardize the graph features across all graphs.
         """
         all_graph_feats = pd.DataFrame()
-        for g_obj in tqdm(self.graph_c.graph_collection, desc="Standardizing features",
-                          disable=self.global_config.quiet_mode):
+        for g_obj in tqdm(self.graph_c.graph_collection, desc="Standardizing features", disable=self.global_config.quiet_mode):
             df = g_obj.feature_collection["pooled_features"]
             if all_graph_feats.empty:
                 all_graph_feats = df.copy(deep=True)
@@ -120,8 +115,7 @@ class NEExT:
         self.graph_c.global_feature_vector_original = self.graph_c.global_feature_vector.copy(deep=True)
         self.graph_c.global_feature_vector_cols = feat_cols
         # Re-assign global embeddings to each graph
-        for g_obj in tqdm(self.graph_c.graph_collection, desc="Updating features",
-                          disable=self.global_config.quiet_mode):
+        for g_obj in tqdm(self.graph_c.graph_collection, desc="Updating features", disable=self.global_config.quiet_mode):
             df = feat_df[feat_df["graph_id"] == g_obj.graph_id].copy(deep=True)
             g_obj.feature_collection["pooled_features"] = df
 
@@ -153,7 +147,7 @@ class NEExT:
         scaler = StandardScaler()
         data = scaler.fit_transform(data)
         data = pd.DataFrame(data)
-        feat_cols = ["feat_"+str(i) for i in range(data.shape[1])]
+        feat_cols = ["feat_" + str(i) for i in range(data.shape[1])]
         data.columns = feat_cols
         data.insert(0, "node_id", self.graph_c.global_feature_vector["node_id"])
         data.insert(1, "graph_id", self.graph_c.global_feature_vector["graph_id"])
@@ -172,11 +166,7 @@ class NEExT:
         This method uses the Graph Embedding Engine object to
         build a graph embedding for every graph in the graph collection.
         """
-        graph_embedding, graph_embedding_df = \
-            graph_embedding_engine.build_graph_embedding(emb_dim_len,
-                                                         emb_engine,
-                                                         self.graph_c
-                                                         )
+        graph_embedding, graph_embedding_df = graph_embedding_engine.build_graph_embedding(emb_dim_len, emb_engine, self.graph_c)
 
         self.graph_embedding["graph_embedding"] = graph_embedding
         self.graph_embedding["graph_embedding_df"] = graph_embedding_df
@@ -220,32 +210,26 @@ class NEExT:
 
     #     return res_df
 
-# {'target': 0.8447368421052632, 'params': {'feat_basic_expansion_0': 0.39676747423066994, 'feat_page_rank_0': 0.538816734003357}}
-# {'target': 0.8421052631578949, 'params': {'feat_basic_expansion_0': 0.20050017663542263, 'feat_page_rank_0': 0.6165392570147974}}
+    # {'target': 0.8447368421052632, 'params': {'feat_basic_expansion_0': 0.39676747423066994, 'feat_page_rank_0': 0.538816734003357}}
+    # {'target': 0.8421052631578949, 'params': {'feat_basic_expansion_0': 0.20050017663542263, 'feat_page_rank_0': 0.6165392570147974}}
 
     def black_box_function(self, **kwargs):
         # sum_of_w = sum(list(kwargs.values()))
         self.graph_c.global_feature_vector = self.graph_c.global_feature_vector_original.copy(deep=True)
         for col in self.graph_c.global_feature_vector_cols:
             w = kwargs[col]
-            if w <= 0.5:
-                w = 0
-            else:
-                w = 1
+            # if w <= 0.5:
+            #     w = 0
+            # else:
+            #     w = 1
             self.graph_c.global_feature_vector[col] *= w
 
         emb_dim_len = len(self.graph_c.global_feature_vector_cols)
-        _, graph_embedding_df = graph_embedding_engine.build_graph_embedding(
-            graph_c=self.graph_c,
-            emb_dim_len=emb_dim_len,
-            emb_engine="approx_wasserstein"
-            )
+        _, graph_embedding_df = graph_embedding_engine.build_graph_embedding(graph_c=self.graph_c, emb_dim_len=1, emb_engine="approx_wasserstein")
         data_obj = self.format_data_for_classification(graph_embedding_df)
-        ml_model_results = self.ml_model.build_classification_model(data_obj, 30, True)
+        ml_model_results = self.ml_model.build_classification_model(data_obj, 10, True)
         metric = np.mean(np.array(ml_model_results["accuracy"]))
         return metric
-
-
 
     def get_supervised_feature_importance(self):
         pbounds = {}
@@ -258,26 +242,18 @@ class NEExT:
         )
         optimizer.maximize(
             init_points=2,
-            n_iter=5,
+            n_iter=20,
         )
         print(optimizer.max)
 
-        
-
-
-    def get_feature_importance_classification_technique(self, emb_engine="approx_wasserstein",
-                                                        sample_size=15, balance_classes=True):
+    def get_feature_importance_classification_technique(self, emb_engine="approx_wasserstein", sample_size=15, balance_classes=True):
         res_df = pd.DataFrame()
         for col in self.graph_c.global_feature_vector_cols:
 
-            graph_embedding, graph_embedding_df = graph_embedding_engine.build_graph_embedding(emb_dim_len=1,
-                                                         emb_engine=emb_engine,
-                                                         graph_c=self.graph_c,
-                                                         graph_feat_cols=[col])
+            graph_embedding, graph_embedding_df = graph_embedding_engine.build_graph_embedding(emb_dim_len=1, emb_engine=emb_engine, graph_c=self.graph_c, graph_feat_cols=[col])
 
             data_obj = self.format_data_for_classification(graph_embedding_df)
-            ml_model_results = self.ml_model.build_classification_model(data_obj, sample_size,
-                                                                        balance_classes)
+            ml_model_results = self.ml_model.build_classification_model(data_obj, sample_size, balance_classes)
             df = pd.DataFrame(ml_model_results)
             df["feature"] = col
             if res_df.empty:
@@ -289,8 +265,7 @@ class NEExT:
     def build_classification_model(self, sample_size=50, balance_classes=False):
         graph_emb = self.graph_embedding["graph_embedding_df"]
         data_obj = self.format_data_for_classification(graph_emb)
-        self.ml_model_results = self.ml_model.build_classification_model(data_obj, sample_size,
-                                                                         balance_classes)
+        self.ml_model_results = self.ml_model.build_classification_model(data_obj, sample_size, balance_classes)
 
     def format_data_for_classification(self, graph_emb):
         data = self.graph_c.grpah_labels_df.merge(graph_emb, on="graph_id")
@@ -304,24 +279,21 @@ class NEExT:
         data_obj["y_col"] = "graph_label"
         return data_obj
 
-    def visualize_graph_embedding(self, color_by="nothing", color_target_type="classes",
-                                  dim_reduction="UMAP"):
+    def visualize_graph_embedding(self, color_by="nothing", color_target_type="classes", dim_reduction="UMAP"):
         """
         This method uses the the graph embedding and UMAP to
         visualize the embeddings in two dimensions. It can also color the
         points if there are labels available for the graph.
         """
         if color_by == "graph_label":
-            data = self.graph_embedding["graph_embedding_df"].merge(self.graph_c.grpah_labels_df,
-                                                                    on="graph_id", how="inner")
+            data = self.graph_embedding["graph_embedding_df"].merge(self.graph_c.grpah_labels_df, on="graph_id", how="inner")
             data.rename(columns={"graph_label": "Graph Label"}, inplace=True)
             if color_target_type == "classes":
                 data["Graph Label"] = data["Graph Label"].astype(str)
-            elif color_target_type == 'continuous':
+            elif color_target_type == "continuous":
                 data["Graph Label"] = data["Graph Label"].astype(float)
         elif color_by == "similarity_matrix_mean":
-            data = self.graph_embedding["graph_embedding_df"].merge(
-                self.similarity_matrix_stats["data"], on="graph_id", how="inner")
+            data = self.graph_embedding["graph_embedding_df"].merge(self.similarity_matrix_stats["data"], on="graph_id", how="inner")
             data.rename(columns={"similarity_matrix_mean": "Similarity Matrix Mean"}, inplace=True)
             if color_target_type == "classes":
                 data["Graph Label"] = data["Graph Label"].astype(str)
@@ -348,43 +320,27 @@ class NEExT:
         # TODO add PCA
         # Generate plotly figures
         if color_by == "graph_label":
-            fig = px.scatter(data, x="x", y="y", color="Graph Label", size=[4]*len(data))
+            fig = px.scatter(data, x="x", y="y", color="Graph Label", size=[4] * len(data))
         elif color_by == "similarity_matrix_mean":
-            fig = px.scatter(data, x="x", y="y", color="Similarity Matrix Mean",
-                             size=[4]*len(data))
+            fig = px.scatter(data, x="x", y="y", color="Similarity Matrix Mean", size=[4] * len(data))
         elif color_by == "nothing":
-            fig = px.scatter(data, x="x", y="y", size=[4]*len(data))
+            fig = px.scatter(data, x="x", y="y", size=[4] * len(data))
         else:
             raise ValueError("Selected coloring is not supported.")
 
         # Update figure layout
-        fig.update_layout(paper_bgcolor='white')
-        fig.update_layout(plot_bgcolor='white')
-        fig.update_yaxes(color='black')
+        fig.update_layout(paper_bgcolor="white")
+        fig.update_layout(plot_bgcolor="white")
+        fig.update_yaxes(color="black")
         fig.update_layout(
-            yaxis=dict(title="Dim-1",
-                       zeroline=True,
-                       showline=True,
-                       linecolor='black',
-                       mirror=True,
-                       linewidth=2
-                       ),
-            xaxis=dict(title='Dim-2',
-                       mirror=True,
-                       zeroline=True,
-                       showline=True,
-                       linecolor='black',
-                       linewidth=2
-                       ),
+            yaxis=dict(title="Dim-1", zeroline=True, showline=True, linecolor="black", mirror=True, linewidth=2),
+            xaxis=dict(title="Dim-2", mirror=True, zeroline=True, showline=True, linecolor="black", linewidth=2),
             width=600,
             height=500,
-            font=dict(
-                size=15,
-                color="black"
-                )
+            font=dict(size=15, color="black"),
         )
         fig.update_layout(showlegend=True)
-        fig.update_xaxes(showgrid=False, gridwidth=0.5, gridcolor='#e3e1e1')
-        fig.update_yaxes(showgrid=False, gridwidth=0.5, gridcolor='grey')
-        fig.update_traces(marker_line_color='black', marker_line_width=1.5, opacity=0.6)
+        fig.update_xaxes(showgrid=False, gridwidth=0.5, gridcolor="#e3e1e1")
+        fig.update_yaxes(showgrid=False, gridwidth=0.5, gridcolor="grey")
+        fig.update_traces(marker_line_color="black", marker_line_width=1.5, opacity=0.6)
         return fig, data

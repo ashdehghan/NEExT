@@ -2,27 +2,22 @@
     Author : Ash Dehghan
 """
 
+import pandas as pd
+
 # External Libraries
 import xgboost
-import pandas as pd
-from tqdm import tqdm
-from sklearn.svm import SVC
-from sklearn.metrics import f1_score
-from sklearn.metrics import recall_score
 from sklearn.feature_selection import RFE
-from sklearn.metrics import accuracy_score
-from sklearn.metrics import precision_score
-from sklearn.metrics import mean_squared_error
-from sklearn.metrics import mean_absolute_error
-from sklearn.preprocessing import StandardScaler
+from sklearn.metrics import accuracy_score, f1_score, mean_absolute_error, mean_squared_error, precision_score, recall_score
 from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import StandardScaler
+from sklearn.svm import SVC
+from tqdm import tqdm
 
 
 class ML_Models:
 
     def __init__(self, global_config):
         self.global_config = global_config
-
 
     def build_classification_model(self, data_obj, sample_size, balance_classes):
         data_obj = self.format_classes(data_obj)
@@ -35,8 +30,7 @@ class ML_Models:
         result["precision"] = []
         result["recall"] = []
         result["f1"] = []
-        for i in tqdm(range(sample_size), desc="Building models:",
-                      disable=self.global_config.quiet_mode):
+        for i in tqdm(range(sample_size), desc="Building models:", disable=self.global_config.quiet_mode):
             data_obj = self.format_data(data_obj, balance_classes)
             accuracy, precision, recall, f1 = self.build_xgboost_classification(data_obj)
             result["accuracy"].append(accuracy)
@@ -49,8 +43,7 @@ class ML_Models:
         result = {}
         result["mse"] = []
         result["mae"] = []
-        for i in tqdm(range(sample_size), desc="Building models:",
-                      disable=self.global_config.quiet_mode):
+        for i in tqdm(range(sample_size), desc="Building models:", disable=self.global_config.quiet_mode):
             data_obj = self.format_data(data_obj)
             mse, mae = self.build_xgboost_regression(data_obj)
             result["mse"].append(mse)
@@ -58,8 +51,7 @@ class ML_Models:
         return result
 
     def build_xgboost_classification(self, data_obj):
-        model = xgboost.XGBClassifier(n_estimators=500, max_depth=5, eta=0.1, subsample=0.7,
-                                      colsample_bytree=0.8)
+        model = xgboost.XGBClassifier(n_estimators=500, max_depth=5, eta=0.1, subsample=0.7, colsample_bytree=0.8)
         model.fit(data_obj["X_train"], data_obj["y_train"])
         y_pred = model.predict(data_obj["X_test"]).flatten()
         y_true = data_obj["y_test"].flatten()
@@ -70,8 +62,7 @@ class ML_Models:
         return accuracy, precision, recall, f1
 
     def build_xgboost_regression(self, data_obj):
-        model = xgboost.XGBRegressor(n_estimators=1000, max_depth=7, eta=0.1, subsample=0.7,
-                                     colsample_bytree=0.8)
+        model = xgboost.XGBRegressor(n_estimators=1000, max_depth=7, eta=0.1, subsample=0.7, colsample_bytree=0.8)
         model.fit(data_obj["X_train"], data_obj["y_train"])
         y_pred = model.predict(data_obj["X_test"]).flatten()
         y_true = data_obj["y_test"]
@@ -86,9 +77,7 @@ class ML_Models:
         for class_val in raw_classes:
             class_map[class_val] = class_remap
             class_remap += 1
-        data_obj["data"][data_obj["y_col"]] = data_obj["data"][data_obj["y_col"]].apply(
-            lambda x: class_map[x]
-            )
+        data_obj["data"][data_obj["y_col"]] = data_obj["data"][data_obj["y_col"]].apply(lambda x: class_map[x])
         return data_obj
 
     def format_data(self, data_obj, balance_classes=False):
@@ -112,18 +101,14 @@ class ML_Models:
         df = df.sample(frac=1).copy(deep=True)
         X = df[data_obj["x_cols"]]
         y = df[[data_obj["y_col"]]]
-        X_train, X_test, y_train, y_test = train_test_split(
-            X, y, test_size=0.3, random_state=42
-        )
-        X_train, X_vald, y_train, y_vald = train_test_split(
-            X_train, y_train, test_size=0.1, random_state=42
-        )
+        X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.3, random_state=42)
+        X_train, X_vald, y_train, y_vald = train_test_split(X_train, y_train, test_size=0.1, random_state=42)
         # Standardize data
-        scaler = StandardScaler()
-        scaler.fit(X_train)
-        X_train = scaler.fit_transform(X_train)
-        X_test = scaler.fit_transform(X_test)
-        X_vald = scaler.fit_transform(X_vald)
+        # scaler = StandardScaler()
+        # scaler.fit(X_train)
+        # X_train = scaler.fit_transform(X_train)
+        # X_test = scaler.fit_transform(X_test)
+        # X_vald = scaler.fit_transform(X_vald)
         data_obj["X_train"] = X_train
         data_obj["X_test"] = X_test
         data_obj["X_vald"] = X_vald
