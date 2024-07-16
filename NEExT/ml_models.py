@@ -104,11 +104,11 @@ class ML_Models:
         X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.3, random_state=42)
         X_train, X_vald, y_train, y_vald = train_test_split(X_train, y_train, test_size=0.1, random_state=42)
         # Standardize data
-        # scaler = StandardScaler()
-        # scaler.fit(X_train)
-        # X_train = scaler.fit_transform(X_train)
-        # X_test = scaler.fit_transform(X_test)
-        # X_vald = scaler.fit_transform(X_vald)
+        scaler = StandardScaler()
+        scaler.fit(X_train)
+        X_train = scaler.fit_transform(X_train)
+        X_test = scaler.fit_transform(X_test)
+        X_vald = scaler.fit_transform(X_vald)
         data_obj["X_train"] = X_train
         data_obj["X_test"] = X_test
         data_obj["X_vald"] = X_vald
