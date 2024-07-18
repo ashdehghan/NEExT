@@ -246,7 +246,7 @@ class NEExT:
         )
         print(optimizer.max)
 
-    def get_feature_importance_classification_technique(self, emb_engine="approx_wasserstein", sample_size=10, balance_classes=True):
+    def get_feature_importance_classification_technique(self, emb_engine="approx_wasserstein", sample_size=20, balance_classes=True):
 
         accuracy_contribution = []
         accuracy_contribution_std = []

@@ -1,10 +1,11 @@
+import pandas as pd
 from NEExT.NEExT import NEExT
 
 edge_file = "https://raw.githubusercontent.com/elmspace/ugaf_experiments_data/main/real_world_graphs/NCI1/processed_data/edge_file.csv"
 graph_label_file = "https://raw.githubusercontent.com/elmspace/ugaf_experiments_data/main/real_world_graphs/NCI1/processed_data/graph_label_mapping_file.csv"
 node_graph_mapping_file = "https://raw.githubusercontent.com/elmspace/ugaf_experiments_data/main/real_world_graphs/NCI1/processed_data/node_graph_mapping_file.csv"
 
-nxt = NEExT(quiet_mode="on")
+nxt = NEExT(quiet_mode="off")
 
 nxt.load_data_from_csv(edge_file=edge_file, node_graph_mapping_file=node_graph_mapping_file, graph_label_file=graph_label_file)
 
