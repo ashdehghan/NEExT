@@ -246,21 +246,63 @@ class NEExT:
         )
         print(optimizer.max)
 
-    def get_feature_importance_classification_technique(self, emb_engine="approx_wasserstein", sample_size=15, balance_classes=True):
-        res_df = pd.DataFrame()
-        for col in self.graph_c.global_feature_vector_cols:
+    def get_feature_importance_classification_technique(self, emb_engine="approx_wasserstein", sample_size=10, balance_classes=True):
 
-            graph_embedding, graph_embedding_df = graph_embedding_engine.build_graph_embedding(emb_dim_len=1, emb_engine=emb_engine, graph_c=self.graph_c, graph_feat_cols=[col])
+        accuracy_contribution = []
+        accuracy_contribution_std = []
+        selected_features = []
 
-            data_obj = self.format_data_for_classification(graph_embedding_df)
-            ml_model_results = self.ml_model.build_classification_model(data_obj, sample_size, balance_classes)
-            df = pd.DataFrame(ml_model_results)
-            df["feature"] = col
-            if res_df.empty:
-                res_df = df.copy(deep=True)
+        while len(selected_features) < len(self.graph_c.global_feature_vector_cols):
+
+            col_list = []
+            accuracy_mean_list = []
+            accuracy_std_list = []
+            for col in self.graph_c.global_feature_vector_cols:
+
+                if col not in selected_features:
+                    feats = selected_features[:]
+                    feats.append(col)
+
+                    graph_embedding, graph_embedding_df = graph_embedding_engine.build_graph_embedding(
+                        emb_dim_len=len(feats),
+                        emb_engine=emb_engine,
+                        graph_c=self.graph_c,
+                        graph_feat_cols=feats)
+
+                    data_obj = self.format_data_for_classification(graph_embedding_df)
+                    ml_model_results = self.ml_model.build_classification_model(data_obj, sample_size, balance_classes)
+                    
+                    mean_accuracy = np.mean(np.array(ml_model_results["accuracy"]))
+                    std_accuracy = np.std(np.array(ml_model_results["accuracy"]))
+                    col_list.append(col)
+                    accuracy_mean_list.append(mean_accuracy)
+                    accuracy_std_list.append(std_accuracy)
+                    print(feats, mean_accuracy)
+
+            max_accuracy_val = max(accuracy_mean_list)
+            selected_accuracy_std = accuracy_std_list[accuracy_mean_list.index(max_accuracy_val)]
+            selected_feat = col_list[accuracy_mean_list.index(max_accuracy_val)]
+            
+            if len(accuracy_contribution) > 0:
+                delta = max_accuracy_val - accuracy_contribution[-1]
+                if delta > 0:
+                    selected_features.append(selected_feat)
+                    accuracy_contribution.append(max_accuracy_val)
+                    accuracy_contribution_std.append(selected_accuracy_std)
+                    print(accuracy_contribution)
+                    print(selected_features)
+                else:
+                    return selected_features, accuracy_contribution, accuracy_contribution_std
             else:
-                res_df = pd.concat([res_df, df])
-        return res_df
+                selected_features.append(selected_feat)
+                accuracy_contribution.append(max_accuracy_val)
+                accuracy_contribution_std.append(selected_accuracy_std)
+
+
+        return selected_features, accuracy_contribution, accuracy_contribution_std
+      
+
+
 
     def build_classification_model(self, sample_size=50, balance_classes=False):
         graph_emb = self.graph_embedding["graph_embedding_df"]
