@@ -286,20 +286,20 @@ class NEExT:
             selected_accuracy_std = accuracy_std_list[accuracy_mean_list.index(max_accuracy_val)]
             selected_feat = col_list[accuracy_mean_list.index(max_accuracy_val)]
             
-            if len(accuracy_contribution) > 0:
-                delta = max_accuracy_val - accuracy_contribution[-1]
-                if delta > 0:
-                    selected_features.append(selected_feat)
-                    accuracy_contribution.append(max_accuracy_val)
-                    accuracy_contribution_std.append(selected_accuracy_std)
-                    print(accuracy_contribution)
-                    print(selected_features)
-                else:
-                    return selected_features, accuracy_contribution, accuracy_contribution_std
-            else:
-                selected_features.append(selected_feat)
-                accuracy_contribution.append(max_accuracy_val)
-                accuracy_contribution_std.append(selected_accuracy_std)
+            # if len(accuracy_contribution) > 0:
+            #     delta = max_accuracy_val - accuracy_contribution[-1]
+            #     if delta > 0:
+            #         selected_features.append(selected_feat)
+            #         accuracy_contribution.append(max_accuracy_val)
+            #         accuracy_contribution_std.append(selected_accuracy_std)
+            #         print(accuracy_contribution)
+            #         print(selected_features)
+            #     else:
+            #         return selected_features, accuracy_contribution, accuracy_contribution_std
+            # else:
+            selected_features.append(selected_feat)
+            accuracy_contribution.append(max_accuracy_val)
+            accuracy_contribution_std.append(selected_accuracy_std)
 
 
         return selected_features, accuracy_contribution, accuracy_contribution_std
