@@ -252,14 +252,13 @@ class NEExT:
             Only if the added feature improves the model accuracy, then it gets added.
         """
         accuracy_contribution = []
-        accuracy_contribution_std = []
         selected_features = []
 
-        while len(selected_features) < len(self.graph_c.global_feature_vector_cols):
+        for _ in tqdm(range(len(self.graph_c.global_feature_vector_cols)), desc="Looping through feats"):
 
             col_list = []
             accuracy_mean_list = []
-            accuracy_std_list = []
+            accuracy_data = {}
             for col in self.graph_c.global_feature_vector_cols:
 
                 if col not in selected_features:
@@ -276,33 +275,17 @@ class NEExT:
                     ml_model_results = self.ml_model.build_classification_model(data_obj, sample_size, balance_classes)
                     
                     mean_accuracy = np.mean(np.array(ml_model_results["accuracy"]))
-                    std_accuracy = np.std(np.array(ml_model_results["accuracy"]))
                     col_list.append(col)
                     accuracy_mean_list.append(mean_accuracy)
-                    accuracy_std_list.append(std_accuracy)
-                    print(feats, mean_accuracy)
+                    accuracy_data[col] = ml_model_results["accuracy"]
 
             max_accuracy_val = max(accuracy_mean_list)
-            selected_accuracy_std = accuracy_std_list[accuracy_mean_list.index(max_accuracy_val)]
             selected_feat = col_list[accuracy_mean_list.index(max_accuracy_val)]
             
-            # if len(accuracy_contribution) > 0:
-            #     delta = max_accuracy_val - accuracy_contribution[-1]
-            #     if delta > 0:
-            #         selected_features.append(selected_feat)
-            #         accuracy_contribution.append(max_accuracy_val)
-            #         accuracy_contribution_std.append(selected_accuracy_std)
-            #         print(accuracy_contribution)
-            #         print(selected_features)
-            #     else:
-            #         return selected_features, accuracy_contribution, accuracy_contribution_std
-            # else:
-            selected_features.append(selected_feat)
-            accuracy_contribution.append(max_accuracy_val)
-            accuracy_contribution_std.append(selected_accuracy_std)
-
-
-        return selected_features, accuracy_contribution, accuracy_contribution_std
+            accuracy_contribution += accuracy_data[selected_feat]
+            selected_features += [selected_feat]*len(accuracy_data[selected_feat])
+            
+        return selected_features, accuracy_contribution
       
 
 
