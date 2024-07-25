@@ -252,13 +252,14 @@ class NEExT:
             Only if the added feature improves the model accuracy, then it gets added.
         """
         accuracy_contribution = []
+        accuracy_contribution_std = []
         selected_features = []
 
-        for _ in tqdm(range(len(self.graph_c.global_feature_vector_cols)), desc="Looping through feats"):
+        while len(selected_features) < len(self.graph_c.global_feature_vector_cols):
 
             col_list = []
             accuracy_mean_list = []
-            accuracy_data = {}
+            accuracy_std_list = []
             for col in self.graph_c.global_feature_vector_cols:
 
                 if col not in selected_features:
@@ -271,21 +272,26 @@ class NEExT:
                         graph_c=self.graph_c,
                         graph_feat_cols=feats)
 
+
                     data_obj = self.format_data_for_classification(graph_embedding_df)
                     ml_model_results = self.ml_model.build_classification_model(data_obj, sample_size, balance_classes)
                     
                     mean_accuracy = np.mean(np.array(ml_model_results["accuracy"]))
+                    std_accuracy = np.std(np.array(ml_model_results["accuracy"]))
                     col_list.append(col)
                     accuracy_mean_list.append(mean_accuracy)
-                    accuracy_data[col] = ml_model_results["accuracy"]
+                    accuracy_std_list.append(std_accuracy)
 
             max_accuracy_val = max(accuracy_mean_list)
             selected_feat = col_list[accuracy_mean_list.index(max_accuracy_val)]
+            std_accuracy_val = accuracy_std_list[accuracy_mean_list.index(max_accuracy_val)]
+            print(selected_feat, max_accuracy_val)
             
-            accuracy_contribution += accuracy_data[selected_feat]
-            selected_features += [selected_feat]*len(accuracy_data[selected_feat])
+            accuracy_contribution.append(max_accuracy_val)
+            accuracy_contribution_std.append(std_accuracy_val)
+            selected_features.append(selected_feat)
             
-        return selected_features, accuracy_contribution
+        return selected_features, accuracy_contribution, accuracy_contribution_std
       
 
 
