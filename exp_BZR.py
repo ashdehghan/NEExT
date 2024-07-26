@@ -24,7 +24,7 @@ nxt.compute_graph_feature(feat_name="lsme", feat_vect_len=4)
 
 nxt.pool_graph_features(pool_method="concat")
 
-selected_features, accuracy_contribution, accuracy_contribution_std = nxt.get_feature_importance_classification_technique(emb_engine="approx_wasserstein", sample_size=20, balance_classes=False)
+selected_features, accuracy_contribution, accuracy_contribution_std = nxt.get_feature_importance_classification_technique(emb_engine="approx_wasserstein", sample_size=100, balance_classes=False)
 
 res_df = pd.DataFrame()
 res_df["selected_features"] = selected_features
