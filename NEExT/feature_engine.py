@@ -63,7 +63,7 @@ def compute_self_walk(g_obj, feat_vect_len, func_name):
     for i in range(2, feat_vect_len+2):
         A = np.linalg.matrix_power(Ao, i)
         diag_elem = np.diag(A)
-        feats["feat_selfwalk_"+str(i-2)] = list(diag_elem)
+        feats["feat_self_walk_"+str(i-2)] = list(diag_elem)
     feats = pd.DataFrame(feats)
     feat_cols = list(feats.columns)
     feats.insert(0, "node_id", list(G.nodes))
