@@ -246,7 +246,7 @@ class NEExT:
         )
         print(optimizer.max)
 
-    def get_feature_importance_classification_technique(self, emb_engine="approx_wasserstein", sample_size=20, balance_classes=True):
+    def get_feature_importance_classification_technique(self, emb_engine="approx_wasserstein", sample_size=20, balance_classes=True, inverse=False):
         """
             The way this function finds the feature importance is in a greety way.
             Only if the added feature improves the model accuracy, then it gets added.
@@ -282,7 +282,10 @@ class NEExT:
                     accuracy_mean_list.append(mean_accuracy)
                     accuracy_std_list.append(std_accuracy)
 
-            max_accuracy_val = max(accuracy_mean_list)
+            if inverse:
+                max_accuracy_val = min(accuracy_mean_list)
+            else:
+                max_accuracy_val = max(accuracy_mean_list)
             selected_feat = col_list[accuracy_mean_list.index(max_accuracy_val)]
             std_accuracy_val = accuracy_std_list[accuracy_mean_list.index(max_accuracy_val)]
             print(selected_feat, max_accuracy_val)
