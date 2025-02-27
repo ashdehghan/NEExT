@@ -42,8 +42,8 @@ pip install NEExT
 ### Development Installation
 ```bash
 # Clone the repository
-git clone https://github.com/ashdehghan/NEExT_V2.git
-cd NEExT_V2
+git clone https://github.com/ashdehghan/NEExT.git
+cd NEExT
 
 # Install with development dependencies
 pip install -e ".[dev]"
@@ -210,7 +210,7 @@ mypy .
 
 ## 📚 Documentation
 
-Detailed documentation is available in the `docs` directory. Build it locally or visit the online documentation at [NEExT Documentation](https://github.com/ashdehghan/NEExT_V2).
+Detailed documentation is available in the `docs` directory. Build it locally or visit the online documentation at [NEExT Documentation](https://github.com/ashdehghan/NEExT).
 
 ## 🤝 Contributing
 
@@ -238,7 +238,7 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 
 For questions and support:
 - Email: ash@anomalypoint.com
-- GitHub Issues: [NEExT Issues](https://github.com/ashdehghan/NEExT_V2/issues)
+- GitHub Issues: [NEExT Issues](https://github.com/ashdehghan/NEExT/issues)
 
 ## 🔄 Version History
 
