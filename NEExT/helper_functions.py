@@ -1,5 +1,7 @@
 import networkx as nx
-from typing import List, Set
+import igraph as ig
+from typing import List, Set, Dict, Union
+from functools import lru_cache
 
 
 def divide_chunks(list, chunks):
@@ -7,44 +9,99 @@ def divide_chunks(list, chunks):
         yield list[i:i + chunks]
 
 
-def get_numb_of_nb_x_hops_away(G, node, max_hop_length) -> List[int]:
+def get_numb_of_nb_x_hops_away(G: Union[nx.Graph, ig.Graph], node: int, max_hop_length: int) -> List[int]:
     """
-    This method will compute the number of neighbors x hops away from
-    a given node.
+    Compute the number of neighbors x hops away from a given node.
+    Supports both NetworkX and iGraph backends.
 
-    Returns a list of integers, where each integer is the number of nodes at that hop length.
+    Args:
+        G: Graph object (NetworkX or iGraph)
+        node: Source node ID
+        max_hop_length: Maximum hop distance to consider
+
+    Returns:
+        List[int]: List where index i contains number of nodes i+1 hops away
     """
-    seen = set()
-    seen.add(node)
-    current_set = {node}
-    hop_list = []
-    for _ in range(max_hop_length):
-        boundary = nx.node_boundary(G, current_set)
-        current_set = boundary - seen
-        hop_list.append(len(current_set))
-        seen.update(boundary)
-
-    return [len(n) for n in get_nodes_x_hops_away(G, node, max_hop_length)]
+    hop_dict = get_nodes_x_hops_away(G, node, max_hop_length)
+    return [len(hop_dict.get(i, set())) for i in range(1, max_hop_length + 1)]
 
 
-def get_nodes_x_hops_away(G, node, max_hop_length) -> List[Set]:
-    """
-    This method will get the of neighbors of 1 to max_hop_length hops away from
-    a given node.
+def get_nodes_x_hops_away(G: Union[nx.Graph, ig.Graph], node: int, max_hop_length: int) -> Dict[int, Set[int]]:
+    """This function should now only be used for single-node queries."""
+    if isinstance(G, nx.Graph):
+        seen = {node}
+        current_set = {node}
+        hop_dict = {}
+        
+        for hop in range(1, max_hop_length + 1):
+            boundary = nx.node_boundary(G, current_set)
+            next_hop = boundary - seen
+            
+            if not next_hop:
+                break
+                
+            hop_dict[hop] = next_hop
+            seen.update(boundary)
+            current_set = boundary
+            
+        return hop_dict
+    else:
+        raise ValueError("For iGraph, use get_all_neighborhoods_ig instead")
 
-    Returns a list of sets, where each set is the nodes at a given hop length.
-    """
-    seen = set()
-    seen.add(node)
-    current_set = {node}
-    hop_list = []
-    for _ in range(max_hop_length):
-        boundary = nx.node_boundary(G, current_set)
-        current_set = boundary - seen
-        hop_list.append(current_set)
-        seen.update(boundary)
 
-    return hop_list
+def get_all_neighborhoods_nx(G: nx.Graph, max_hop_length: int) -> Dict[int, Dict[int, Set[int]]]:
+    """Compute ALL neighborhoods for ALL nodes in a NetworkX graph efficiently."""
+    result = {}
+    
+    # Process each node
+    for node in G.nodes():
+        seen = {node}
+        current_set = {node}
+        node_neighborhoods = {}
+        
+        # For each hop distance
+        for hop in range(1, max_hop_length + 1):
+            # Get nodes exactly hop steps away using node_boundary
+            boundary = nx.node_boundary(G, current_set)
+            next_hop = boundary - seen
+            
+            if not next_hop:  # No more nodes to explore
+                break
+                
+            node_neighborhoods[hop] = next_hop
+            seen.update(boundary)
+            current_set = boundary
+            
+        result[node] = node_neighborhoods
+    
+    return result
+
+
+def get_all_neighborhoods_ig(G: ig.Graph, max_hop_length: int) -> Dict[int, Dict[int, Set[int]]]:
+    """Compute ALL neighborhoods for ALL nodes in ONE batch operation."""
+    result = {}
+    
+    for node in range(G.vcount()):
+        node_neighborhoods = {}
+        prev_neighbors = {node}
+        
+        for hop in range(1, max_hop_length + 1):
+            # Get neighbors of all nodes in previous hop
+            curr_neighbors = set()
+            for prev_node in prev_neighbors:
+                curr_neighbors.update(G.neighbors(prev_node))
+            
+            # Remove already seen nodes
+            hop_neighbors = curr_neighbors - prev_neighbors
+            if not hop_neighbors:
+                break
+            
+            node_neighborhoods[hop] = hop_neighbors
+            prev_neighbors.update(curr_neighbors)
+        
+        result[node] = node_neighborhoods
+    
+    return result
 
 
 def get_specific_in_community_degree(G, node_id, community_partition: List[List[int]],

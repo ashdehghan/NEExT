@@ -1,31 +1,93 @@
-import pandas as pd
+from NEExT import NEExT
 import numpy as np
-from NEExT.NEExT import NEExT
 
-dataset_name = "BZR"
+def main():
+    # Define data URLs
+    edge_file = "https://raw.githubusercontent.com/AnomalyPoint/NEExT_datasets/refs/heads/main/real_world_networks/csv_format/BZR/edges.csv"
+    node_graph_mapping_file = "https://raw.githubusercontent.com/AnomalyPoint/NEExT_datasets/refs/heads/main/real_world_networks/csv_format/BZR/node_graph_mapping.csv"
+    graph_label_file = "https://raw.githubusercontent.com/AnomalyPoint/NEExT_datasets/refs/heads/main/real_world_networks/csv_format/BZR/graph_labels.csv"
 
-edge_file = "https://raw.githubusercontent.com/elmspace/ugaf_experiments_data/main/real_world_graphs/%s/processed_data/edge_file.csv"%(dataset_name)
-graph_label_file = "https://raw.githubusercontent.com/elmspace/ugaf_experiments_data/main/real_world_graphs/%s/processed_data/graph_label_mapping_file.csv"%(dataset_name)
-node_graph_mapping_file = "https://raw.githubusercontent.com/elmspace/ugaf_experiments_data/main/real_world_graphs/%s/processed_data/node_graph_mapping_file.csv"%(dataset_name)
+    # Initialize NEExT and set logging level
+    nxt = NEExT()
+    nxt.set_log_level("INFO")
 
-nxt = NEExT(quiet_mode="off")
+    # Load data with node reindexing and largest component filtering
+    graph_collection = nxt.read_from_csv(
+        edges_path=edge_file,
+        node_graph_mapping_path=node_graph_mapping_file,
+        graph_label_path=graph_label_file,
+        reindex_nodes=True,
+        filter_largest_component=True,
+        graph_type="igraph",
+        node_sample_rate=1.0
+    )
 
-nxt.load_data_from_csv(edge_file=edge_file, node_graph_mapping_file=node_graph_mapping_file, graph_label_file=graph_label_file)
+    # Print collection info using the new describe method
+    print("\nGraph Collection Info:")
+    print(graph_collection.describe())
+    
+    # Compute node features
+    features = nxt.compute_node_features(
+        graph_collection=graph_collection,
+        feature_list=["all"],
+        feature_vector_length=3,
+        show_progress=True
+    )
 
+    # Normalize features if desired
+    features.normalize(type="StandardScaler")
 
-nxt.compute_graph_feature(feat_name="basic_expansion", feat_vect_len=4)
-nxt.compute_graph_feature(feat_name="self_walk", feat_vect_len=4)
-nxt.compute_graph_feature(feat_name="page_rank", feat_vect_len=4)
-nxt.compute_graph_feature(feat_name="degree_centrality", feat_vect_len=4)
-nxt.compute_graph_feature(feat_name="closeness_centrality", feat_vect_len=4)
-nxt.compute_graph_feature(feat_name="load_centrality", feat_vect_len=4)
-nxt.compute_graph_feature(feat_name="eigenvector_centrality", feat_vect_len=4)
-nxt.compute_graph_feature(feat_name="lsme", feat_vect_len=4)
+    # Print feature information
+    print("\nComputed Node Features:")
+    print(f"Number of nodes: {len(features.features_df)}")
+    print(f"Features computed: {list(features.features_df.columns)}")
+    print("\nSample of computed features:")
+    print(features.features_df.head())
 
-nxt.pool_graph_features(pool_method="concat")
+    # Compute graph embeddings
+    embeddings = nxt.compute_graph_embeddings(
+        graph_collection=graph_collection,
+        features=features,
+        embedding_algorithm="approx_wasserstein",
+        embedding_dimension=3,
+        random_state=42
+    )
 
-nxt.build_graph_embedding(emb_dim_len=32, emb_engine="approx_wasserstein")
+    # Print embedding information
+    print("\nComputed Graph Embeddings:")
+    print(f"Number of graphs: {len(embeddings.embeddings_df)}")
+    print(f"Embedding dimensions: {len(embeddings.embedding_columns)}")
+    print(f"Embedding algorithm: {embeddings.embedding_name}")
+    print("\nSample of computed embeddings:")
+    print(embeddings.embeddings_df.head())
+    
+    # Train a classification model
+    model_results = nxt.train_ml_model(
+        graph_collection=graph_collection,
+        embeddings=embeddings,
+        model_type="classifier",
+        sample_size=50,
+        balance_dataset=False
+    )
+    
+    # Print model results
+    print("\nClassification Model Results:")
+    print(f"Average Accuracy: {np.mean(model_results['accuracy']):.4f}")
+    print(f"Average F1 Score: {np.mean(model_results['f1_score']):.4f}")
+    print(f"Classes: {model_results['classes']}")
 
-nxt.build_classification_model(sample_size=200, balance_classes=False)
+    # Compute feature importance
+    importance_df = nxt.compute_feature_importance(
+        graph_collection=graph_collection,
+        features=features,
+        feature_importance_algorithm="supervised_fast",
+        embedding_algorithm="approx_wasserstein",
+        n_iterations=5
+    )
 
-print(np.mean(np.array(nxt.ml_model_results["accuracy"])))
+    # Print feature importance results
+    print("\nFeature Importance Results:")
+    print(importance_df)
+
+if __name__ == '__main__':
+    main()
