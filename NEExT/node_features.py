@@ -10,6 +10,7 @@ from sklearn.preprocessing import StandardScaler
 import logging
 from tqdm.auto import tqdm
 from .features import Features
+from multiprocessing import Pool
 
 # Set up logger
 logger = logging.getLogger(__name__)
@@ -20,6 +21,7 @@ class NodeFeatureConfig(BaseModel):
     feature_vector_length: int
     normalize_features: bool = True
     show_progress: bool = Field(default=True)
+    n_jobs: int = -1
 
 class NodeFeatures:
     """
@@ -54,7 +56,8 @@ class NodeFeatures:
         feature_list: List[str],
         feature_vector_length: int = 3,
         normalize_features: bool = True,
-        show_progress: bool = True
+        show_progress: bool = True,
+        n_jobs: int = -1
     ):
         """Initialize the NodeFeatures processor."""
         self.graph_collection = graph_collection
@@ -84,7 +87,8 @@ class NodeFeatures:
             feature_list=feature_list,
             feature_vector_length=feature_vector_length,
             normalize_features=normalize_features,
-            show_progress=show_progress
+            show_progress=show_progress,
+            n_jobs=n_jobs
         )
         self.features_df = None
 
@@ -444,22 +448,12 @@ class NodeFeatures:
         if self.config.show_progress:
             graphs = tqdm(graphs, desc="Computing node features")
         
-        for graph in graphs:
-            # Compute each feature for this graph
-            graph_features = []
-            for feature_name in self.config.feature_list:
-                if feature_name not in self.available_features:
-                    raise ValueError(f"Unknown feature: {feature_name}")
-                
-                feature_df = self.available_features[feature_name](graph)
-                graph_features.append(feature_df)
-            
-            # Merge all features for this graph
-            graph_df = graph_features[0]
-            for df in graph_features[1:]:
-                graph_df = graph_df.merge(df, on=['node_id', 'graph_id'])
-            
-            feature_dfs.append(graph_df)
+        if self.config.n_jobs == 1:
+            for graph in graphs:
+                feature_dfs = [self._compute_graph_node_features(graph) for graph in graphs]
+        else:
+            with Pool() as pool:
+                feature_dfs = pool.map(self._compute_graph_node_features, graphs)
         
         # Combine features from all graphs
         features_df = pd.concat(feature_dfs, ignore_index=True)
@@ -469,3 +463,18 @@ class NodeFeatures:
                         if col not in ['node_id', 'graph_id']]
         
         return Features(features_df, feature_columns)
+
+    def _compute_graph_node_features(self, graph):
+        graph_features = []
+        for feature_name in self.config.feature_list:
+            if feature_name not in self.available_features:
+                raise ValueError(f"Unknown feature: {feature_name}")
+                
+            feature_df = self.available_features[feature_name](graph)
+            graph_features.append(feature_df)
+            
+            # Merge all features for this graph
+        graph_df = graph_features[0]
+        for df in graph_features[1:]:
+            graph_df = graph_df.merge(df, on=['node_id', 'graph_id'])
+        return graph_df

@@ -148,7 +148,8 @@ class NEExT:
         feature_list: List[str],
         feature_vector_length: int = 3,
         normalize_features: bool = True,
-        show_progress: bool = True
+        show_progress: bool = True,
+        n_jobs:int = -1,
     ) -> pd.DataFrame:
         """
         Compute node features for all graphs in the collection.
@@ -170,7 +171,8 @@ class NEExT:
             feature_list=feature_list,
             feature_vector_length=feature_vector_length,
             normalize_features=normalize_features,
-            show_progress=show_progress
+            show_progress=show_progress,
+            n_jobs=n_jobs
         )
         
         features = node_features.compute()

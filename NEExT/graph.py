@@ -36,6 +36,7 @@ class Graph(BaseModel):
     edge_attributes: Dict[tuple[int, int], Dict[str, Union[float, int, str]]] = Field(default_factory=dict)
     graph_type: Literal["networkx", "igraph"] = "networkx"
     G: Optional[Union[nx.Graph, ig.Graph]] = Field(default=None, exclude=True)
+    node_mapping: Optional[Dict[int, int]] = Field(default_factory=dict)
 
     def initialize_graph(self):
         """Initialize the graph with the specified backend."""
@@ -68,6 +69,13 @@ class Graph(BaseModel):
             if self.edges:
                 edge_list = [(src, dst) for src, dst in self.edges]
                 self.G.add_edges(edge_list)
+
+            for node, attrs in self.node_attributes.items():
+                for k, v in attrs.items():
+                    self.G.vs[node][k] = v
+            for edge, attrs in self.edge_attributes.items():
+                for k, v in attrs.items():
+                    self.G.es[edge][k] = v
 
     def get_node_mapping(self):
         """Return the mapping between original and internal node IDs."""
