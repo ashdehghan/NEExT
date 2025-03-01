@@ -217,7 +217,7 @@ class MLModels:
         
         # Split data
         X_train, X_test, y_train, y_test = train_test_split(
-            X[feature_cols], y, test_size=test_size, random_state=random_state
+            X[feature_cols], y, test_size=test_size, random_state=random_state, stratify=y, shuffle=True,
         )
         
         # Balance dataset if requested
@@ -300,8 +300,11 @@ class MLModels:
         executor_class = ProcessPoolExecutor if self.config.parallel_backend == "process" else ThreadPoolExecutor
         results = []
         
-        with executor_class(max_workers=self.config.n_jobs) as executor:
-            results = list(executor.map(self._train_classifier_iteration, iteration_data))
+        if self.config.n_jobs == 1:
+            results = [self._train_classifier_iteration(iteration) for iteration in iteration_data]
+        else:
+            with executor_class(max_workers=self.config.n_jobs) as executor:
+                results = list(executor.map(self._train_classifier_iteration, iteration_data))
         
         # Collect results
         models = [r['model'] for r in results]

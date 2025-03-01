@@ -196,3 +196,6 @@ class Graph(BaseModel):
             "num_edges": len(self.edges),
             "graph_label": self.graph_label,
         }
+        
+    def set_graph_label(self, label: int):
+        self.graph_label = label
