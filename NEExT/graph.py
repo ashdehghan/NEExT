@@ -22,6 +22,7 @@ class Graph(BaseModel):
         G (Union[nx.Graph, ig.Graph]): The actual graph instance (set automatically)
         vertex_map (Optional[Dict[int, int]]): Mapping from internal to original node IDs
         reverse_vertex_map (Optional[Dict[int, int]]): Mapping from original to internal node IDs
+        node_mapping Optional[Dict[int, int]]: If specified graph is a subgraph then it contains mapping from inernal nodes_id to original graph nodes_id
     """
 
     model_config = {
@@ -114,7 +115,8 @@ class Graph(BaseModel):
             edges=new_edges,
             node_attributes=new_node_attrs,
             edge_attributes=new_edge_attrs,
-            graph_type=self.graph_type
+            graph_type=self.graph_type,
+            node_mapping=self.node_mapping
         )
     
     def filter_largest_component(self) -> 'Graph':
