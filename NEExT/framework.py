@@ -225,7 +225,7 @@ class NEExT:
     def train_ml_model(
         self,
         graph_collection: GraphCollection,
-        embeddings: Embeddings,
+        data_df: pd.DataFrame,
         model_type: Literal["classifier", "regressor"],
         balance_dataset: bool = False,
         sample_size: int = 5,
@@ -253,7 +253,7 @@ class NEExT:
         
         ml_models = MLModels(
             graph_collection=graph_collection,
-            embeddings=embeddings,
+            data_df=data_df,
             model_type=model_type,
             balance_dataset=balance_dataset,
             sample_size=sample_size,

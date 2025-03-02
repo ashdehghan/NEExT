@@ -103,7 +103,7 @@ class MLModels:
     def __init__(
         self,
         graph_collection: GraphCollection,
-        embeddings: Embeddings,
+        data_df: pd.DataFrame,
         model_type: str = "classifier",
         model_name: str = "xgboost",
         balance_dataset: bool = False,
@@ -127,7 +127,7 @@ class MLModels:
             parallel_backend=parallel_backend
         )
         self.graph_collection = graph_collection
-        self.data_df = embeddings.embeddings_df
+        self.data_df = data_df
         
         # Check if graphs have labels
         if not self._check_graph_labels():
