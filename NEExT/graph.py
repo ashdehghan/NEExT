@@ -2,6 +2,7 @@ from pydantic import BaseModel, Field, field_validator
 from typing import List, Dict, Literal, Union, Optional, Set, Tuple
 import networkx as nx
 import igraph as ig
+import random
 
 class Graph(BaseModel):
     """
@@ -22,6 +23,7 @@ class Graph(BaseModel):
         G (Union[nx.Graph, ig.Graph]): The actual graph instance (set automatically)
         vertex_map (Optional[Dict[int, int]]): Mapping from internal to original node IDs
         reverse_vertex_map (Optional[Dict[int, int]]): Mapping from original to internal node IDs
+        sampled_nodes (Optional[List[int]]): List of sampled nodes for feature computation
     """
 
     model_config = {
@@ -36,6 +38,7 @@ class Graph(BaseModel):
     edge_attributes: Dict[tuple[int, int], Dict[str, Union[float, int, str]]] = Field(default_factory=dict)
     graph_type: Literal["networkx", "igraph"] = "networkx"
     G: Optional[Union[nx.Graph, ig.Graph]] = Field(default=None, exclude=True)
+    sampled_nodes: Optional[List[int]] = Field(default=None, exclude=True)
 
     def initialize_graph(self):
         """Initialize the graph with the specified backend."""
@@ -196,3 +199,26 @@ class Graph(BaseModel):
             "num_edges": len(self.edges),
             "graph_label": self.graph_label,
         }
+
+    def sample_nodes(self, sample_rate: float = 1.0, random_seed: Optional[int] = None) -> List[int]:
+        """
+        Sample a subset of nodes based on the given sample rate.
+        
+        Args:
+            sample_rate (float): Fraction of nodes to sample (between 0 and 1)
+            random_seed (Optional[int]): Random seed for reproducibility
+            
+        Returns:
+            List[int]: List of sampled node IDs
+        """
+        if sample_rate >= 1.0:
+            self.sampled_nodes = self.nodes
+            return self.nodes
+            
+        if random_seed is not None:
+            random.seed(random_seed)
+            
+        num_nodes = len(self.nodes)
+        num_samples = max(1, int(num_nodes * sample_rate))  # Ensure at least 1 node is sampled
+        self.sampled_nodes = random.sample(self.nodes, num_samples)
+        return self.sampled_nodes

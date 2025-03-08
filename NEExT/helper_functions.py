@@ -1,6 +1,6 @@
 import networkx as nx
 import igraph as ig
-from typing import List, Set, Dict, Union
+from typing import List, Set, Dict, Union, Optional
 from functools import lru_cache
 
 
@@ -49,59 +49,51 @@ def get_nodes_x_hops_away(G: Union[nx.Graph, ig.Graph], node: int, max_hop_lengt
         raise ValueError("For iGraph, use get_all_neighborhoods_ig instead")
 
 
-def get_all_neighborhoods_nx(G: nx.Graph, max_hop_length: int) -> Dict[int, Dict[int, Set[int]]]:
-    """Compute ALL neighborhoods for ALL nodes in a NetworkX graph efficiently."""
-    result = {}
+def get_all_neighborhoods_nx(G, max_hops: int, nodes_to_process: Optional[List[int]] = None) -> Dict:
+    """
+    Get neighborhoods for all specified nodes in a NetworkX graph.
     
-    # Process each node
-    for node in G.nodes():
-        seen = {node}
-        current_set = {node}
-        node_neighborhoods = {}
+    Args:
+        G: NetworkX graph
+        max_hops: Maximum number of hops to consider
+        nodes_to_process: List of nodes to get neighborhoods for. If None, process all nodes.
         
-        # For each hop distance
-        for hop in range(1, max_hop_length + 1):
-            # Get nodes exactly hop steps away using node_boundary
-            boundary = nx.node_boundary(G, current_set)
-            next_hop = boundary - seen
-            
-            if not next_hop:  # No more nodes to explore
-                break
-                
-            node_neighborhoods[hop] = next_hop
-            seen.update(boundary)
-            current_set = boundary
-            
-        result[node] = node_neighborhoods
-    
-    return result
+    Returns:
+        Dict: Dictionary mapping each node to its neighborhood at each hop
+    """
+    if nodes_to_process is None:
+        nodes_to_process = list(G.nodes())
+        
+    neighborhoods = {}
+    for node in nodes_to_process:
+        neighborhoods[node] = get_nodes_x_hops_away(G, node, max_hops)
+    return neighborhoods
 
 
-def get_all_neighborhoods_ig(G: ig.Graph, max_hop_length: int) -> Dict[int, Dict[int, Set[int]]]:
-    """Compute ALL neighborhoods for ALL nodes in ONE batch operation."""
-    result = {}
+def get_all_neighborhoods_ig(G, max_hops: int, nodes_to_process: Optional[List[int]] = None) -> Dict:
+    """
+    Get neighborhoods for all specified nodes in an iGraph graph.
     
-    for node in range(G.vcount()):
-        node_neighborhoods = {}
-        prev_neighbors = {node}
+    Args:
+        G: iGraph graph
+        max_hops: Maximum number of hops to consider
+        nodes_to_process: List of nodes to get neighborhoods for. If None, process all nodes.
         
-        for hop in range(1, max_hop_length + 1):
-            # Get neighbors of all nodes in previous hop
-            curr_neighbors = set()
-            for prev_node in prev_neighbors:
-                curr_neighbors.update(G.neighbors(prev_node))
-            
-            # Remove already seen nodes
-            hop_neighbors = curr_neighbors - prev_neighbors
-            if not hop_neighbors:
-                break
-            
-            node_neighborhoods[hop] = hop_neighbors
-            prev_neighbors.update(curr_neighbors)
+    Returns:
+        Dict: Dictionary mapping each node to its neighborhood at each hop
+    """
+    if nodes_to_process is None:
+        nodes_to_process = list(range(G.vcount()))
         
-        result[node] = node_neighborhoods
-    
-    return result
+    neighborhoods = {}
+    for node in nodes_to_process:
+        neighborhoods[node] = {}
+        for hop in range(1, max_hops + 1):
+            # Get nodes at exactly hop distance
+            nodes_at_hop = set(G.neighborhood(node, order=hop)) - set(G.neighborhood(node, order=hop-1))
+            if nodes_at_hop:
+                neighborhoods[node][hop] = list(nodes_at_hop)
+    return neighborhoods
 
 
 def get_specific_in_community_degree(G, node_id, community_partition: List[List[int]],

@@ -99,27 +99,29 @@ class NodeFeatures:
 
     def _compute_structural_feature(self, graph, feature_func_nx, feature_func_ig=None, feature_name=None) -> pd.DataFrame:
         """Optimized structural feature computation."""
-        # Compute base features for all nodes ONCE
+        # Compute base features for all nodes ONCE (needed for neighborhood computations)
         if isinstance(graph.G, nx.Graph):
             features = feature_func_nx(graph.G)
-            # Get all neighborhoods at once using NetworkX optimized version
-            neighborhoods = get_all_neighborhoods_nx(graph.G, self.config.feature_vector_length)
+            # Get neighborhoods only for sampled nodes
+            nodes_to_process = graph.sampled_nodes if graph.sampled_nodes is not None else graph.nodes
+            neighborhoods = get_all_neighborhoods_nx(graph.G, self.config.feature_vector_length, nodes_to_process)
         else:  # igraph
             features = feature_func_ig(graph.G) if feature_func_ig else feature_func_nx(nx.Graph(graph.G.get_edgelist()))
             features = dict(enumerate(features)) if isinstance(features, (list, np.ndarray)) else features
-            # Get all neighborhoods at once using iGraph optimized version
-            neighborhoods = get_all_neighborhoods_ig(graph.G, self.config.feature_vector_length)
+            # Get neighborhoods only for sampled nodes
+            nodes_to_process = graph.sampled_nodes if graph.sampled_nodes is not None else graph.nodes
+            neighborhoods = get_all_neighborhoods_ig(graph.G, self.config.feature_vector_length, nodes_to_process)
         
-        # Prepare feature matrix
-        n_nodes = len(graph.nodes)
+        # Prepare feature matrix only for nodes we're processing
+        n_nodes = len(nodes_to_process)
         n_hops = self.config.feature_vector_length
         feature_matrix = np.zeros((n_nodes, n_hops))
         
         # Fill in base features
-        feature_matrix[:, 0] = [features[node] for node in graph.nodes]
+        feature_matrix[:, 0] = [features[node] for node in nodes_to_process]
         
         # Vectorized computation of neighborhood features
-        for i, node in enumerate(graph.nodes):
+        for i, node in enumerate(nodes_to_process):
             node_neighborhoods = neighborhoods[node]
             for hop in range(1, n_hops):
                 if hop in node_neighborhoods and node_neighborhoods[hop]:
@@ -129,7 +131,7 @@ class NodeFeatures:
         # Create DataFrame
         columns = [f"{feature_name}_{i}" for i in range(n_hops)]
         df = pd.DataFrame(feature_matrix, columns=columns)
-        df['node_id'] = graph.nodes
+        df['node_id'] = nodes_to_process
         df['graph_id'] = graph.graph_id
         
         return df[['node_id', 'graph_id'] + columns]
@@ -455,13 +457,17 @@ class NodeFeatures:
                 graph_features.append(feature_df)
             
             # Merge all features for this graph
-            graph_df = graph_features[0]
-            for df in graph_features[1:]:
-                graph_df = graph_df.merge(df, on=['node_id', 'graph_id'])
-            
-            feature_dfs.append(graph_df)
+            if graph_features:
+                graph_df = graph_features[0]
+                for df in graph_features[1:]:
+                    graph_df = graph_df.merge(df, on=['node_id', 'graph_id'])
+                
+                feature_dfs.append(graph_df)
         
         # Combine features from all graphs
+        if not feature_dfs:
+            raise ValueError("No features were computed. Check if the feature list is empty or if there are no graphs.")
+            
         features_df = pd.concat(feature_dfs, ignore_index=True)
         
         # Get feature columns (excluding node_id and graph_id)
