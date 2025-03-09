@@ -3,7 +3,7 @@ from typing import Callable, Dict, List, Literal, Optional, Set, Tuple, Union, g
 import networkx as nx
 from pydantic import BaseModel, Field
 
-from NEExT.egonet import Egonet
+from NEExT.graph.egonet import Egonet
 from NEExT.graph import Graph
 from NEExT.graph_collection import GraphCollection
 
