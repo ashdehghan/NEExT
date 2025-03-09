@@ -1,5 +1,7 @@
 from typing import List, Literal, Optional
 
+import pandas as pd
+
 from NEExT.collections import GraphCollection
 from NEExT.embeddings import GraphEmbeddings
 from NEExT.features import NodeFeatures, StructuralNodeFeatures
@@ -9,7 +11,13 @@ class EmbeddingBuilder:
     def __init__(
         self,
         graph_collection: GraphCollection,
-        strategy: Literal["separate_embedding", "combined_embedding", "structural_embedding"] = "structural_embedding",
+        strategy: Literal[
+            "separate_embedding",
+            "combined_embedding",
+            "structural_embedding",
+            "merge_node_features",
+            "only_node_features",
+        ] = "structural_embedding",
         structural_features: Optional[StructuralNodeFeatures] = None,
         features: Optional[NodeFeatures] = None,
     ):
@@ -25,6 +33,8 @@ class EmbeddingBuilder:
             "separate_embedding",
             "combined_embedding",
             "structural_embedding",
+            "merge_node_features",
+            "only_node_features",
         ]
 
     def compute(
@@ -61,6 +71,12 @@ class EmbeddingBuilder:
             structural_embeddings = graph_structural_embeddings.compute()
             feature_embeddings = graph_feature_embeddings.compute()
             embeddings = structural_embeddings + feature_embeddings
+        elif self.strategy == "merge_node_features":
+            graph_structural_embeddings = GraphEmbeddings(**structural_config)
+            embeddings = graph_structural_embeddings.compute()
+            embeddings = embeddings + self.graph_collection.egonet_node_features
+        elif self.strategy == "only_node_features":
+            embeddings =  self.graph_collection.egonet_node_features
 
         return embeddings
 

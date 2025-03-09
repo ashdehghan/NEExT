@@ -1,20 +1,24 @@
+from collections import defaultdict
 from typing import Callable, Dict, List, Literal, Optional, Set, Tuple, Union, get_args
 
 import networkx as nx
+import pandas as pd
 from pydantic import BaseModel, Field
 
 from NEExT.collections import GraphCollection
+from NEExT.embeddings.embeddings import Embeddings
 from NEExT.graphs import Egonet, Graph
 
 EGONET_ALGORITHMS = Literal["one-hop", "two-hop"]
 
+
 class SubGraphCollection(GraphCollection):
     """
     A collection class that is an extension of GraphCollection class.
-    
-    This class provides functionality to store and create instances of graphs within graphs. 
+
+    This class provides functionality to store and create instances of graphs within graphs.
     For example this can be used to create egonets for each node in each graph.
-    
+
     Attributes:
         Attributes:
         graphs (List[Graph]): List of Graph instances
@@ -24,9 +28,10 @@ class SubGraphCollection(GraphCollection):
         subgraph_to_graph_node_mapping (Dict[int, Tuple[int, int]]): A dictionary mapping from a subgraph to (graph_id, node_id)
         available_algorithms: (Dict[str, Callable]): Dictionary containing all implemented egonet algorithms
     """
+
     subgraph_to_graph_node_mapping: Dict[int, Tuple[int, int]] = Field(default=None)
     available_algorithms: Dict[str, Callable] = Field(default=None)
-
+    egonet_node_features: Embeddings = Field(default=None)
 
     def model_post_init(self, __context):
         self.available_algorithms = {
@@ -43,13 +48,13 @@ class SubGraphCollection(GraphCollection):
     ):
         """
         Creates an ego-net for each node in a graph_collection.
-        
+
         Args:
             graph_collection (GraphCollection): Initial collection of graphs that is used to create ego-nets.
             egonet_target (str): Target variable that is used as an ego-net label
             egonet_algorithm (str, optional): Algorithm that is used to create egonets. By deafault one-hop is used.
             skip_features (List[str], optional): List of node features that should be skipped. This is a variables that is used to avoid possible data leakage issues. egonet_target byt default is added to this list.
-                
+
         """
         if egonet_algorithm not in get_args(EGONET_ALGORITHMS):
             raise ValueError(f'Specified egonet algorithm "{egonet_algorithm}" is not implemented!')
@@ -83,27 +88,26 @@ class SubGraphCollection(GraphCollection):
                 self.subgraph_to_graph_node_mapping[egonet_id] = (graph_id, node_id)
                 egonet_id += 1
 
+        self.egonet_node_features = self._create_egonet_features_df(graph_collection, skip_features=skip_features)
+
     def _build_egonet(
         self,
         graph: Graph,
         egonet_nodes: List[int],
         graph_id: int,
         graph_label: float,
-        skip_features: List[str] = None,
+        skip_features: List[str],
     ):
         """
         Build and ego-net instance as a graph
-        
+
         Args:
             graph_collection (GraphCollection): Initial collection of graphs that is used to create ego-nets.
             egonet_target (str): Target variable that is used as an ego-net label
             egonet_algorithm (str, optional): Algorithm that is used to create egonets. By deafault one-hop is used.
             skip_features (List[str], optional): List of node features that should be skipped. This is a variables that is used to avoid possible data leakage issues. egonet_target byt default is added to this list.
-                
-        """
-        if skip_features is None:
-            skip_features = []
 
+        """
         node_mapping = {n: i for i, n in enumerate(egonet_nodes)}
         sub_node_attributes = {
             node_mapping[node_id]: {key: value for key, value in feature_dict.items() if key not in skip_features}
@@ -130,6 +134,35 @@ class SubGraphCollection(GraphCollection):
             graph_type="networkx" if isinstance(G_sub, nx.Graph) else "igraph",
             node_mapping=node_mapping,
         )
+
+    def _create_egonet_features_df(
+        self,
+        graph_collection,
+        skip_features: List[str],
+    ):
+        egonet_node_features_df = pd.DataFrame().from_dict(self.subgraph_to_graph_node_mapping, orient="index").reset_index()
+        egonet_node_features_df.columns = ["subgraph_id", "graph_id", "node_id"]
+
+        raw_features = defaultdict(dict)
+
+        for graph in graph_collection.graphs:
+            for node_id, features in graph.node_attributes.items():
+                for feature, value in features.items():
+                    if feature in skip_features:
+                        continue
+                    raw_features[graph.graph_id, node_id][feature] = value
+
+        raw_features = (
+            pd.DataFrame.from_dict(raw_features, orient="index").reset_index().rename(columns={"level_0": "graph_id", "level_1": "node_id"})
+        )
+
+        egonet_node_features_df = (
+            egonet_node_features_df.merge(raw_features, on=["graph_id", "node_id"])
+            .drop(columns=["graph_id", "node_id"])
+            .rename(columns={"subgraph_id": "graph_id"})
+        )
+        return Embeddings(egonet_node_features_df, "egonet_node_features", [col for col in egonet_node_features_df.columns if col != "graph_id"])
+
 
 def one_hop_algorithm(graph: Graph, node_id: int) -> List[int]:
     subgraph_nodes = [node_id] + graph.G.neighbors(node_id)
