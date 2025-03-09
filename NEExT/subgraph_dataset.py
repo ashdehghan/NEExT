@@ -1,10 +1,11 @@
 from typing import List, Optional, Tuple
-import pandas as pd
+
 import numpy as np
+import pandas as pd
+
+from NEExT.collections import GraphCollection, SubGraphCollection
 from NEExT.embeddings import Embeddings
-from NEExT.graph_collection import GraphCollection
-from NEExT.structural_node_features import StructuralNodeFeatures
-from NEExT.subgraph_collection import SubGraphCollection
+from NEExT.features import StructuralNodeFeatures
 
 
 def egonet_node_role_features(

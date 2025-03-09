@@ -1,10 +1,11 @@
-from pydantic import BaseModel, Field, field_validator
-from typing import List, Dict, Literal, Union, Optional, Set, Tuple
-import networkx as nx
-import igraph as ig
 import random
+from typing import Dict, List, Literal, Optional, Set, Tuple, Union
 
-from NEExT.graph import Graph
+import igraph as ig
+import networkx as nx
+from pydantic import BaseModel, Field, field_validator
+
+from NEExT.graphs import Graph
 
 
 class Egonet(Graph):

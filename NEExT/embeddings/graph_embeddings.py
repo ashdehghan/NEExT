@@ -1,13 +1,16 @@
-from typing import List, Dict, Optional, Union, Literal
-import pandas as pd
-import numpy as np
-import scipy.sparse
-from pydantic import BaseModel, Field, validator
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
 from multiprocessing import cpu_count
-from .graph_collection import GraphCollection
-from .features import Features
-from .embeddings import Embeddings
+from typing import Dict, List, Literal, Optional, Union
+
+import numpy as np
+import pandas as pd
+import scipy.sparse
+from pydantic import BaseModel, Field, validator
+
+from NEExT.collections import GraphCollection
+from NEExT.embeddings.embeddings import Embeddings
+from NEExT.features import Features
+
 
 class GraphEmbeddingConfig(BaseModel):
     """Configuration for graph embedding computation"""

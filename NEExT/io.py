@@ -1,9 +1,12 @@
+from collections import defaultdict
 from pathlib import Path
-from typing import Optional, Dict, List, Union
+from typing import Dict, List, Optional, Union
+
 import pandas as pd
 from pydantic import BaseModel, Field
-from collections import defaultdict
-from .graph_collection import GraphCollection
+
+from NEExT.collections import GraphCollection
+
 
 class GraphIO:
     """

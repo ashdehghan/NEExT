@@ -1,16 +1,17 @@
-from typing import Dict, List, Optional, Union, Literal, Any
-import pandas as pd
+import logging
+import multiprocessing
+from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
+from typing import Any, Dict, List, Literal, Optional, Union
+
 import numpy as np
+import pandas as pd
+from pydantic import BaseModel, Field, validator
+from sklearn.metrics import accuracy_score, f1_score, mean_absolute_error, mean_squared_error, precision_score, recall_score
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import LabelEncoder
-from sklearn.metrics import accuracy_score, recall_score, precision_score, f1_score
-from sklearn.metrics import mean_squared_error, mean_absolute_error
-from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
-import multiprocessing
-from pydantic import BaseModel, Field, validator
-import logging
-from .graph_collection import GraphCollection
-from .embeddings import Embeddings
+
+from NEExT.collections import GraphCollection
+from NEExT.embeddings import Embeddings
 
 # Set up logger
 logger = logging.getLogger(__name__)
@@ -34,6 +35,7 @@ except ImportError:
 # Import sklearn models as fallbacks
 from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
 from sklearn.linear_model import LogisticRegression, Ridge
+
 
 class MLModelsConfig(BaseModel):
     """

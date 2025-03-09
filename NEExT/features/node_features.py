@@ -1,18 +1,19 @@
-from typing import List, Dict, Optional, Union, Literal
-import pandas as pd
-import networkx as nx
-import igraph as ig
-import numpy as np
-from pydantic import BaseModel, Field
-
-from NEExT.graph import Graph
-from .graph_collection import GraphCollection
-from .helper_functions import get_nodes_x_hops_away, get_all_neighborhoods_ig, get_all_neighborhoods_nx
-from sklearn.preprocessing import StandardScaler
 import logging
-from tqdm.auto import tqdm
-from .features import Features
 from multiprocessing import Pool
+from typing import Dict, List, Literal, Optional, Union
+
+import igraph as ig
+import networkx as nx
+import numpy as np
+import pandas as pd
+from pydantic import BaseModel, Field
+from sklearn.preprocessing import StandardScaler
+from tqdm.auto import tqdm
+
+from NEExT.collections import GraphCollection
+from NEExT.features import Features
+from NEExT.graphs import Graph
+from NEExT.helper_functions import get_all_neighborhoods_ig, get_all_neighborhoods_nx, get_nodes_x_hops_away
 
 # Set up logger
 logger = logging.getLogger(__name__)

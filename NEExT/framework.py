@@ -1,16 +1,20 @@
-from typing import Optional, Union, List, Dict, Literal
-from pathlib import Path
 import logging
+from pathlib import Path
+from typing import Dict, List, Literal, Optional, Union
+
+import numpy as np
 import pandas as pd
 from sklearn.preprocessing import StandardScaler
+
+from NEExT.collections import GraphCollection
+from NEExT.embeddings import Embeddings
+from NEExT.embeddings import GraphEmbeddings
+from NEExT.features import Features
+from NEExT.features import StructuralNodeFeatures
+from NEExT.ml_models import FeatureImportance
+
 from .io import GraphIO
-from .graph_collection import GraphCollection
-from .structural_node_features import StructuralNodeFeatures
-from .features import Features
-from .graph_embeddings import GraphEmbeddings
-import numpy as np
-from .embeddings import Embeddings
-from .feature_importance import FeatureImportance
+
 
 class NEExT:
     """

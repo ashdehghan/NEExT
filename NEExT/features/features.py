@@ -1,7 +1,9 @@
-from typing import List, Optional, Literal
+from typing import List, Literal, Optional
+
 import pandas as pd
 from pydantic import BaseModel
-from sklearn.preprocessing import StandardScaler, MinMaxScaler, RobustScaler
+from sklearn.preprocessing import MinMaxScaler, RobustScaler, StandardScaler
+
 
 class FeaturesConfig(BaseModel):
     """Configuration for features normalization"""
