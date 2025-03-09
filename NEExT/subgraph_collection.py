@@ -9,6 +9,21 @@ from NEExT.graph_collection import GraphCollection
 EGONET_ALGORITHMS = Literal["one-hop", "two-hop"]
 
 class SubGraphCollection(GraphCollection):
+    """
+    A collection class that is an extension of GraphCollection class.
+    
+    This class provides functionality to store and create instances of graphs within graphs. 
+    For example this can be used to create egonets for each node in each graph.
+    
+    Attributes:
+        Attributes:
+        graphs (List[Graph]): List of Graph instances
+        graph_type (str): Backend graph library to use ("networkx" or "igraph")
+        graph_id_node_array (Optional[List[int]]): Array mapping each node to its graph ID
+        node_sample_rate (float): Rate at which to sample nodes from each graph (default: 1.0)
+        subgraph_to_graph_node_mapping (Dict[int, Tuple[int, int]]): A dictionary mapping from a subgraph to (graph_id, node_id)
+        available_algorithms: (Dict[str, Callable]): Dictionary containing all implemented egonet algorithms
+    """
     subgraph_to_graph_node_mapping: Dict[int, Tuple[int, int]] = Field(default=None)
     available_algorithms: Dict[str, Callable] = Field(default=None)
 
@@ -19,13 +34,23 @@ class SubGraphCollection(GraphCollection):
             "two-hop": two_hop_algorithm,
         }
 
-    def create_subgraphs(
+    def create_egonets_from_graphs(
         self,
         graph_collection: GraphCollection,
         egonet_target: str,
         egonet_algorithm: EGONET_ALGORITHMS = "one-hop",
         skip_features: Optional[List[str]] = None,
     ):
+        """
+        Creates an ego-net for each node in a graph_collection.
+        
+        Args:
+            graph_collection (GraphCollection): Initial collection of graphs that is used to create ego-nets.
+            egonet_target (str): Target variable that is used as an ego-net label
+            egonet_algorithm (str, optional): Algorithm that is used to create egonets. By deafault one-hop is used.
+            skip_features (List[str], optional): List of node features that should be skipped. This is a variables that is used to avoid possible data leakage issues. egonet_target byt default is added to this list.
+                
+        """
         if egonet_algorithm not in get_args(EGONET_ALGORITHMS):
             raise ValueError(f'Specified egonet algorithm "{egonet_algorithm}" is not implemented!')
         if skip_features is None:
@@ -66,6 +91,16 @@ class SubGraphCollection(GraphCollection):
         graph_label: float,
         skip_features: List[str] = None,
     ):
+        """
+        Build and ego-net instance as a graph
+        
+        Args:
+            graph_collection (GraphCollection): Initial collection of graphs that is used to create ego-nets.
+            egonet_target (str): Target variable that is used as an ego-net label
+            egonet_algorithm (str, optional): Algorithm that is used to create egonets. By deafault one-hop is used.
+            skip_features (List[str], optional): List of node features that should be skipped. This is a variables that is used to avoid possible data leakage issues. egonet_target byt default is added to this list.
+                
+        """
         if skip_features is None:
             skip_features = []
 

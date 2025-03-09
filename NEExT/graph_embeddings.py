@@ -16,6 +16,7 @@ class GraphEmbeddingConfig(BaseModel):
     feature_columns: Optional[List[str]] = None
     random_state: int = 42
     memory_size: str = "4G"
+    suffix: str = ""
 
     @validator('embedding_algorithm')
     def validate_embedding_algorithm(cls, v):
@@ -47,7 +48,8 @@ class GraphEmbeddings:
         embedding_dimension: int,
         feature_columns: Optional[List[str]] = None,
         random_state: int = 42,
-        memory_size: str = "4G"
+        memory_size: str = "4G",
+        suffix: str = '',
     ):
         """Initialize the GraphEmbeddings processor."""
         self.config = GraphEmbeddingConfig(
@@ -55,7 +57,8 @@ class GraphEmbeddings:
             embedding_dimension=embedding_dimension,
             feature_columns=feature_columns or features.feature_columns,
             random_state=random_state,
-            memory_size=memory_size
+            memory_size=memory_size,
+            suffix=suffix
         )
         self.graph_collection = graph_collection
         self.features = features
@@ -95,7 +98,7 @@ class GraphEmbeddings:
         embeddings_df = embedding_func(self.features.features_df)
         
         # Get embedding column names
-        embedding_columns = [f"emb_{i}" for i in range(self.config.embedding_dimension)]
+        embedding_columns = [f"emb_{i}_{self.config.suffix}" if self.config.suffix else f"emb_{i}" for i in range(self.config.embedding_dimension)]
         
         return Embeddings(
             embeddings_df=embeddings_df,
@@ -165,7 +168,7 @@ class GraphEmbeddings:
         
         # Add embedding columns
         for i in range(self.config.embedding_dimension):
-            embeddings_df[f"emb_{i}"] = embeddings[:, i]
+            embeddings_df[f"emb_{i}_{self.config.suffix}" if self.config.suffix else f"emb_{i}"] = embeddings[:, i]
         
         return embeddings_df
 
@@ -195,7 +198,7 @@ class GraphEmbeddings:
         
         # Add embedding columns
         for i in range(self.config.embedding_dimension):
-            embeddings_df[f"emb_{i}"] = embeddings[:, i]
+            embeddings_df[f"emb_{i}_{self.config.suffix}" if self.config.suffix else f"emb_{i}"] = embeddings[:, i]
         
         return embeddings_df
 
@@ -225,6 +228,6 @@ class GraphEmbeddings:
         
         # Add embedding columns
         for i in range(self.config.embedding_dimension):
-            embeddings_df[f"emb_{i}"] = embeddings[:, i]
+            embeddings_df[f"emb_{i}_{self.config.suffix}" if self.config.suffix else f"emb_{i}"] = embeddings[:, i]
         
         return embeddings_df
