@@ -1,12 +1,15 @@
-# Byte-compiled / optimized / DLL files
+# macOS system files
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon
+._*
+
+# Python
 __pycache__/
 *.py[cod]
 *$py.class
-
-# C extensions
 *.so
-
-# Distribution / packaging
 .Python
 build/
 develop-eggs/
@@ -20,8 +23,49 @@ parts/
 sdist/
 var/
 wheels/
-share/python-wheels/
 *.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual Environment
+venv/
+ENV/
+env/
+.env/
+.venv/
+
+# IDE specific files
+.idea/
+.vscode/
+*.swp
+*.swo
+.project
+.pydevproject
+.settings/
+
+# Testing
+.coverage
+htmlcov/
+.tox/
+.pytest_cache/
+coverage.xml
+*.cover
+
+# Documentation
+docs/_build/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# Byte-compiled / optimized / DLL files
+*.manifest
+*.spec
+
+# C extensions
+*.mo
+*.pot
+
+# Distribution / packaging
 .installed.cfg
 *.egg
 MANIFEST
@@ -37,16 +81,7 @@ pip-log.txt
 pip-delete-this-directory.txt
 
 # Unit test / coverage reports
-htmlcov/
-.tox/
-.nox/
-.coverage
-.coverage.*
-.cache
-nosetests.xml
-coverage.xml
 *.cover
-*.py,cover
 .hypothesis/
 .pytest_cache/
 cover/
@@ -74,9 +109,6 @@ docs/_build/
 # PyBuilder
 .pybuilder/
 target/
-
-# Jupyter Notebook
-.ipynb_checkpoints
 
 # IPython
 profile_default/
@@ -119,15 +151,6 @@ celerybeat.pid
 # SageMath parsed files
 *.sage.py
 
-# Environments
-.env
-.venv
-env/
-venv/
-ENV/
-env.bak/
-venv.bak/
-
 # Spyder project settings
 .spyderproject
 .spyproject
@@ -149,8 +172,6 @@ dmypy.json
 # pytype static type analyzer
 .pytype/
 
-.vscode
-
 # Cython debug symbols
 cython_debug/
 
@@ -164,3 +185,7 @@ test.ipynb
 #  and can be added to the global gitignore or merged into this file.  For a more nuclear
 #  option (not recommended) you can uncomment the following to ignore the entire idea folder.
 #.idea/
+
+# Experiment results
+experiments/results/*
+!experiments/results/.gitkeep

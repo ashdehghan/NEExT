@@ -1,11 +1,20 @@
 from NEExT import NEExT
 import numpy as np
+import time
 
 def main():
     # Define data URLs
-    edge_file = "https://raw.githubusercontent.com/AnomalyPoint/NEExT_datasets/refs/heads/main/real_world_networks/csv_format/BZR/edges.csv"
-    node_graph_mapping_file = "https://raw.githubusercontent.com/AnomalyPoint/NEExT_datasets/refs/heads/main/real_world_networks/csv_format/BZR/node_graph_mapping.csv"
-    graph_label_file = "https://raw.githubusercontent.com/AnomalyPoint/NEExT_datasets/refs/heads/main/real_world_networks/csv_format/BZR/graph_labels.csv"
+
+    dataset = "BZR"
+
+    if dataset in ["IMDB", "MUTAG", "NCI1", "BZR", "PROTEINS"]:
+      dataset_source = "real_world_networks"
+    else:
+      dataset_source = "synthetic_networks"
+
+    edges = f"https://raw.githubusercontent.com/AnomalyPoint/NEExT_datasets/refs/heads/main/{dataset_source}/csv_format/{dataset}/edges.csv"
+    node_graph_mapping = f"https://raw.githubusercontent.com/AnomalyPoint/NEExT_datasets/refs/heads/main/{dataset_source}/csv_format/{dataset}/node_graph_mapping.csv"
+    graph_labels = f"https://raw.githubusercontent.com/AnomalyPoint/NEExT_datasets/refs/heads/main/{dataset_source}/csv_format/{dataset}/graph_labels.csv"
 
     # Initialize NEExT and set logging level
     nxt = NEExT()
@@ -13,18 +22,21 @@ def main():
 
     # Load data with node reindexing and largest component filtering
     graph_collection = nxt.read_from_csv(
-        edges_path=edge_file,
-        node_graph_mapping_path=node_graph_mapping_file,
-        graph_label_path=graph_label_file,
+        edges_path=edges,
+        node_graph_mapping_path=node_graph_mapping,
+        graph_label_path=graph_labels,
         reindex_nodes=True,
         filter_largest_component=True,
-        graph_type="igraph",
+        graph_type="networkx",
         node_sample_rate=1.0
     )
 
     # Print collection info using the new describe method
     print("\nGraph Collection Info:")
     print(graph_collection.describe())
+    
+    # Time the node feature computation
+    start_time = time.time()
     
     # Compute node features
     features = nxt.compute_node_features(
@@ -33,23 +45,28 @@ def main():
         feature_vector_length=3,
         show_progress=True
     )
+    
+    end_time = time.time()
+    computation_time = end_time - start_time
+    print(f"\nNode feature computation took {computation_time:.2f} seconds")
 
-    # Normalize features if desired
-    features.normalize(type="StandardScaler")
 
     # Print feature information
     print("\nComputed Node Features:")
-    print(f"Number of nodes: {len(features.features_df)}")
-    print(f"Features computed: {list(features.features_df.columns)}")
+    # Get only the feature columns (excluding node_id and graph_id)
+    print(f"Number of computed features: {len(features.feature_columns)}")
+    print(f"Features computed: {features.feature_columns}")
     print("\nSample of computed features:")
     print(features.features_df.head())
+    # Normalize features if desired
+    features.normalize(type="StandardScaler")
 
     # Compute graph embeddings
     embeddings = nxt.compute_graph_embeddings(
         graph_collection=graph_collection,
         features=features,
         embedding_algorithm="approx_wasserstein",
-        embedding_dimension=3,
+        embedding_dimension=len(features.feature_columns),
         random_state=42
     )
 
@@ -72,22 +89,31 @@ def main():
     
     # Print model results
     print("\nClassification Model Results:")
-    print(f"Average Accuracy: {np.mean(model_results['accuracy']):.4f}")
-    print(f"Average F1 Score: {np.mean(model_results['f1_score']):.4f}")
+    print("\nMetrics Summary:")
+    print("-" * 50)
+    metrics = ['accuracy', 'recall', 'precision', 'f1_score']
+    for metric in metrics:
+        mean_val = np.mean(model_results[metric])
+        std_val = np.std(model_results[metric])
+        print(f"{metric.capitalize():<10} Mean: {mean_val:.4f} ± {std_val:.4f}")
+    
+    print("\nClass Information:")
+    print("-" * 50)
     print(f"Classes: {model_results['classes']}")
+    print(f"Number of classes: {len(model_results['classes'])}")
 
-    # Compute feature importance
-    importance_df = nxt.compute_feature_importance(
-        graph_collection=graph_collection,
-        features=features,
-        feature_importance_algorithm="supervised_fast",
-        embedding_algorithm="approx_wasserstein",
-        n_iterations=5
-    )
+    # # Compute feature importance
+    # importance_df = nxt.compute_feature_importance(
+    #     graph_collection=graph_collection,
+    #     features=features,
+    #     feature_importance_algorithm="supervised_fast",
+    #     embedding_algorithm="approx_wasserstein",
+    #     n_iterations=5
+    # )
 
-    # Print feature importance results
-    print("\nFeature Importance Results:")
-    print(importance_df)
+    # # Print feature importance results
+    # print("\nFeature Importance Results:")
+    # print(importance_df)
 
 if __name__ == '__main__':
     main()

@@ -28,6 +28,27 @@ class GraphCollection(BaseModel):
     graph_id_node_array: Optional[List[int]] = Field(default=None, exclude=True)
     node_sample_rate: float = Field(default=1.0, ge=0.0, le=1.0)
 
+    def sample_nodes(self, random_seed: Optional[int] = None) -> None:
+        """
+        Sample nodes from all graphs based on the node_sample_rate.
+        
+        Args:
+            random_seed (Optional[int]): Random seed for reproducibility
+        """
+        if random_seed is not None:
+            random.seed(random_seed)
+            
+        # Sample nodes for each graph
+        for graph in self.graphs:
+            graph.sample_nodes(self.node_sample_rate, random_seed=random.randint(0, 1000000))
+            
+        # Update graph_id_node_array to only include sampled nodes
+        if self.node_sample_rate < 1.0:
+            self.graph_id_node_array = []
+            for graph in self.graphs:
+                if graph.sampled_nodes:
+                    self.graph_id_node_array.extend([graph.graph_id] * len(graph.sampled_nodes))
+
     def add_graphs(
         self,
         graph_data_list: List[Dict],
@@ -61,7 +82,8 @@ class GraphCollection(BaseModel):
         graph_type = graph_type or self.graph_type
         
         # Use instance node_sample_rate if none provided
-        node_sample_rate = node_sample_rate if node_sample_rate is not None else self.node_sample_rate
+        if node_sample_rate is not None:
+            self.node_sample_rate = node_sample_rate
         
         # Clear existing graph_id_node_array
         self.graph_id_node_array = []
@@ -72,32 +94,9 @@ class GraphCollection(BaseModel):
             nodes = graph_data["nodes"]
             edges = graph_data["edges"]
 
-            # Sample nodes if rate is less than 1
-            if node_sample_rate < 1.0:
-                # Calculate number of nodes to sample
-                num_nodes = len(nodes)
-                num_sample = max(1, int(num_nodes * node_sample_rate))
-                
-                # Randomly sample nodes
-                sampled_nodes = random.sample(nodes, num_sample)
-                sampled_nodes_set = set(sampled_nodes)
-                
-                # Filter edges to only include sampled nodes
-                edges = [(src, dst) for src, dst in edges 
-                        if src in sampled_nodes_set and dst in sampled_nodes_set]
-                
-                # Update nodes list
-                nodes = sampled_nodes
-                
-                # Filter node and edge attributes
-                node_attributes = {k: v for k, v in graph_data.get("node_attributes", {}).items()
-                                 if k in sampled_nodes_set}
-                edge_attributes = {k: v for k, v in graph_data.get("edge_attributes", {}).items()
-                                 if k[0] in sampled_nodes_set and k[1] in sampled_nodes_set}
-            else:
-                # Use original attributes
-                node_attributes = graph_data.get("node_attributes", {})
-                edge_attributes = graph_data.get("edge_attributes", {})
+            # Use original attributes
+            node_attributes = graph_data.get("node_attributes", {})
+            edge_attributes = graph_data.get("edge_attributes", {})
 
             graph_label = graph_data.get("graph_label")
 
@@ -129,6 +128,9 @@ class GraphCollection(BaseModel):
             
             # Update graph_id_node_array with this graph's nodes
             self.graph_id_node_array.extend([graph_id] * len(graph.nodes))
+
+        # Sample nodes after all graphs are added
+        self.sample_nodes()
 
     def get_graph_by_id(self, graph_id: int) -> Optional[Graph]:
         """
