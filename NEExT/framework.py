@@ -5,7 +5,7 @@ import pandas as pd
 from sklearn.preprocessing import StandardScaler
 from .io import GraphIO
 from .graph_collection import GraphCollection
-from .node_features import NodeFeatures
+from .structural_node_features import StructuralNodeFeatures
 from .features import Features
 from .graph_embeddings import GraphEmbeddings
 import numpy as np
@@ -166,7 +166,7 @@ class NEExT:
         """
         self.logger.info(f"Computing node features: {feature_list}")
         
-        node_features = NodeFeatures(
+        node_features = StructuralNodeFeatures(
             graph_collection=graph_collection,
             feature_list=feature_list,
             feature_vector_length=feature_vector_length,

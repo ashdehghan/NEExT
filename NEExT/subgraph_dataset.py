@@ -3,27 +3,8 @@ import pandas as pd
 import numpy as np
 from NEExT.embeddings import Embeddings
 from NEExT.graph_collection import GraphCollection
-from NEExT.node_features import NodeFeatures
+from NEExT.structural_node_features import StructuralNodeFeatures
 from NEExT.subgraph_collection import SubGraphCollection
-
-
-def egonet_features(
-    subgraph_collection: SubGraphCollection,
-    features: List[str] = ["all"],
-):
-    out_features = []
-
-    for graph in subgraph_collection.graphs:
-        egonet_features_df = pd.DataFrame([node_attributes for _, node_attributes in graph.node_attributes.items()])
-        features = egonet_features_df.columns if features == ["all"] else features
-
-        egonet_features_df = egonet_features_df[features]
-        egonet_features_df["node_id"] = graph.nodes
-        egonet_features_df["graph_id"] = graph.graph_id
-
-        out_features.append(egonet_features_df)
-
-    return pd.concat(out_features, axis=0, ignore_index=True)
 
 
 def egonet_node_role_features(
@@ -45,7 +26,7 @@ def egonet_node_role_features(
 
 
 def combine_structural_with_egonet_features(
-    features: NodeFeatures,
+    features: StructuralNodeFeatures,
     egonet_features_df: pd.DataFrame,
 ):
     features.features_df = features.features_df.merge(egonet_features_df, on=["graph_id", "node_id"])
