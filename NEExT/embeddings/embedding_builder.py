@@ -3,6 +3,7 @@ from typing import Dict, List, Literal, Optional
 import pandas as pd
 
 from NEExT.collections import GraphCollection
+from NEExT.collections.egonet_collection import EgonetCollection
 from NEExT.embeddings import GraphEmbeddings
 from NEExT.features import NodeFeatures, StructuralNodeFeatures
 
@@ -59,24 +60,18 @@ class EmbeddingBuilder:
         )
 
         embeddings = self.available_algorithms[self.strategy](**configs)
-        # if self.strategy == "structural_embedding":
-        #     embeddings = self._structural_embedding(structural_config)
-        # elif self.strategy == "combined_embedding":
-        #     embeddings = self._combined_embedding(combined_config)
-        # elif self.strategy == "separate_embedding":
-        #     embeddings = self._separate_embedding(structural_config, feature_config)
-        # elif self.strategy == "merge_egonet_node_features":
-        #     embeddings = self._merge_egonet_node_features(structural_config)
-        # elif self.strategy == "only_egonet_node_features":
-        #     embeddings = self.only_egonet_node_features()
 
         return embeddings
 
     def _only_egonet_node_features(self, **kwargs):
+        if not isinstance(self.graph_collection, EgonetCollection):
+            raise Exception('Not graph collection is not an EgonetCollection!')
         embeddings =  self.graph_collection.egonet_node_features
         return embeddings
 
     def _merge_egonet_node_features(self, structural_config, **kwargs):
+        if not isinstance(self.graph_collection, EgonetCollection):
+            raise Exception('Not graph collection is not an EgonetCollection!')
         graph_structural_embeddings = GraphEmbeddings(**structural_config)
         embeddings = graph_structural_embeddings.compute()
         embeddings = embeddings + self.graph_collection.egonet_node_features
@@ -106,9 +101,9 @@ class EmbeddingBuilder:
         structural_embedding_dimension: int,
         feature_embedding_dimension: int,
         feature_columns: List[str],
-        random_state,
-        memory_size,
-        embedding_algorithm,
+        random_state: int,
+        memory_size: str,
+        embedding_algorithm: str,
     ) -> Dict[str, Dict]:
         if self.structural_features:
             structural_config = dict(
