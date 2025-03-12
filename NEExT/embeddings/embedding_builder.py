@@ -5,6 +5,7 @@ import pandas as pd
 from NEExT.collections import GraphCollection
 from NEExT.collections.egonet_collection import EgonetCollection
 from NEExT.embeddings import GraphEmbeddings
+from NEExT.embeddings.embeddings import Embeddings
 from NEExT.features import NodeFeatures, StructuralNodeFeatures
 
 
@@ -46,7 +47,7 @@ class EmbeddingBuilder:
         random_state: int = 42,
         memory_size: str = "4G",
         embedding_algorithm: str = "approx_wasserstein",
-    ):
+    ) -> Embeddings:
         structural_embedding_dimension = min(len(self.structural_features.feature_columns), structural_embedding_dimension)
         feature_embedding_dimension = min(len(self.features.feature_columns), feature_embedding_dimension)
 
