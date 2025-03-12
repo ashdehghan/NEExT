@@ -12,7 +12,7 @@ from NEExT.graphs import Egonet, Graph
 EGONET_ALGORITHMS = Literal["one-hop", "two-hop"]
 
 
-class SubGraphCollection(GraphCollection):
+class EgonetCollection(GraphCollection):
     """
     A collection class that is an extension of GraphCollection class.
 

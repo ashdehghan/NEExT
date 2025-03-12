@@ -1,4 +1,4 @@
-from typing import List, Literal, Optional
+from typing import Dict, List, Literal, Optional
 
 import pandas as pd
 
@@ -29,13 +29,13 @@ class EmbeddingBuilder:
         self.structural_features = structural_features
         self.features = features
 
-        self.available_algorithms = [
-            "separate_embedding",
-            "combined_embedding",
-            "structural_embedding",
-            "merge_node_features",
-            "only_node_features",
-        ]
+        self.available_algorithms = {
+            "separate_embedding": self._separate_embedding,
+            "combined_embedding": self._combined_embedding,
+            "structural_embedding": self._structural_embedding,
+            "merge_egonet_node_features": self._merge_egonet_node_features,
+            "only_egonet_node_features": self._only_egonet_node_features,
+        }
 
     def compute(
         self,
@@ -49,7 +49,7 @@ class EmbeddingBuilder:
         structural_embedding_dimension = min(len(self.structural_features.feature_columns), structural_embedding_dimension)
         feature_embedding_dimension = min(len(self.features.feature_columns), feature_embedding_dimension)
 
-        structural_config, feature_config, combined_config = self._build_configs(
+        configs = self._build_configs(
             structural_embedding_dimension,
             feature_embedding_dimension,
             feature_columns,
@@ -58,26 +58,47 @@ class EmbeddingBuilder:
             embedding_algorithm,
         )
 
-        if self.strategy == "structural_embedding":
-            graph_structural_embeddings = GraphEmbeddings(**structural_config)
-            embeddings = graph_structural_embeddings.compute()
-        elif self.strategy == "combined_embedding":
-            graph_embeddings = GraphEmbeddings(**combined_config)
-            embeddings = graph_embeddings.compute()
-        elif self.strategy == "separate_embedding":
-            graph_structural_embeddings = GraphEmbeddings(**structural_config)
-            graph_feature_embeddings = GraphEmbeddings(**feature_config)
+        embeddings = self.available_algorithms[self.strategy](**configs)
+        # if self.strategy == "structural_embedding":
+        #     embeddings = self._structural_embedding(structural_config)
+        # elif self.strategy == "combined_embedding":
+        #     embeddings = self._combined_embedding(combined_config)
+        # elif self.strategy == "separate_embedding":
+        #     embeddings = self._separate_embedding(structural_config, feature_config)
+        # elif self.strategy == "merge_egonet_node_features":
+        #     embeddings = self._merge_egonet_node_features(structural_config)
+        # elif self.strategy == "only_egonet_node_features":
+        #     embeddings = self.only_egonet_node_features()
 
-            structural_embeddings = graph_structural_embeddings.compute()
-            feature_embeddings = graph_feature_embeddings.compute()
-            embeddings = structural_embeddings + feature_embeddings
-        elif self.strategy == "merge_node_features":
-            graph_structural_embeddings = GraphEmbeddings(**structural_config)
-            embeddings = graph_structural_embeddings.compute()
-            embeddings = embeddings + self.graph_collection.egonet_node_features
-        elif self.strategy == "only_node_features":
-            embeddings =  self.graph_collection.egonet_node_features
+        return embeddings
 
+    def _only_egonet_node_features(self, **kwargs):
+        embeddings =  self.graph_collection.egonet_node_features
+        return embeddings
+
+    def _merge_egonet_node_features(self, structural_config, **kwargs):
+        graph_structural_embeddings = GraphEmbeddings(**structural_config)
+        embeddings = graph_structural_embeddings.compute()
+        embeddings = embeddings + self.graph_collection.egonet_node_features
+        return embeddings
+
+    def _separate_embedding(self, structural_config, features_config, **kwargs):
+        graph_structural_embeddings = GraphEmbeddings(**structural_config)
+        graph_feature_embeddings = GraphEmbeddings(**features_config)
+
+        structural_embeddings = graph_structural_embeddings.compute()
+        feature_embeddings = graph_feature_embeddings.compute()
+        embeddings = structural_embeddings + feature_embeddings
+        return embeddings
+
+    def _combined_embedding(self, combined_config, **kwargs):
+        graph_embeddings = GraphEmbeddings(**combined_config)
+        embeddings = graph_embeddings.compute()
+        return embeddings
+
+    def _structural_embedding(self, structural_config, **kwargs):
+        graph_structural_embeddings = GraphEmbeddings(**structural_config)
+        embeddings = graph_structural_embeddings.compute()
         return embeddings
 
     def _build_configs(
@@ -88,7 +109,7 @@ class EmbeddingBuilder:
         random_state,
         memory_size,
         embedding_algorithm,
-    ):
+    ) -> Dict[str, Dict]:
         if self.structural_features:
             structural_config = dict(
                 graph_collection=self.graph_collection,
@@ -104,7 +125,7 @@ class EmbeddingBuilder:
             structural_config = None
 
         if self.features:
-            combined_config = dict(
+            features_config = dict(
                 graph_collection=self.graph_collection,
                 features=self.features,
                 embedding_algorithm=embedding_algorithm,
@@ -130,4 +151,8 @@ class EmbeddingBuilder:
                 suffix="feat",
             )
 
-        return structural_config, combined_config, combined_config
+        return dict(
+            structural_config=structural_config, 
+            features_config=features_config, 
+            combined_config=combined_config
+        )

@@ -3,13 +3,13 @@ from typing import List, Optional, Tuple
 import numpy as np
 import pandas as pd
 
-from NEExT.collections import GraphCollection, SubGraphCollection
+from NEExT.collections import GraphCollection, EgonetCollection
 from NEExT.embeddings import Embeddings
 from NEExT.features import StructuralNodeFeatures
 
 
 def egonet_node_role_features(
-    subgraph_collection: SubGraphCollection,
+    subgraph_collection: EgonetCollection,
 ):
     out_features = []
     for graph in subgraph_collection.graphs:
@@ -37,7 +37,7 @@ def combine_structural_with_egonet_features(
 
 def create_data_df(
     graph_collection: GraphCollection,
-    subgraph_collection: SubGraphCollection,
+    subgraph_collection: EgonetCollection,
     embeddings: Embeddings,
     target: str,
 ):
