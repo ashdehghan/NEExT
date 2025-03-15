@@ -184,9 +184,11 @@ class MLModels:
         This method creates a new column 'encoded_label' in the data_df
         and sets the num_classes attribute.
         """
-        self.label_encoder = LabelEncoder()
-        self.data_df["encoded_label"] = self.label_encoder.fit_transform(self.data_df["label"])
-        self.num_classes = len(self.label_encoder.classes_)
+        # self.label_encoder = LabelEncoder()
+        self.data_df["encoded_label"] = self.data_df["label"]
+        self.num_classes = 2
+        
+        # self.label_encoder
     
     def compute(self) -> Dict[str, Any]:
         """
@@ -203,8 +205,10 @@ class MLModels:
         """
         if self.config.model_type == "classifier":
             return self._compute_classifier()
-        else:
+        elif self.config.model_type == "regressor":
             return self._compute_regressor()
+        else:
+            return self._compute_selfsupervised_classifier()
     
     def _train_classifier_iteration(self, iteration_data: Dict[str, Any]) -> Dict[str, Any]:
         """Train and evaluate a classifier for a single iteration."""
