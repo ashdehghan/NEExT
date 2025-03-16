@@ -105,6 +105,63 @@ class GraphIO:
         )
         
         return collection
+    
+    def load_from_dfs(
+        self,
+        edges_df: pd.DataFrame,
+        node_graph_df: pd.DataFrame,
+        graph_labels_df: Optional[pd.DataFrame] = None,
+        node_features_df: Optional[pd.DataFrame] = None,
+        edge_features_df: Optional[pd.DataFrame] = None,
+        graph_type: str = "networkx",
+        reindex_nodes: bool = True,
+        filter_largest_component: bool = True,
+        node_sample_rate: float = 1.0,
+    ) -> GraphCollection:
+        # Validate required columns
+        if not {"src_node_id", "dest_node_id"}.issubset(edges_df.columns):
+            raise ValueError("edges_df must contain 'src_node_id' and 'dest_node_id' columns")
+        if not {"node_id", "graph_id"}.issubset(node_graph_df.columns):
+            raise ValueError("node_graph_df must contain 'node_id' and 'graph_id' columns")
+
+        if graph_labels_df is not None:
+            if not {"graph_id", "graph_label"}.issubset(graph_labels_df.columns):
+                raise ValueError("graph_labels_df must contain 'graph_id' and 'graph_label' columns")
+
+        # Read optional feature files
+        if node_features_df is not None:
+            if "node_id" not in node_features_df.columns:
+                raise ValueError("node_features_df must contain 'node_id' column")
+
+        if edge_features_df is not None:
+            if not {"src_node_id", "dest_node_id"}.issubset(edge_features_df.columns):
+                raise ValueError("edge_features_df must contain 'src_node_id' and 'dest_node_id' columns")
+
+        # Validate node_sample_rate
+        if not 0.0 < node_sample_rate <= 1.0:
+            raise ValueError("node_sample_rate must be between 0 and 1")
+
+        # Organize data by graph
+        graphs_data = self._organize_graph_data(
+            edges_df,
+            node_graph_df,
+            node_features_df,
+            edge_features_df,
+            graph_labels_df,
+        )
+
+        # Create GraphCollection and add graphs
+        collection = GraphCollection(graph_type=graph_type, node_sample_rate=node_sample_rate)
+        collection.add_graphs(
+            graph_data_list=graphs_data,
+            graph_type=graph_type,
+            reindex_nodes=reindex_nodes,
+            filter_largest_component=filter_largest_component,
+            node_sample_rate=node_sample_rate,
+        )
+
+        return collection
+        
 
     def _organize_graph_data(
         self,
