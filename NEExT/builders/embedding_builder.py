@@ -15,8 +15,8 @@ class EmbeddingBuilder:
             "separate_embedding",
             "combined_embedding",
             "structural_embedding",
-            "merge_node_features",
-            "only_node_features",
+            "merge_egonet_node_features",
+            "only_egonet_node_features",
         ] = "structural_embedding",
         structural_features: Optional[StructuralNodeFeatures] = None,
         features: Optional[NodeFeatures] = None,
@@ -64,13 +64,13 @@ class EmbeddingBuilder:
 
     def _only_egonet_node_features(self, **kwargs):
         if not isinstance(self.graph_collection, EgonetCollection):
-            raise Exception('Not graph collection is not an EgonetCollection!')
+            raise Exception('Graph collection is not an EgonetCollection!')
         embeddings =  self.graph_collection.egonet_node_features
         return embeddings
 
     def _merge_egonet_node_features(self, structural_config, **kwargs):
         if not isinstance(self.graph_collection, EgonetCollection):
-            raise Exception('Not graph collection is not an EgonetCollection!')
+            raise Exception('Graph collection is not an EgonetCollection!')
         graph_structural_embeddings = GraphEmbeddings(**structural_config)
         embeddings = graph_structural_embeddings.compute()
         embeddings = embeddings + self.graph_collection.egonet_node_features
@@ -80,9 +80,12 @@ class EmbeddingBuilder:
         graph_structural_embeddings = GraphEmbeddings(**structural_config)
         graph_feature_embeddings = GraphEmbeddings(**features_config)
 
-        structural_embeddings = graph_structural_embeddings.compute()
-        feature_embeddings = graph_feature_embeddings.compute()
-        embeddings = structural_embeddings + feature_embeddings
+        if features_config['feature_columns'] is None:
+            embeddings = graph_structural_embeddings.compute()
+        else:
+            structural_embeddings = graph_structural_embeddings.compute()
+            feature_embeddings = graph_feature_embeddings.compute()
+            embeddings = structural_embeddings + feature_embeddings
         return embeddings
 
     def _combined_embedding(self, combined_config, **kwargs):

@@ -1,6 +1,7 @@
 import random
 from typing import Dict, List, Literal, Optional, Set, Tuple, Union
 
+import numpy as np
 import igraph as ig
 import networkx as nx
 from pydantic import BaseModel, Field, field_validator
@@ -33,7 +34,7 @@ class Graph(BaseModel):
     }
 
     graph_id: int
-    graph_label: Optional[int] = None
+    graph_label: Optional[Union[int, float]] = None
     nodes: List[int]
     edges: List[tuple[int, int]]
     node_attributes: Dict[int, Dict[str, Union[float, int, str]]] = Field(default_factory=dict)
@@ -177,7 +178,7 @@ class Graph(BaseModel):
             
         else:  # igraph
             # Find largest connected component
-            components = self.G.clusters()
+            components = self.G.connected_components()
             if len(components) > 1:
                 largest_cc_idx = components.sizes().index(max(components.sizes()))
                 subgraph = self.G.subgraph(components[largest_cc_idx])

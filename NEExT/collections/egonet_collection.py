@@ -36,10 +36,7 @@ class EgonetCollection(GraphCollection):
     egonet_target: str = Field(default=None)
 
     def model_post_init(self, __context):
-        self.available_algorithms = {
-            "k_hop_egonet": self._k_hop_egonet,
-            "leiden_egonet": self._leiden_egonet
-        }
+        self.available_algorithms = {"k_hop_egonet": self._k_hop_egonet, "leiden_egonet": self._leiden_egonet}
 
     def create_egonets_from_graphs(
         self,
@@ -69,11 +66,11 @@ class EgonetCollection(GraphCollection):
 
         self.graph_id_node_array = []
         self.subgraph_to_graph_node_mapping = {}
-        if egonet_algorithm == 'k_hop_egonet':
+        if egonet_algorithm == "k_hop_egonet":
             self._k_hop_egonet(graph_collection, max_hop_length)
-        elif egonet_algorithm == 'leiden_egonet':
+        elif egonet_algorithm == "leiden_egonet":
             self._leiden_egonet(graph_collection, n_iterations, resolution)
-    
+
         self.egonet_node_features = self._create_egonet_features_df(graph_collection)
 
     def _k_hop_egonet(self, graph_collection: GraphCollection, max_hop_length: int):
@@ -83,7 +80,7 @@ class EgonetCollection(GraphCollection):
             for node_id in range(graph.G.vcount()):
                 egonet_nodes = k_hop_egonet(graph, node_id, k=max_hop_length)
                 egonet_label = graph.node_attributes[node_id][self.egonet_target]
-                
+
                 egonet = self._build_egonet(
                     graph=graph,
                     egonet_nodes=egonet_nodes,
@@ -100,18 +97,18 @@ class EgonetCollection(GraphCollection):
                 self.subgraph_to_graph_node_mapping[egonet_id] = (graph_id, node_id)
                 egonet_id += 1
 
-    def _leiden_egonet(self, graph_collection: GraphCollection, n_iterations:int, resolution:float):
+    def _leiden_egonet(self, graph_collection: GraphCollection, n_iterations: int, resolution: float):
         egonet_id = 0
-        
+
         for graph_id, graph in enumerate(graph_collection.graphs):
             community_detection = graph.G.community_leiden(objective_function="modularity", n_iterations=n_iterations, resolution=resolution)
             node_community_mapping = {k: v for k, v in enumerate(community_detection.membership)}
-            
+
             for node_id in range(graph.G.vcount()):
                 community_id = node_community_mapping[node_id]
                 egonet_nodes = [n_id for n_id, com_id in node_community_mapping.items() if com_id == community_id]
                 egonet_label = graph.node_attributes[node_id][self.egonet_target]
-                
+
                 egonet = self._build_egonet(
                     graph=graph,
                     egonet_nodes=egonet_nodes,
@@ -189,11 +186,20 @@ class EgonetCollection(GraphCollection):
         )
 
         egonet_node_features_df = (
-            egonet_node_features_df.merge(raw_features, on=["graph_id", "node_id"])
-            .drop(columns=["graph_id", "node_id"])
-            .rename(columns={"subgraph_id": "graph_id"})
+            (
+                egonet_node_features_df.merge(raw_features, on=["graph_id", "node_id"])
+                .drop(columns=["graph_id", "node_id"])
+                .rename(columns={"subgraph_id": "graph_id"})
+            )
+            if len(raw_features > 0)
+            else (
+                egonet_node_features_df
+                .drop(columns=["graph_id", "node_id"])
+                .rename(columns={"subgraph_id": "graph_id"})
+            )
         )
         return Embeddings(egonet_node_features_df, "egonet_node_features", [col for col in egonet_node_features_df.columns if col != "graph_id"])
+
 
 def k_hop_egonet(graph: Egonet, node_id: int, k: int = 1) -> List[int]:
     return graph.G.neighborhood(node_id, order=k)
