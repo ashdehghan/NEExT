@@ -8,6 +8,7 @@ from sklearn.preprocessing import StandardScaler
 from NEExT.collections.graph_collection import GraphCollection
 from NEExT.embeddings.embeddings import Embeddings
 
+
 class OutlierDataset:
     def __init__(
         self,
@@ -19,19 +20,19 @@ class OutlierDataset:
         self.data_df = embedding.embeddings_df
         self.feature_cols = [col for col in self.data_df.columns if col not in ["graph_id"]]
         self.standardize = standardize
-        
+
         if self.standardize:
             self.scaler = StandardScaler()
             self.data_df[self.feature_cols] = self.scaler.fit_transform(self.data_df[self.feature_cols])
-        
+
         self.labels_df = self._prepare_labels_df()
 
         # Merge embeddings with labels
-        self.data_df = pd.merge(self.data_df, self.labels_df, on="graph_id")
+        self.data_df = pd.merge(self.data_df, self.labels_df, on="graph_id").sort_values('graph_id')
         self.unlabeled_graphs = self.data_df.query("label == -1")["graph_id"].to_list()
         self.X = self.data_df[self.feature_cols].values
         self.y = self.data_df["label"].values
-        
+
         self.X_unlabeled = self.data_df.query("label == -1")[self.feature_cols].values
         if self.standardize:
             self.X_unlabeled = self.scaler.transform(self.data_df.query("label == -1")[self.feature_cols])
@@ -62,13 +63,6 @@ class OutlierDetector(BaseEstimator):
         self.top_k = top_k
         self.threshold = threshold
 
-    def _vector_prediction(self, vector: np.ndarray):
-        similarities = cosine_similarity(self.vectors, [vector]).reshape(-1)
-
-        ind = np.argpartition(similarities, -self.top_k)[-self.top_k:]
-        similar_labels = np.array([i for i in self.labels[ind] if i != -1])
-        return np.mean(similar_labels)
-
     def fit(self, X: np.ndarray, y: np.ndarray):
         self.vectors = X
         self.labels = y
@@ -84,7 +78,7 @@ class OutlierDetector(BaseEstimator):
 
         return np.array(probs)
 
-    def predict(self, X: np.ndarray, probs:Optional[np.ndarray]=None):
+    def predict(self, X: np.ndarray, probs: Optional[np.ndarray] = None):
         if probs is None:
             probs = self.predict_prob(X)
         preds = np.where(probs > self.threshold, 1, 0)
@@ -96,11 +90,12 @@ class OutlierDetector(BaseEstimator):
         probs = self.predict_prob(X)
         preds = self.predict(X, probs=probs)
 
-        df = pd.DataFrame(
-            {
-                "graph_id": unlabeled,
-                "prob": probs,
-                "pred": preds,
-            }
-        )
+        df = pd.DataFrame({"graph_id": unlabeled, "prob": probs, "pred": preds})
         return df
+
+    def _vector_prediction(self, vector: np.ndarray):
+        similarities = cosine_similarity(self.vectors, [vector]).reshape(-1)
+        # ind = np.argpartition(similarities, -self.top_k)[-(self.top_k+1) :]
+        ind = similarities.argsort()[-(self.top_k+1) : -1]
+        similar_labels = np.array([i for i in self.labels[ind] if i != -1])
+        return np.mean(similar_labels) if len(similar_labels) > 0 else 0
