@@ -178,7 +178,7 @@ class Graph(BaseModel):
             
         else:  # igraph
             # Find largest connected component
-            components = self.G.clusters()
+            components = self.G.connected_components()
             if len(components) > 1:
                 largest_cc_idx = components.sizes().index(max(components.sizes()))
                 subgraph = self.G.subgraph(components[largest_cc_idx])

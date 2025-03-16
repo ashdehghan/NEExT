@@ -28,13 +28,17 @@ class OutlierDataset:
         self.labels_df = self._prepare_labels_df()
 
         # Merge embeddings with labels
-        self.data_df = pd.merge(self.data_df, self.labels_df, on="graph_id").sort_values('graph_id')
+        self.data_df = pd.merge(self.data_df, self.labels_df, on="graph_id").sort_values("graph_id")
         self.unlabeled_graphs = self.data_df.query("label == -1")["graph_id"].to_list()
         self.X = self.data_df[self.feature_cols].values
         self.y = self.data_df["label"].values
 
+        self.X_labeled = self.data_df.query("label != -1")[self.feature_cols].values
+        self.y_labeled = self.data_df.query("label != -1")[["label"]].values
+
         self.X_unlabeled = self.data_df.query("label == -1")[self.feature_cols].values
         if self.standardize:
+            self.X_labeled = self.scaler.transform(self.data_df.query("label != -1")[self.feature_cols])
             self.X_unlabeled = self.scaler.transform(self.data_df.query("label == -1")[self.feature_cols])
 
     def _prepare_labels_df(self) -> pd.DataFrame:
@@ -96,6 +100,6 @@ class OutlierDetector(BaseEstimator):
     def _vector_prediction(self, vector: np.ndarray):
         similarities = cosine_similarity(self.vectors, [vector]).reshape(-1)
         # ind = np.argpartition(similarities, -self.top_k)[-(self.top_k+1) :]
-        ind = similarities.argsort()[-(self.top_k+1) : -1]
+        ind = similarities.argsort()[-(self.top_k + 1) : -1]
         similar_labels = np.array([i for i in self.labels[ind] if i != -1])
         return np.mean(similar_labels) if len(similar_labels) > 0 else 0
