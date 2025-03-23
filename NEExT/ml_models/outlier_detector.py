@@ -34,7 +34,7 @@ class OutlierDataset:
         self.y = self.data_df["label"].values
 
         self.X_labeled = self.data_df.query("label != -1")[self.feature_cols].values
-        self.y_labeled = self.data_df.query("label != -1")[["label"]].values
+        self.y_labeled = self.data_df.query("label != -1")["label"].values
 
         self.X_unlabeled = self.data_df.query("label == -1")[self.feature_cols].values
         if self.standardize:
