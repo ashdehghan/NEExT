@@ -1,4 +1,5 @@
 import pandas as pd
+import numpy as np
 from sklearn.base import BaseEstimator
 from sklearn.metrics import roc_auc_score
 from NEExT.ml_models.outlier_detector import OutlierDataset
@@ -7,11 +8,23 @@ from NEExT.ml_models.outlier_detector import OutlierDataset
 def score_unlabeled_gt(
     dataset: OutlierDataset,
     detector: BaseEstimator,
-    ground_truth_df: pd,
+    ground_truth_df: pd.DataFrame = None,
 ):
-    detector.fit(dataset.X_labeled, dataset.y_labeled)
+    if ground_truth_df is not None:
+        ground_truth_df = ground_truth_df.sort_values("graph_id")
+        out = predict_full_df(detector, dataset.graph_id, dataset.X)
+        bl_acc = roc_auc_score(ground_truth_df["is_outlier"], out["pred"])
+    else:
+        out = predict_full_df(detector, dataset.labeled_graphs, dataset.X_labeled)
+        bl_acc = roc_auc_score(dataset.y_labeled, out["pred"])
+    return out, bl_acc
 
-    out = detector.predict_full_df(dataset.unlabeled_graphs, dataset.X_unlabeled)
-    out_unlab = out.merge(ground_truth_df[ground_truth_df["graph_id"].isin(out["graph_id"])]).sort_values("is_outlier", ascending=False)
-    bl_acc = roc_auc_score(out_unlab["is_outlier"], out_unlab["pred"])
-    return bl_acc
+
+def predict_full_df(detector: BaseEstimator, unlabeled: np.ndarray, X: np.ndarray):
+    df = []
+
+    probs = detector.predict_proba(X)[:, 1]
+    preds = detector.predict(X)
+
+    df = pd.DataFrame({"graph_id": unlabeled, "prob": probs, "pred": preds}).sort_values("graph_id")
+    return df

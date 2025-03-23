@@ -14,6 +14,8 @@ def semi_supervised_set(
     np.random.seed(seed)
 
     for _cls, frac in hide_frac.items():
+        if frac == 1:
+            continue
         mask = _features_df[col] == _cls
         drop_indices = np.random.choice(_features_df[mask].index, size=int(len(_features_df[mask]) * frac), replace=False)
         _features_df.loc[drop_indices, col] = -1

@@ -29,7 +29,10 @@ class OutlierDataset:
 
         # Merge embeddings with labels
         self.data_df = pd.merge(self.data_df, self.labels_df, on="graph_id").sort_values("graph_id")
+        self.graph_id = self.data_df["graph_id"].to_list()
+        self.labeled_graphs = self.data_df.query("label != -1")["graph_id"].to_list()
         self.unlabeled_graphs = self.data_df.query("label == -1")["graph_id"].to_list()
+        
         self.X = self.data_df[self.feature_cols].values
         self.y = self.data_df["label"].values
 
@@ -69,30 +72,25 @@ class CosineOutlierDetector(BaseEstimator):
         self._labels = y
         return self
 
-    def predict_prob(self, X: np.ndarray):
+    def predict_proba(self, X: np.ndarray):
         probs = []
 
         for unlabeled_id in range(len(X)):
             vector = X[unlabeled_id, :]
             prob = self._vector_prediction(vector)
             probs.append(prob)
-
-        return np.array(probs)
+        
+        probs = np.array(probs)
+        out_probs = np.ones((len(probs), 2))
+        out_probs[:, 0] = 1 - probs
+        out_probs[:, 1] = probs
+        return out_probs
 
     def predict(self, X: np.ndarray, probs: Optional[np.ndarray] = None):
         if probs is None:
-            probs = self.predict_prob(X)
-        preds = np.where(probs > 0.5, 1, 0)
+            probs = self.predict_proba(X)
+        preds = np.where(probs[:, 1] > 0.5, 1, 0)
         return preds
-
-    def predict_full_df(self, unlabeled: np.ndarray, X: np.ndarray):
-        df = []
-
-        probs = self.predict_prob(X)
-        preds = self.predict(X, probs=probs)
-
-        df = pd.DataFrame({"graph_id": unlabeled, "prob": probs, "pred": preds})
-        return df
 
     def _vector_prediction(self, vector: np.ndarray):
         similarities = cosine_similarity(self._vectors, [vector]).reshape(-1)
