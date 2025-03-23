@@ -58,18 +58,15 @@ class OutlierDataset:
         return pd.DataFrame({"graph_id": graph_ids, "label": graph_labels})
 
 
-class OutlierDetector(BaseEstimator):
-    def __init__(
-        self,
-        top_k: int = 10,
-        threshold: float = 0.0,
-    ):
+class CosineOutlierDetector(BaseEstimator):
+    def __init__(self, top_k: int = 10):
         self.top_k = top_k
-        self.threshold = threshold
+        self._vectors = None
+        self._labels = None
 
     def fit(self, X: np.ndarray, y: np.ndarray):
-        self.vectors = X
-        self.labels = y
+        self._vectors = X
+        self._labels = y
         return self
 
     def predict_prob(self, X: np.ndarray):
@@ -85,7 +82,7 @@ class OutlierDetector(BaseEstimator):
     def predict(self, X: np.ndarray, probs: Optional[np.ndarray] = None):
         if probs is None:
             probs = self.predict_prob(X)
-        preds = np.where(probs > self.threshold, 1, 0)
+        preds = np.where(probs > 0.5, 1, 0)
         return preds
 
     def predict_full_df(self, unlabeled: np.ndarray, X: np.ndarray):
@@ -98,8 +95,8 @@ class OutlierDetector(BaseEstimator):
         return df
 
     def _vector_prediction(self, vector: np.ndarray):
-        similarities = cosine_similarity(self.vectors, [vector]).reshape(-1)
+        similarities = cosine_similarity(self._vectors, [vector]).reshape(-1)
         # ind = np.argpartition(similarities, -self.top_k)[-(self.top_k+1) :]
         ind = similarities.argsort()[-(self.top_k + 1) : -1]
-        similar_labels = np.array([i for i in self.labels[ind] if i != -1])
+        similar_labels = np.array([i for i in self._labels[ind] if i != -1])
         return np.mean(similar_labels) if len(similar_labels) > 0 else 0
