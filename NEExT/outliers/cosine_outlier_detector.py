@@ -1,5 +1,6 @@
 from typing import Optional
 import numpy as np
+import pandas as pd
 from sklearn.base import BaseEstimator
 from sklearn.metrics.pairwise import cosine_similarity, euclidean_distances
 
@@ -11,11 +12,13 @@ class CosineOutlierDetector(BaseEstimator):
         self._labels = None
 
     def fit(self, X: np.ndarray, y: np.ndarray):
-        self._vectors = X
+        self._vectors = X.values
         self._labels = y
         return self
 
     def predict_proba(self, X: np.ndarray):
+        if isinstance(X, pd.DataFrame):
+            X = X.values
         probs = []
 
         for unlabeled_id in range(len(X)):
@@ -30,6 +33,8 @@ class CosineOutlierDetector(BaseEstimator):
         return out_probs
 
     def predict(self, X: np.ndarray, probs: Optional[np.ndarray] = None):
+        if isinstance(X, pd.DataFrame):
+            X = X.values
         if probs is None:
             probs = self.predict_proba(X)
         preds = np.where(probs[:, 1] > 0.5, 1, 0)
