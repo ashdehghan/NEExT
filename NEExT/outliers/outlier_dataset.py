@@ -1,8 +1,4 @@
-from typing import Optional
-import numpy as np
 import pandas as pd
-from sklearn.base import BaseEstimator
-from sklearn.metrics.pairwise import cosine_similarity, euclidean_distances
 from sklearn.preprocessing import StandardScaler
 
 from NEExT.collections.graph_collection import GraphCollection
@@ -32,14 +28,16 @@ class OutlierDataset:
         self.graph_id = self.data_df["graph_id"].to_list()
         self.labeled_graphs = self.data_df.query("label != -1")["graph_id"].to_list()
         self.unlabeled_graphs = self.data_df.query("label == -1")["graph_id"].to_list()
-        
-        self.X = self.data_df[self.feature_cols].values
+
+        # Extracting features and labels for easy access
+        self.X = self.data_df[self.feature_cols]
         self.y = self.data_df["label"].values
 
-        self.X_labeled = self.data_df.query("label != -1")[self.feature_cols].values
+        self.X_labeled = self.data_df.query("label != -1")[self.feature_cols]
         self.y_labeled = self.data_df.query("label != -1")["label"].values
+    
+        self.X_unlabeled = self.data_df.query("label == -1")[self.feature_cols]
 
-        self.X_unlabeled = self.data_df.query("label == -1")[self.feature_cols].values
         if self.standardize:
             self.X_labeled = self.scaler.transform(self.data_df.query("label != -1")[self.feature_cols])
             self.X_unlabeled = self.scaler.transform(self.data_df.query("label == -1")[self.feature_cols])
@@ -59,42 +57,3 @@ class OutlierDataset:
             graph_labels.append(graph.graph_label)
 
         return pd.DataFrame({"graph_id": graph_ids, "label": graph_labels})
-
-
-class CosineOutlierDetector(BaseEstimator):
-    def __init__(self, top_k: int = 10):
-        self.top_k = top_k
-        self._vectors = None
-        self._labels = None
-
-    def fit(self, X: np.ndarray, y: np.ndarray):
-        self._vectors = X
-        self._labels = y
-        return self
-
-    def predict_proba(self, X: np.ndarray):
-        probs = []
-
-        for unlabeled_id in range(len(X)):
-            vector = X[unlabeled_id, :]
-            prob = self._vector_prediction(vector)
-            probs.append(prob)
-        
-        probs = np.array(probs)
-        out_probs = np.ones((len(probs), 2))
-        out_probs[:, 0] = 1 - probs
-        out_probs[:, 1] = probs
-        return out_probs
-
-    def predict(self, X: np.ndarray, probs: Optional[np.ndarray] = None):
-        if probs is None:
-            probs = self.predict_proba(X)
-        preds = np.where(probs[:, 1] > 0.5, 1, 0)
-        return preds
-
-    def _vector_prediction(self, vector: np.ndarray):
-        similarities = cosine_similarity(self._vectors, [vector]).reshape(-1)
-        # ind = np.argpartition(similarities, -self.top_k)[-(self.top_k+1) :]
-        ind = similarities.argsort()[-(self.top_k + 1) : -1]
-        similar_labels = np.array([i for i in self._labels[ind] if i != -1])
-        return np.mean(similar_labels) if len(similar_labels) > 0 else 0

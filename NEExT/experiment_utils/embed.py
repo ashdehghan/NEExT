@@ -14,7 +14,7 @@ def build_features(
         graph_collection=egonet_collection,
         feature_list=["all"],
         feature_vector_length=feature_vector_length,
-        n_jobs=4,
+        n_jobs=1,
         show_progress=False,
     )
     node_features = NodeFeatures(

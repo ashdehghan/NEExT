@@ -35,6 +35,7 @@ class EmbeddingBuilder:
             "structural_embedding": self._structural_embedding,
             "merge_egonet_node_features": self._merge_egonet_node_features,
             "only_egonet_node_features": self._only_egonet_node_features,
+            "feature_embedding": self._feature_embedding,
         }
 
     def compute(
@@ -64,13 +65,13 @@ class EmbeddingBuilder:
 
     def _only_egonet_node_features(self, **kwargs):
         if not isinstance(self.graph_collection, EgonetCollection):
-            raise Exception('Graph collection is not an EgonetCollection!')
-        embeddings =  self.graph_collection.egonet_node_features
+            raise Exception("Graph collection is not an EgonetCollection!")
+        embeddings = self.graph_collection.egonet_node_features
         return embeddings
 
     def _merge_egonet_node_features(self, structural_config, **kwargs):
         if not isinstance(self.graph_collection, EgonetCollection):
-            raise Exception('Graph collection is not an EgonetCollection!')
+            raise Exception("Graph collection is not an EgonetCollection!")
         graph_structural_embeddings = GraphEmbeddings(**structural_config)
         embeddings = graph_structural_embeddings.compute()
         embeddings = embeddings + self.graph_collection.egonet_node_features
@@ -80,7 +81,7 @@ class EmbeddingBuilder:
         graph_structural_embeddings = GraphEmbeddings(**structural_config)
         graph_feature_embeddings = GraphEmbeddings(**features_config)
 
-        if features_config['feature_columns'] is None:
+        if features_config["feature_columns"] is None:
             embeddings = graph_structural_embeddings.compute()
         else:
             structural_embeddings = graph_structural_embeddings.compute()
@@ -96,6 +97,11 @@ class EmbeddingBuilder:
     def _structural_embedding(self, structural_config, **kwargs):
         graph_structural_embeddings = GraphEmbeddings(**structural_config)
         embeddings = graph_structural_embeddings.compute()
+        return embeddings
+
+    def _feature_embedding(self, features_config, **kwargs):
+        graph_feature_embeddings = GraphEmbeddings(**features_config)
+        embeddings = graph_feature_embeddings.compute()
         return embeddings
 
     def _build_configs(
@@ -148,8 +154,4 @@ class EmbeddingBuilder:
                 suffix="feat",
             )
 
-        return dict(
-            structural_config=structural_config, 
-            features_config=features_config, 
-            combined_config=combined_config
-        )
+        return dict(structural_config=structural_config, features_config=features_config, combined_config=combined_config)

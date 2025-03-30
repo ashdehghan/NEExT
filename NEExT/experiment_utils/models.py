@@ -2,7 +2,7 @@ import pandas as pd
 import numpy as np
 from sklearn.base import BaseEstimator
 from sklearn.metrics import roc_auc_score
-from NEExT.ml_models.outlier_detector import OutlierDataset
+from NEExT.outliers import OutlierDataset
 
 
 def score_unlabeled_gt(
