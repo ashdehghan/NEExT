@@ -156,7 +156,7 @@ class StructuralNodeFeatures:
         return self._compute_structural_feature(
             graph,
             nx.degree_centrality,
-            lambda G: {i: deg/float(G.vcount()-1) for i, deg in enumerate(G.degree())},  # Normalize by n-1
+            lambda G: {i: deg/float(G.vcount()-1) if G.vcount() > 1 else -1 for i, deg in enumerate(G.degree())},  # Normalize by n-1
             feature_name="degree_centrality"
         )
 
@@ -165,7 +165,7 @@ class StructuralNodeFeatures:
         return self._compute_structural_feature(
             graph,
             nx.closeness_centrality,
-            lambda G: dict(enumerate(G.closeness())),  # G.closeness() is correct
+            lambda G: {i: clo if not np.isnan(clo) else -1 for i, clo in enumerate(G.closeness())}, # G.closeness() is correct
             feature_name="closeness_centrality"
         )
 
@@ -307,7 +307,7 @@ class StructuralNodeFeatures:
         return self._compute_structural_feature(
             graph,
             nx.betweenness_centrality,
-            lambda G: dict(enumerate(G.betweenness())),
+            lambda G: {i: bet if not np.isnan(bet) else -1 for i, bet in enumerate(G.betweenness())},
             feature_name="betweenness_centrality"
         )
 
