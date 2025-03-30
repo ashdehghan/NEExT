@@ -1,22 +1,12 @@
-from functools import partial
-
-import matplotlib.pyplot as plt
 import numpy as np
-import optuna
-import seaborn as sns
-from sklearn.ensemble import IsolationForest
-from sklearn.metrics import make_scorer, roc_auc_score
-from sklearn.model_selection import StratifiedKFold, cross_val_score
-from sklearn.neighbors import KNeighborsClassifier, LocalOutlierFactor
 
 from NEExT.collections import EgonetCollection
 from NEExT.experiment_utils.data_loading import load_abcdo_data, load_pygod_data
 from NEExT.experiment_utils.embed import build_embeddings, build_features
-from NEExT.experiment_utils.models import score_unlabeled_gt
 from NEExT.experiment_utils.supervised import supervised_eval
 from NEExT.experiment_utils.unsupervised import unsupervised_eval
 from NEExT.io import GraphIO
-from NEExT.outliers import CosineOutlierDetector, LGBMOutlier, OutlierDataset
+from NEExT.outliers import OutlierDataset
 
 DATA = "gen_100"
 DATA = "abcdo_data_1000_200_0.1"
