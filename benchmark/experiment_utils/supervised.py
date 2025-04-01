@@ -6,7 +6,7 @@ from sklearn.metrics import make_scorer, roc_auc_score
 from sklearn.model_selection import StratifiedKFold, cross_val_score
 from sklearn.neighbors import KNeighborsClassifier
 
-from NEExT.experiment_utils.models import score_unlabeled_gt
+from experiment_utils.models import score_unlabeled_gt
 from NEExT.outliers import CosineOutlierDetector, LGBMOutlier, OutlierDataset
 
 

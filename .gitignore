@@ -188,5 +188,6 @@ test.ipynb
 
 # Experiment results
 experiments/results/*
-!experiments/results/.gitkeep
+!experiments/results/.gitkeeps
 local
+benchmark/partial_results/*
