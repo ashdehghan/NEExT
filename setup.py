@@ -60,7 +60,9 @@ setup(
             "tqdm>=4.65.0",  # For progress bars
             "pandas>=2.0.3",  # For data manipulation
             "numpy>=1.24.0",  # For numerical operations
-            "plotly>=5.18.0"  # For interactive visualizations
+            "plotly>=5.18.0",  # For interactive visualizations
+            "optuna>=4.2.1" # hypeparameter tuning
+            "pygod>=1.1.0" # python graph outlier detection
         ]
     },
 	package_data={

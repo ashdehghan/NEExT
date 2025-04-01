@@ -1,16 +1,20 @@
-from typing import Optional, Union, List, Dict, Literal
-from pathlib import Path
 import logging
+from pathlib import Path
+from typing import Dict, List, Literal, Optional, Union
+
+import numpy as np
 import pandas as pd
 from sklearn.preprocessing import StandardScaler
+
+from NEExT.collections import GraphCollection
+from NEExT.embeddings import Embeddings
+from NEExT.embeddings import GraphEmbeddings
+from NEExT.features import Features
+from NEExT.features import StructuralNodeFeatures
+from NEExT.ml_models import FeatureImportance
+
 from .io import GraphIO
-from .graph_collection import GraphCollection
-from .node_features import NodeFeatures
-from .features import Features
-from .graph_embeddings import GraphEmbeddings
-import numpy as np
-from .embeddings import Embeddings
-from .feature_importance import FeatureImportance
+
 
 class NEExT:
     """
@@ -148,7 +152,8 @@ class NEExT:
         feature_list: List[str],
         feature_vector_length: int = 3,
         normalize_features: bool = True,
-        show_progress: bool = True
+        show_progress: bool = True,
+        n_jobs:int = -1,
     ) -> pd.DataFrame:
         """
         Compute node features for all graphs in the collection.
@@ -165,12 +170,13 @@ class NEExT:
         """
         self.logger.info(f"Computing node features: {feature_list}")
         
-        node_features = NodeFeatures(
+        node_features = StructuralNodeFeatures(
             graph_collection=graph_collection,
             feature_list=feature_list,
             feature_vector_length=feature_vector_length,
             normalize_features=normalize_features,
-            show_progress=show_progress
+            show_progress=show_progress,
+            n_jobs=n_jobs
         )
         
         features = node_features.compute()
@@ -251,7 +257,7 @@ class NEExT:
         
         ml_models = MLModels(
             graph_collection=graph_collection,
-            embeddings=embeddings,
+            embedding=embeddings,
             model_type=model_type,
             balance_dataset=balance_dataset,
             sample_size=sample_size,

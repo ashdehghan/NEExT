@@ -1,27 +1,31 @@
-from typing import List, Dict, Optional, Union, Literal
-import pandas as pd
-import networkx as nx
-import igraph as ig
-import numpy as np
-from pydantic import BaseModel, Field
-from .graph_collection import GraphCollection
-from .helper_functions import get_nodes_x_hops_away, get_all_neighborhoods_ig, get_all_neighborhoods_nx
-from sklearn.preprocessing import StandardScaler
 import logging
+from multiprocessing import Pool
+from typing import Dict, List, Literal, Optional, Union
+
+import igraph as ig
+import networkx as nx
+import numpy as np
+import pandas as pd
+from pydantic import BaseModel, Field
+from sklearn.preprocessing import StandardScaler
 from tqdm.auto import tqdm
-from .features import Features
+
+from NEExT.collections import GraphCollection
+from NEExT.features import Features
+from NEExT.helper_functions import get_all_neighborhoods_ig, get_all_neighborhoods_nx, get_nodes_x_hops_away
 
 # Set up logger
 logger = logging.getLogger(__name__)
 
-class NodeFeatureConfig(BaseModel):
+class StructuralNodeFeatureConfig(BaseModel):
     """Configuration for node feature computation"""
     feature_list: List[str]
     feature_vector_length: int
     normalize_features: bool = True
     show_progress: bool = Field(default=True)
+    n_jobs: int = -1
 
-class NodeFeatures:
+class StructuralNodeFeatures:
     """
     A class for computing node features across a collection of graphs.
     
@@ -35,11 +39,11 @@ class NodeFeatures:
 
     Attributes:
         graph_collection (GraphCollection): Collection of graphs to process
-        config (NodeFeatureConfig): Configuration for feature computation
+        config (StructuralNodeFeatureConfig): Configuration for feature computation
         available_features (Dict): Dictionary mapping feature names to computation methods
 
     Example:
-        >>> node_features = NodeFeatures(
+        >>> node_features = StructuralNodeFeatures(
         ...     graph_collection=collection,
         ...     feature_list=["page_rank", "degree_centrality"],
         ...     feature_vector_length=3,
@@ -54,7 +58,8 @@ class NodeFeatures:
         feature_list: List[str],
         feature_vector_length: int = 3,
         normalize_features: bool = True,
-        show_progress: bool = True
+        show_progress: bool = True,
+        n_jobs: int = -1
     ):
         """Initialize the NodeFeatures processor."""
         self.graph_collection = graph_collection
@@ -80,11 +85,12 @@ class NodeFeatures:
             if feature not in self.available_features:
                 raise ValueError(f"Unknown feature: {feature}. Available features: {list(self.available_features.keys())}")
         
-        self.config = NodeFeatureConfig(
+        self.config = StructuralNodeFeatureConfig(
             feature_list=feature_list,
             feature_vector_length=feature_vector_length,
             normalize_features=normalize_features,
-            show_progress=show_progress
+            show_progress=show_progress,
+            n_jobs=n_jobs
         )
         self.features_df = None
 
@@ -150,7 +156,7 @@ class NodeFeatures:
         return self._compute_structural_feature(
             graph,
             nx.degree_centrality,
-            lambda G: {i: deg/float(G.vcount()-1) for i, deg in enumerate(G.degree())},  # Normalize by n-1
+            lambda G: {i: deg/float(G.vcount()-1) if G.vcount() > 1 else -1 for i, deg in enumerate(G.degree())},  # Normalize by n-1
             feature_name="degree_centrality"
         )
 
@@ -159,7 +165,7 @@ class NodeFeatures:
         return self._compute_structural_feature(
             graph,
             nx.closeness_centrality,
-            lambda G: dict(enumerate(G.closeness())),  # G.closeness() is correct
+            lambda G: {i: clo if not np.isnan(clo) else -1 for i, clo in enumerate(G.closeness())}, # G.closeness() is correct
             feature_name="closeness_centrality"
         )
 
@@ -301,7 +307,7 @@ class NodeFeatures:
         return self._compute_structural_feature(
             graph,
             nx.betweenness_centrality,
-            lambda G: dict(enumerate(G.betweenness())),
+            lambda G: {i: bet if not np.isnan(bet) else -1 for i, bet in enumerate(G.betweenness())},
             feature_name="betweenness_centrality"
         )
 
@@ -444,25 +450,13 @@ class NodeFeatures:
         # Process each graph sequentially
         graphs = self.graph_collection.graphs
         if self.config.show_progress:
-            graphs = tqdm(graphs, desc="Computing node features")
+            graphs = tqdm(graphs, desc="Computing structural node features")
         
-        for graph in graphs:
-            # Compute each feature for this graph
-            graph_features = []
-            for feature_name in self.config.feature_list:
-                if feature_name not in self.available_features:
-                    raise ValueError(f"Unknown feature: {feature_name}")
-                
-                feature_df = self.available_features[feature_name](graph)
-                graph_features.append(feature_df)
-            
-            # Merge all features for this graph
-            if graph_features:
-                graph_df = graph_features[0]
-                for df in graph_features[1:]:
-                    graph_df = graph_df.merge(df, on=['node_id', 'graph_id'])
-                
-                feature_dfs.append(graph_df)
+        if self.config.n_jobs == 1:
+            feature_dfs = [self._compute_graph_node_features(graph) for graph in graphs]
+        else:
+            with Pool() as pool:
+                feature_dfs = pool.map(self._compute_graph_node_features, graphs)
         
         # Combine features from all graphs
         if not feature_dfs:
@@ -475,3 +469,18 @@ class NodeFeatures:
                         if col not in ['node_id', 'graph_id']]
         
         return Features(features_df, feature_columns)
+
+    def _compute_graph_node_features(self, graph):
+        graph_features = []
+        for feature_name in self.config.feature_list:
+            if feature_name not in self.available_features:
+                raise ValueError(f"Unknown feature: {feature_name}")
+                
+            feature_df = self.available_features[feature_name](graph)
+            graph_features.append(feature_df)
+            
+            # Merge all features for this graph
+        graph_df = graph_features[0]
+        for df in graph_features[1:]:
+            graph_df = graph_df.merge(df, on=['node_id', 'graph_id'])
+        return graph_df

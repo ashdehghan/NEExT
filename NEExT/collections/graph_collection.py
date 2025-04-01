@@ -1,9 +1,12 @@
-from pydantic import BaseModel, Field
-from typing import List, Dict, Optional, Set, Union, Literal
-import numpy as np
-from .graph import Graph
-import pandas as pd
 import random
+from typing import Dict, List, Literal, Optional, Set, Union
+
+import numpy as np
+import pandas as pd
+from pydantic import BaseModel, Field
+
+from NEExT.graphs import Graph
+
 
 class GraphCollection(BaseModel):
     """

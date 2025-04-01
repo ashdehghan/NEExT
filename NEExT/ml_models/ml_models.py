@@ -1,16 +1,18 @@
-from typing import Dict, List, Optional, Union, Literal, Any
-import pandas as pd
+import logging
+import multiprocessing
+from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
+from typing import Any, Dict, List, Literal, Optional, Union
+
 import numpy as np
+import pandas as pd
+from pydantic import BaseModel, Field, validator
+from sklearn.metrics import accuracy_score, f1_score, mean_absolute_error, mean_squared_error, precision_score, recall_score
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import LabelEncoder
-from sklearn.metrics import accuracy_score, recall_score, precision_score, f1_score
-from sklearn.metrics import mean_squared_error, mean_absolute_error
-from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
-import multiprocessing
-from pydantic import BaseModel, Field, validator
-import logging
-from .graph_collection import GraphCollection
-from .embeddings import Embeddings
+from sklearn.semi_supervised import SelfTrainingClassifier
+
+from NEExT.collections import GraphCollection
+from NEExT.embeddings import Embeddings
 
 # Set up logger
 logger = logging.getLogger(__name__)
@@ -35,6 +37,7 @@ except ImportError:
 from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
 from sklearn.linear_model import LogisticRegression, Ridge
 
+
 class MLModelsConfig(BaseModel):
     """
     Configuration for machine learning models.
@@ -50,7 +53,7 @@ class MLModelsConfig(BaseModel):
         n_jobs: Number of parallel jobs (-1 for all CPUs)
         parallel_backend: Parallelization backend ("process" or "thread")
     """
-    model_type: Literal["classifier", "regressor"]
+    model_type: Literal["classifier", "regressor", "semi-supervised"]
     model_name: Literal["xgboost", "random_forest"] = "xgboost"
     balance_dataset: bool = Field(default=False, description="Whether to balance the dataset for classification")
     compute_feature_importance: bool = Field(default=False, description="Whether to compute feature importance")
@@ -103,8 +106,8 @@ class MLModels:
     def __init__(
         self,
         graph_collection: GraphCollection,
-        embeddings: Embeddings,
-        model_type: str = "classifier",
+        embedding: Embeddings,
+        model_type: Literal["classifier", "regressor", "semi-supervised"] = "classifier",
         model_name: str = "xgboost",
         balance_dataset: bool = False,
         compute_feature_importance: bool = False,
@@ -127,10 +130,10 @@ class MLModels:
             parallel_backend=parallel_backend
         )
         self.graph_collection = graph_collection
-        self.data_df = embeddings.embeddings_df
+        self.data_df = embedding.embeddings_df
         
-        # Check if graphs have labels
-        if not self._check_graph_labels():
+        # Check if graphs have labels, but ignore in semi-supervised mode
+        if self.config.model_type != "semi-supervised" and not self._check_graph_labels():
             raise ValueError("Graph collection must have labels for all graphs")
         
         # Prepare labels DataFrame
@@ -143,8 +146,8 @@ class MLModels:
             on="graph_id"
         )
         
-        # Encode labels for classification
-        if self.config.model_type == "classifier":
+        # Encode labels for classification or semi-supervised approach
+        if self.config.model_type != "regressor":
             self._encode_labels()
     
     def _check_graph_labels(self) -> bool:
@@ -182,9 +185,13 @@ class MLModels:
         This method creates a new column 'encoded_label' in the data_df
         and sets the num_classes attribute.
         """
-        self.label_encoder = LabelEncoder()
-        self.data_df["encoded_label"] = self.label_encoder.fit_transform(self.data_df["label"])
-        self.num_classes = len(self.label_encoder.classes_)
+        if self.config.model_type == "classifier":
+            self.label_encoder = LabelEncoder()
+            self.data_df["encoded_label"] = self.label_encoder.fit_transform(self.data_df["label"])
+            self.num_classes = len(self.label_encoder.classes_)
+        elif self.config.model_type == "semi-supervised":
+            self.data_df["encoded_label"] = self.data_df["label"]
+            self.num_classes = 2
     
     def compute(self) -> Dict[str, Any]:
         """
@@ -201,8 +208,10 @@ class MLModels:
         """
         if self.config.model_type == "classifier":
             return self._compute_classifier()
-        else:
+        elif self.config.model_type == "regressor":
             return self._compute_regressor()
+        elif self.config.model_type == "semi-supervised":
+            return self._compute_semisupervised()
     
     def _train_classifier_iteration(self, iteration_data: Dict[str, Any]) -> Dict[str, Any]:
         """Train and evaluate a classifier for a single iteration."""
@@ -217,7 +226,7 @@ class MLModels:
         
         # Split data
         X_train, X_test, y_train, y_test = train_test_split(
-            X[feature_cols], y, test_size=test_size, random_state=random_state
+            X[feature_cols], y, test_size=test_size, random_state=random_state, stratify=y, shuffle=True,
         )
         
         # Balance dataset if requested
@@ -300,8 +309,11 @@ class MLModels:
         executor_class = ProcessPoolExecutor if self.config.parallel_backend == "process" else ThreadPoolExecutor
         results = []
         
-        with executor_class(max_workers=self.config.n_jobs) as executor:
-            results = list(executor.map(self._train_classifier_iteration, iteration_data))
+        if self.config.n_jobs == 1:
+            results = [self._train_classifier_iteration(iteration) for iteration in iteration_data]
+        else:
+            with executor_class(max_workers=self.config.n_jobs) as executor:
+                results = list(executor.map(self._train_classifier_iteration, iteration_data))
         
         # Collect results
         models = [r['model'] for r in results]
@@ -474,6 +486,141 @@ class MLModels:
             "mae_mean": np.mean(mae_scores),
             "mae_std": np.std(mae_scores),
             "model": models[-1],
+            "feature_columns": feature_cols,
+            "feature_importance": feature_importance_df
+        }
+
+    def _train_semisupervised_iteration(self, iteration_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Train and evaluate a classifier for a single iteration."""
+        i = iteration_data['i']
+        X = iteration_data['X']
+        y = iteration_data['y']
+        feature_cols = iteration_data['feature_cols']
+        test_size = iteration_data['test_size']
+        random_state = iteration_data['random_state'] + i
+        balance_dataset = iteration_data['balance_dataset']
+        num_classes = iteration_data['num_classes']
+        
+        # Split data
+        X_train, X_test, y_train, y_test = train_test_split(
+            X[feature_cols], y, test_size=test_size, random_state=random_state,  shuffle=True,
+        )
+        
+        # Balance dataset if requested
+        if balance_dataset:
+            from imblearn.over_sampling import SMOTE
+            smote = SMOTE(random_state=random_state)
+            X_train, y_train = smote.fit_resample(X_train, y_train)
+        
+        # Train model based on selected algorithm
+        if self.config.model_name == "xgboost" and XGBOOST_AVAILABLE:
+            model = XGBClassifier(random_state=random_state, n_jobs=1)
+        else:
+            model = RandomForestClassifier(
+                n_estimators=100,
+                random_state=random_state,
+                n_jobs=1
+            )
+
+        model = SelfTrainingClassifier(model, max_iter=10)
+
+        # Fit the model
+        model.fit(X_train, y_train)
+        
+        # Make predictions
+        y_pred = model.predict(X_test)
+        
+        # Get feature importance if requested
+        feature_importance = None
+        if self.config.compute_feature_importance:
+            if self.config.model_name == "xgboost" and XGBOOST_AVAILABLE:
+                importance = model.feature_importances_
+            else:
+                importance = model.feature_importances_
+            
+            # Create feature importance ranking
+            importance_dict = dict(zip(feature_cols, importance))
+            sorted_features = sorted(importance_dict.items(), key=lambda x: x[1], reverse=True)
+            feature_importance = {feat: rank for rank, (feat, _) in enumerate(sorted_features, 1)}
+        
+        # Return results
+        return {
+            'model': model,
+            # these scores are useless here
+            # 'accuracy': accuracy_score(y_test, y_pred),
+            # 'recall': recall_score(y_test, y_pred, average='macro'),
+            # 'precision': precision_score(y_test, y_pred, average='macro'),
+            # 'f1_score': f1_score(y_test, y_pred, average='macro'),
+            'feature_importance': feature_importance
+        }
+
+    def _compute_semisupervised(self) -> Dict[str, Any]:
+        feature_cols = [col for col in self.data_df.columns 
+                        if col not in ["graph_id", "label", "encoded_label"]]
+
+        iteration_data = [
+                    {
+                        'i': i,
+                        'X': self.data_df,
+                        'y': self.data_df["encoded_label"],
+                        'feature_cols': feature_cols,
+                        'test_size': self.config.test_size,
+                        'random_state': self.config.random_state,
+                        'balance_dataset': self.config.balance_dataset,
+                        'num_classes': self.num_classes
+                    }
+                    for i in range(self.config.sample_size)
+                ]
+        executor_class = ProcessPoolExecutor if self.config.parallel_backend == "process" else ThreadPoolExecutor
+        results = []
+        if self.config.n_jobs == 1:
+            results = [self._train_semisupervised_iteration(iteration) for iteration in iteration_data]
+                # Run iterations in parallel
+        else:
+            with executor_class(max_workers=self.config.n_jobs) as executor:
+                results = list(executor.map(self._train_semisupervised_iteration, iteration_data))
+                
+        # Collect results
+        models = [r['model'] for r in results]
+        # accuracy_scores = [r['accuracy'] for r in results]
+        # recall_scores = [r['recall'] for r in results]
+        # precision_scores = [r['precision'] for r in results]
+        # f1_scores = [r['f1_score'] for r in results]
+
+        # Process feature importance if computed
+        feature_importance_df = None
+        if self.config.compute_feature_importance:
+            # Collect all rankings
+            all_rankings = []
+            for r in results:
+                all_rankings.append(r['feature_importance'])
+            
+            # Calculate average rank for each feature
+            feature_ranks = {}
+            for feature in feature_cols:
+                ranks = [r[feature] for r in all_rankings]
+                feature_ranks[feature] = np.mean(ranks)
+            
+            # Create sorted DataFrame
+            feature_importance_df = pd.DataFrame({'average_rank': feature_ranks}).sort_values('average_rank')
+
+        # Return results with means and standard deviations
+        return {
+            "model_type": "classifier",
+            # "accuracy": accuracy_scores,
+            # "accuracy_mean": np.mean(accuracy_scores),
+            # "accuracy_std": np.std(accuracy_scores),
+            # "recall": recall_scores,
+            # "recall_mean": np.mean(recall_scores),
+            # "recall_std": np.std(recall_scores),
+            # "precision": precision_scores,
+            # "precision_mean": np.mean(precision_scores),
+            # "precision_std": np.std(precision_scores),
+            # "f1_score": f1_scores,
+            # "f1_score_mean": np.mean(f1_scores),
+            # "f1_score_std": np.std(f1_scores),
+            "model": models[-1],
+            "classes": [0, 1],
             "feature_columns": feature_cols,
             "feature_importance": feature_importance_df
         }

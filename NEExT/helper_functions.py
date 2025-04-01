@@ -1,7 +1,8 @@
-import networkx as nx
-import igraph as ig
-from typing import List, Set, Dict, Union, Optional
 from functools import lru_cache
+from typing import Dict, List, Optional, Set, Union
+
+import igraph as ig
+import networkx as nx
 
 
 def divide_chunks(list, chunks):
