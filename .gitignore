@@ -1,9 +1,13 @@
 # macOS system files
 .DS_Store
+**/.DS_Store
 .AppleDouble
 .LSOverride
 Icon
 ._*
+
+# PyPI configuration
+.pypirc
 
 # Python
 __pycache__/
