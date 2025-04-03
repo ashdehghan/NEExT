@@ -1,7 +1,7 @@
 from setuptools import setup, find_packages
 
 # Define version directly in setup.py
-version = "0.1.0"
+version = "0.2.7"
 
 setup(
     name="NEExT",
