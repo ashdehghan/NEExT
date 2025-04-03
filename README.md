@@ -2,6 +2,10 @@
 
 NEExT is a powerful Python framework for graph analysis, embedding computation, and machine learning on graph-structured data. It provides a unified interface for working with different graph backends (NetworkX and iGraph), computing node features, generating graph embeddings, and training machine learning models.
 
+## 📚 Documentation
+
+Detailed documentation is available in the `docs` directory. Build it locally or visit the online documentation at [NEExT Documentation](https://neext.readthedocs.io/en/latest/).
+
 ## 🌟 Features
 
 - **Flexible Graph Handling**
@@ -207,10 +211,6 @@ flake8 .
 # Type checking
 mypy .
 ```
-
-## 📚 Documentation
-
-Detailed documentation is available in the `docs` directory. Build it locally or visit the online documentation at [NEExT Documentation](https://github.com/ashdehghan/NEExT).
 
 ## 🤝 Contributing
 

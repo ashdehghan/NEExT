@@ -73,7 +73,9 @@ class StructuralNodeFeatures:
             "eigenvector_centrality": self._compute_eigenvector_centrality,
             "clustering_coefficient": self._compute_clustering_coefficient,
             "local_efficiency": self._compute_local_efficiency,
-            "lsme": self._compute_lsme
+            "lsme": self._compute_lsme,
+            "load_centrality": self._compute_load_centrality,
+            "basic_expansion": self._compute_basic_expansion
         }
         
         # Handle "all" feature option
