@@ -32,15 +32,15 @@ def build_embeddings(
     structural_features: List[str],
     features: List[str],
     strategy: str,
-    structural_embedding_dimension: int,
-    feature_embedding_dimension: int,
-    embedding_algorithm: str = 'approx_wasserstein',
+    embeddings_dimension: int,
+    embeddings_algorithm: str = 'approx_wasserstein',
 ):
     emb_builder = EmbeddingBuilder(
-        egonet_collection,
-        strategy=strategy,
+        graph_collection=egonet_collection,
         structural_features=structural_features,
         features=features,
+        embeddings_dimension=embeddings_dimension, 
+        embeddings_algorithm=embeddings_algorithm
     )
-    embeddings = emb_builder.compute(structural_embedding_dimension, feature_embedding_dimension, embedding_algorithm=embedding_algorithm)
+    embeddings = emb_builder.compute(strategy)
     return embeddings
