@@ -1,9 +1,6 @@
-import random
-from typing import Dict, List, Literal, Optional, Set, Tuple, Union
+from typing import Dict, Optional
 
-import igraph as ig
-import networkx as nx
-from pydantic import BaseModel, Field, field_validator
+from pydantic import Field
 
 from NEExT.graphs import Graph
 
@@ -11,7 +8,7 @@ from NEExT.graphs import Graph
 class Egonet(Graph):
     """
     Attributes:
-        node_mapping Optional[Dict[int, int]]: Napping from inernal nodes_id to original graph nodes_id
+        node_mapping Optional[Dict[int, int]]: Napping from internal nodes_id of an egonet to original graph nodes_id
     """
     node_mapping: Optional[Dict[int, int]] = Field(default_factory=dict)
     

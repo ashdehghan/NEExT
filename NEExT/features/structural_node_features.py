@@ -24,6 +24,7 @@ class StructuralNodeFeatureConfig(BaseModel):
     normalize_features: bool = True
     show_progress: bool = Field(default=True)
     n_jobs: int = -1
+    suffix: str = ''
 
 class StructuralNodeFeatures:
     """
@@ -59,7 +60,8 @@ class StructuralNodeFeatures:
         feature_vector_length: int = 3,
         normalize_features: bool = True,
         show_progress: bool = True,
-        n_jobs: int = -1
+        n_jobs: int = -1,
+        suffix: str = '',
     ):
         """Initialize the NodeFeatures processor."""
         self.graph_collection = graph_collection
@@ -92,7 +94,8 @@ class StructuralNodeFeatures:
             feature_vector_length=feature_vector_length,
             normalize_features=normalize_features,
             show_progress=show_progress,
-            n_jobs=n_jobs
+            n_jobs=n_jobs,
+            suffix=suffix,
         )
         self.features_df = None
 
@@ -488,4 +491,12 @@ class StructuralNodeFeatures:
         graph_df = graph_features[0]
         for df in graph_features[1:]:
             graph_df = graph_df.merge(df, on=['node_id', 'graph_id'])
+        if self.config.suffix:
+            graph_df.columns = [
+                f"{col}_{self.config.suffix}"
+                if col not in ["node_id", "graph_id"]
+                else col
+                for col in graph_df.columns
+            ]
+        
         return graph_df

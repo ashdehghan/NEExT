@@ -24,8 +24,6 @@ class Graph(BaseModel):
         edge_attributes (Dict[tuple, Dict]): Dictionary mapping edges to their attributes
         graph_type (str): Backend graph library to use ("networkx" or "igraph")
         G (Union[nx.Graph, ig.Graph]): The actual graph instance (set automatically)
-        vertex_map (Optional[Dict[int, int]]): Mapping from internal to original node IDs
-        reverse_vertex_map (Optional[Dict[int, int]]): Mapping from original to internal node IDs
         sampled_nodes (Optional[List[int]]): List of sampled nodes for feature computation
     """
 
@@ -81,18 +79,6 @@ class Graph(BaseModel):
             for edge, attrs in self.edge_attributes.items():
                 for k, v in attrs.items():
                     self.G.es[edge][k] = v
-
-    def get_node_mapping(self):
-        """Return the mapping between original and internal node IDs."""
-        if self.graph_type == "igraph":
-            return self.vertex_map
-        return {node: node for node in self.nodes}  # Identity mapping for networkx
-
-    def get_original_id(self, internal_id):
-        """Convert internal node ID back to original ID."""
-        if self.graph_type == "igraph":
-            return self.reverse_vertex_map[internal_id]
-        return internal_id
 
     def reindex_nodes(self) -> 'Graph':
         """Reindex nodes to be consecutive integers starting from 0."""
@@ -249,3 +235,6 @@ class Graph(BaseModel):
         num_samples = max(1, int(num_nodes * sample_rate))  # Ensure at least 1 node is sampled
         self.sampled_nodes = random.sample(self.nodes, num_samples)
         return self.sampled_nodes
+
+    def update_node_attributes(self, ):
+        ...

@@ -92,7 +92,7 @@ class EmbeddingBuilder:
             feature_columns=self.feature_columns,
             random_state=self.random_state,
             memory_size=self.memory_size,
-            suffix="feat",
+            suffix="combined",
         )
 
     def _structural_embeddings(self):
