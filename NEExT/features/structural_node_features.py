@@ -226,7 +226,10 @@ class StructuralNodeFeatures:
             
         for node in nodes:
             # Get number of neighbors at each distance
-            neighbors = get_nodes_x_hops_away(G, node, self.config.feature_vector_length)
+            if isinstance(G, nx.Graph):
+                neighbors = get_nodes_x_hops_away(G, node, self.config.feature_vector_length)
+            else:
+                neighbors = get_nodes_x_hops_away(G, node, self.config.feature_vector_length)
             nr_neighbors = [len(neighbors.get(i, [])) for i in range(1, self.config.feature_vector_length + 1)]
             
             # Calculate expansion ratios

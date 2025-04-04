@@ -17,7 +17,7 @@ class EgonetCollection(GraphCollection):
     A collection class that is an extension of GraphCollection class.
 
     This class provides functionality to store and create instances of graphs within graphs.
-    For example this can be used to create egonets for each node in each graph.
+    For example this can be used to create egonet for each node using k-hop neighborhood which can be treated as a graph for further analysis.
 
     Attributes:
         Attributes:

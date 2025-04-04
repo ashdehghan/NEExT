@@ -45,9 +45,13 @@ def get_nodes_x_hops_away(G: Union[nx.Graph, ig.Graph], node: int, max_hop_lengt
             seen.update(boundary)
             current_set = boundary
             
-        return hop_dict
     else:
-        raise ValueError("For iGraph, use get_all_neighborhoods_ig instead")
+        hop_dict = {}
+        for hop in range(1, max_hop_length + 1):
+            nodes_at_hop = set(G.neighborhood(node, order=hop)) - set(G.neighborhood(node, order=hop - 1))
+            if nodes_at_hop:
+                hop_dict[hop] = nodes_at_hop
+    return hop_dict
 
 
 def get_all_neighborhoods_nx(G, max_hops: int, nodes_to_process: Optional[List[int]] = None) -> Dict:

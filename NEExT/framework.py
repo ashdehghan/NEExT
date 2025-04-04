@@ -257,7 +257,7 @@ class NEExT:
         
         ml_models = MLModels(
             graph_collection=graph_collection,
-            embedding=embeddings,
+            embeddings=embeddings,
             model_type=model_type,
             balance_dataset=balance_dataset,
             sample_size=sample_size,
