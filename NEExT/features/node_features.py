@@ -1,19 +1,12 @@
 import logging
-from multiprocessing import Pool
-from typing import Dict, List, Literal, Optional, Union
+from typing import List
 
-import igraph as ig
-import networkx as nx
-import numpy as np
 import pandas as pd
 from pydantic import BaseModel, Field
-from sklearn.preprocessing import StandardScaler
-from tqdm.auto import tqdm
 
 from NEExT.collections import GraphCollection
 from NEExT.features import Features
 from NEExT.graphs import Graph
-from NEExT.helper_functions import get_all_neighborhoods_ig, get_all_neighborhoods_nx, get_nodes_x_hops_away
 
 # Set up logger
 logger = logging.getLogger(__name__)
@@ -28,25 +21,16 @@ class NodeFeatureConfig(BaseModel):
 
 class NodeFeatures:
     """
-    A class for computing node features across a collection of graphs.
-    
-    This class provides parallel computation of various node features for all nodes
-    in a graph collection. It supports both NetworkX and iGraph backends and includes
-    multiple feature computation methods like PageRank, centrality measures, and 
-    structural embeddings.
-
-    Features are computed with neighborhood aggregation, meaning for each feature,
-    we compute values for the node itself and its neighborhood up to a specified depth.
+    A class for gathering relevant node features acress a collection of graphs.
 
     Attributes:
         graph_collection (GraphCollection): Collection of graphs to process
         config (NodeFeatureConfig): Configuration for feature computation
-        available_features (Dict): Dictionary mapping feature names to computation methods
 
     Example:
         >>> node_features = NodeFeatures(
         ...     graph_collection=collection,
-        ...     feature_list=["page_rank", "degree_centrality"],
+        ...     feature_list=["Age"],
         ...     n_jobs=-1
         ... )
         >>> features_df = node_features.compute()
