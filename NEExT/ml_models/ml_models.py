@@ -105,7 +105,7 @@ class MLModels:
     def __init__(
         self,
         graph_collection: GraphCollection,
-        embedding: Embeddings,
+        embeddings: Embeddings,
         model_type: Literal["classifier", "regressor"] = "classifier",
         model_name: str = "xgboost",
         balance_dataset: bool = False,
@@ -129,10 +129,10 @@ class MLModels:
             parallel_backend=parallel_backend
         )
         self.graph_collection = graph_collection
-        self.data_df = embedding.embeddings_df
+        self.data_df = embeddings.embeddings_df
         
-        # Check if graphs have labels, but ignore in semi-supervised mode
-        if self.config.model_type != "semi-supervised" and not self._check_graph_labels():
+        # Check if graphs have labels
+        if not self._check_graph_labels():
             raise ValueError("Graph collection must have labels for all graphs")
         
         # Prepare labels DataFrame
@@ -146,7 +146,7 @@ class MLModels:
         )
         
         # Encode labels for classification or semi-supervised approach
-        if self.config.model_type != "regressor":
+        if self.config.model_type == "classifier":
             self._encode_labels()
     
     def _check_graph_labels(self) -> bool:
@@ -184,13 +184,9 @@ class MLModels:
         This method creates a new column 'encoded_label' in the data_df
         and sets the num_classes attribute.
         """
-        if self.config.model_type == "classifier":
-            self.label_encoder = LabelEncoder()
-            self.data_df["encoded_label"] = self.label_encoder.fit_transform(self.data_df["label"])
-            self.num_classes = len(self.label_encoder.classes_)
-        elif self.config.model_type == "semi-supervised":
-            self.data_df["encoded_label"] = self.data_df["label"]
-            self.num_classes = 2
+        self.label_encoder = LabelEncoder()
+        self.data_df["encoded_label"] = self.label_encoder.fit_transform(self.data_df["label"])
+        self.num_classes = len(self.label_encoder.classes_)
     
     def compute(self) -> Dict[str, Any]:
         """
@@ -207,10 +203,8 @@ class MLModels:
         """
         if self.config.model_type == "classifier":
             return self._compute_classifier()
-        elif self.config.model_type == "regressor":
+        else:
             return self._compute_regressor()
-        elif self.config.model_type == "semi-supervised":
-            return self._compute_semisupervised()
     
     def _train_classifier_iteration(self, iteration_data: Dict[str, Any]) -> Dict[str, Any]:
         """Train and evaluate a classifier for a single iteration."""
