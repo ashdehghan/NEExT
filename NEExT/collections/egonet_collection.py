@@ -11,6 +11,25 @@ from NEExT.graphs import Egonet, Graph
 
 
 class EgonetCollection(GraphCollection):
+    """
+    A collection of egonets derived from a GraphCollection.
+
+    This class extends GraphCollection to specifically handle collections of
+    egonets. Egonets are subgraphs centered around a specific node (the ego)
+    and include its neighbors up to a certain distance (k-hop) or within a
+    community.
+
+    Attributes:
+        egonet_feature_target (Optional[str]): The name of the node feature to
+            be used as the target variable for the egonets. Defaults to None.
+        skip_features (List[str]): A list of node feature names to be excluded
+            when building egonets. Defaults to an empty list.
+        egonet_to_graph_node_mapping (Dict[int, Tuple[int, int]]): A dictionary
+            mapping egonet IDs to tuples of (original graph ID, original node ID).
+            Defaults to an empty dictionary.
+        egonet_node_features (Embeddings): An Embeddings object containing the
+            features of a central node of each egonet. Defaults to None.
+    """
     egonet_feature_target: Optional[str] = Field(default=None)
     skip_features: List[str] = Field(default_factory=list)
     egonet_to_graph_node_mapping: Dict[int, Tuple[int, int]] = Field(default_factory=dict)
@@ -23,7 +42,24 @@ class EgonetCollection(GraphCollection):
         egonet_nodes: List[int],
         egonet_id: int,
         egonet_label: float,
-    ):
+    ) -> Egonet:
+        """
+        This method constructs an Egonet object from a given graph.
+        It extracts the relevant subgraph, node and
+        edge attributes, and creates the necessary mappings.
+
+        Args:
+            graph (Graph): The original graph from which to extract the egonet.
+            node_id (int): The ID of the center node (ego) of the egonet.
+            egonet_nodes (List[int]): The list of node IDs that belong to the egonet.
+            egonet_id (int): The unique ID to assign to the egonet.
+            egonet_label (float): The label to assign to the egonet.
+
+        Returns:
+            Egonet: The constructed egonet object.
+
+        """
+
         # build internal egonet node mapping and extract the features
         node_mapping = {n: i for i, n in enumerate(egonet_nodes)}
         egonet_node_attributes = {
@@ -57,6 +93,21 @@ class EgonetCollection(GraphCollection):
         return egonet
 
     def compute_k_hop_egonets(self, graph_collection: GraphCollection, k_hop: int = 1):
+        """
+        Computes egonets based on k-hop neighborhood.
+
+        This method iterates through each node in each graph of the input
+        GraphCollection and creates an egonet centered around that node,
+        including all nodes within k-hop distance.
+
+        Args:
+            graph_collection (GraphCollection): The collection of graphs from
+                which to derive egonets.
+            k_hop (int): The maximum distance (in hops) from the center node
+                to include in the egonet. Defaults to 1.
+
+        """
+
         self.graph_id_node_array = []
         self.egonet_to_graph_node_mapping = {}
         egonet_id = 0
@@ -84,6 +135,23 @@ class EgonetCollection(GraphCollection):
         self.egonet_node_features = self._create_egonet_features_df(graph_collection)
 
     def compute_leiden_egonets(self, graph_collection: GraphCollection, n_iterations: int = 10, resolution: float = 1.0):
+        """
+        Computes egonets based on Leiden community detection.
+
+        This method iterates through each graph in the input GraphCollection,
+        performs Leiden community detection, and then creates an egonet for
+        each node, including all nodes in the same community.
+
+        Args:
+            graph_collection (GraphCollection): The collection of graphs from
+                which to derive egonets.
+            n_iterations (int): The number of iterations for the Leiden
+                algorithm. Defaults to 10.
+            resolution (float): The resolution parameter for the Leiden
+                algorithm. Defaults to 1.0.
+
+        """
+
         self.graph_id_node_array = []
         self.egonet_to_graph_node_mapping = {}
         egonet_id = 0
@@ -120,8 +188,7 @@ class EgonetCollection(GraphCollection):
 
         This method extracts node features from the original graph collection and
         organizes them into a DataFrame where each row represents an egonet and
-        its associated node features. It also handles the mapping between
-        subgraph IDs, graph IDs, and node IDs.
+        its associated node features.
 
         Args:
             graph_collection (GraphCollection): The original collection of graphs
