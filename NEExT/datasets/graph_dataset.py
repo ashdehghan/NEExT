@@ -35,15 +35,15 @@ class GraphDataset:
         self.standardize = standardize
         self.unlabeled_marker = unlabeled_marker
 
-        if self.standardize:
-            self.scaler = StandardScaler().fit(self._embeddings_df[self.embeddings.embedding_columns])
-
         self.labels_df = self._prepare_labels_df()
         self._embeddings_df = pd.merge(self.embeddings.embeddings_df, self.labels_df, on="graph_id").sort_values("graph_id")
         self.graph_ids = self._embeddings_df["graph_id"].to_list()
 
         self.labeled_graphs = self._embeddings_df.query(f"label != {self.unlabeled_marker}")["graph_id"].to_list()
         self.unlabeled_graphs = self._embeddings_df.query(f"label == {self.unlabeled_marker}")["graph_id"].to_list()
+        
+        if self.standardize:
+            self.scaler = StandardScaler().fit(self._embeddings_df[self.embeddings.embedding_columns])
 
         self._prepare_modeling_features()
 
