@@ -1,13 +1,16 @@
-from typing import List, Dict, Optional, Union, Literal
-import pandas as pd
-import numpy as np
-import scipy.sparse
-from pydantic import BaseModel, Field, validator
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
 from multiprocessing import cpu_count
-from .graph_collection import GraphCollection
-from .features import Features
-from .embeddings import Embeddings
+from typing import Dict, List, Literal, Optional, Union
+
+import numpy as np
+import pandas as pd
+import scipy.sparse
+from pydantic import BaseModel, Field, validator
+
+from NEExT.collections import GraphCollection
+from NEExT.embeddings.embeddings import Embeddings
+from NEExT.features import Features
+
 
 class GraphEmbeddingConfig(BaseModel):
     """Configuration for graph embedding computation"""
@@ -16,6 +19,7 @@ class GraphEmbeddingConfig(BaseModel):
     feature_columns: Optional[List[str]] = None
     random_state: int = 42
     memory_size: str = "4G"
+    suffix: str = ""
 
     @validator('embedding_algorithm')
     def validate_embedding_algorithm(cls, v):
@@ -47,7 +51,8 @@ class GraphEmbeddings:
         embedding_dimension: int,
         feature_columns: Optional[List[str]] = None,
         random_state: int = 42,
-        memory_size: str = "4G"
+        memory_size: str = "4G",
+        suffix: str = '',
     ):
         """Initialize the GraphEmbeddings processor."""
         self.config = GraphEmbeddingConfig(
@@ -55,7 +60,8 @@ class GraphEmbeddings:
             embedding_dimension=embedding_dimension,
             feature_columns=feature_columns or features.feature_columns,
             random_state=random_state,
-            memory_size=memory_size
+            memory_size=memory_size,
+            suffix=suffix
         )
         self.graph_collection = graph_collection
         self.features = features
@@ -95,7 +101,7 @@ class GraphEmbeddings:
         embeddings_df = embedding_func(self.features.features_df)
         
         # Get embedding column names
-        embedding_columns = [f"emb_{i}" for i in range(self.config.embedding_dimension)]
+        embedding_columns = [f"emb_{i}_{self.config.suffix}" if self.config.suffix else f"emb_{i}" for i in range(self.config.embedding_dimension)]
         
         return Embeddings(
             embeddings_df=embeddings_df,
@@ -165,7 +171,7 @@ class GraphEmbeddings:
         
         # Add embedding columns
         for i in range(self.config.embedding_dimension):
-            embeddings_df[f"emb_{i}"] = embeddings[:, i]
+            embeddings_df[f"emb_{i}_{self.config.suffix}" if self.config.suffix else f"emb_{i}"] = embeddings[:, i]
         
         return embeddings_df
 
@@ -195,7 +201,7 @@ class GraphEmbeddings:
         
         # Add embedding columns
         for i in range(self.config.embedding_dimension):
-            embeddings_df[f"emb_{i}"] = embeddings[:, i]
+            embeddings_df[f"emb_{i}_{self.config.suffix}" if self.config.suffix else f"emb_{i}"] = embeddings[:, i]
         
         return embeddings_df
 
@@ -225,6 +231,6 @@ class GraphEmbeddings:
         
         # Add embedding columns
         for i in range(self.config.embedding_dimension):
-            embeddings_df[f"emb_{i}"] = embeddings[:, i]
+            embeddings_df[f"emb_{i}_{self.config.suffix}" if self.config.suffix else f"emb_{i}"] = embeddings[:, i]
         
         return embeddings_df

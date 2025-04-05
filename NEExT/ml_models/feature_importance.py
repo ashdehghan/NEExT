@@ -1,14 +1,16 @@
-from typing import List, Optional, Literal, Dict
-import pandas as pd
-import numpy as np
-from pydantic import BaseModel, Field
 import time
+from typing import Dict, List, Literal, Optional
+
+import numpy as np
+import pandas as pd
+from pydantic import BaseModel, Field
 from tqdm import tqdm
-from .graph_collection import GraphCollection
-from .features import Features
-from .graph_embeddings import GraphEmbeddings
-from .ml_models import MLModels
-from .embeddings import Embeddings
+
+from NEExT.collections import GraphCollection
+from NEExT.embeddings import Embeddings, GraphEmbeddings
+from NEExT.features import Features
+from NEExT.ml_models import MLModels
+
 
 class FeatureImportanceConfig(BaseModel):
     """Configuration for feature importance analysis"""

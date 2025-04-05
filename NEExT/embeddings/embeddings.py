@@ -1,6 +1,8 @@
 from typing import List
+
 import pandas as pd
 from pydantic import BaseModel
+
 
 class EmbeddingsConfig(BaseModel):
     """Configuration for embeddings"""

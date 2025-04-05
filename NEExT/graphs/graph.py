@@ -1,8 +1,11 @@
-from pydantic import BaseModel, Field, field_validator
-from typing import List, Dict, Literal, Union, Optional, Set, Tuple
-import networkx as nx
-import igraph as ig
 import random
+from typing import Dict, List, Literal, Optional, Set, Tuple, Union
+
+import numpy as np
+import igraph as ig
+import networkx as nx
+from pydantic import BaseModel, Field, field_validator
+
 
 class Graph(BaseModel):
     """
@@ -21,8 +24,6 @@ class Graph(BaseModel):
         edge_attributes (Dict[tuple, Dict]): Dictionary mapping edges to their attributes
         graph_type (str): Backend graph library to use ("networkx" or "igraph")
         G (Union[nx.Graph, ig.Graph]): The actual graph instance (set automatically)
-        vertex_map (Optional[Dict[int, int]]): Mapping from internal to original node IDs
-        reverse_vertex_map (Optional[Dict[int, int]]): Mapping from original to internal node IDs
         sampled_nodes (Optional[List[int]]): List of sampled nodes for feature computation
     """
 
@@ -31,7 +32,7 @@ class Graph(BaseModel):
     }
 
     graph_id: int
-    graph_label: Optional[int] = None
+    graph_label: Optional[Union[int, float]] = None
     nodes: List[int]
     edges: List[tuple[int, int]]
     node_attributes: Dict[int, Dict[str, Union[float, int, str]]] = Field(default_factory=dict)
@@ -72,20 +73,28 @@ class Graph(BaseModel):
                 edge_list = [(src, dst) for src, dst in self.edges]
                 self.G.add_edges(edge_list)
 
-    def get_node_mapping(self):
-        """Return the mapping between original and internal node IDs."""
-        if self.graph_type == "igraph":
-            return self.vertex_map
-        return {node: node for node in self.nodes}  # Identity mapping for networkx
-
-    def get_original_id(self, internal_id):
-        """Convert internal node ID back to original ID."""
-        if self.graph_type == "igraph":
-            return self.reverse_vertex_map[internal_id]
-        return internal_id
+            for node, attrs in self.node_attributes.items():
+                for k, v in attrs.items():
+                    self.G.vs[node][k] = v
+            for edge, attrs in self.edge_attributes.items():
+                for k, v in attrs.items():
+                    self.G.es[edge][k] = v
 
     def reindex_nodes(self) -> 'Graph':
         """Reindex nodes to be consecutive integers starting from 0."""
+        unique_nodes, new_edges, new_node_attrs, new_edge_attrs = self._reindex_nodes()
+
+        # Create new graph with mapped IDs
+        return Graph(
+            graph_id=self.graph_id,
+            graph_label=self.graph_label,
+            nodes=list(range(len(unique_nodes))),  
+            edges=new_edges,
+            node_attributes=new_node_attrs,
+            edge_attributes=new_edge_attrs,
+            graph_type=self.graph_type,
+        )
+    def _reindex_nodes(self):
         # Create mapping from old to new indices
         unique_nodes = sorted(set(self.nodes))
         node_mapping = {old: new for new, old in enumerate(unique_nodes)}
@@ -101,17 +110,8 @@ class Graph(BaseModel):
         new_edge_attrs = {(node_mapping[src], node_mapping[dst]): attrs 
                          for (src, dst), attrs in self.edge_attributes.items()}
         
-        # Create new graph with mapped IDs
-        return Graph(
-            graph_id=self.graph_id,
-            graph_label=self.graph_label,
-            nodes=list(range(len(unique_nodes))),  # Consecutive integers from 0
-            edges=new_edges,
-            node_attributes=new_node_attrs,
-            edge_attributes=new_edge_attrs,
-            graph_type=self.graph_type
-        )
-    
+        return unique_nodes, new_edges, new_node_attrs, new_edge_attrs
+
     def filter_largest_component(self) -> 'Graph':
         """
         Filter the graph to keep only the largest connected component.
@@ -119,6 +119,29 @@ class Graph(BaseModel):
         Returns:
             Graph: A new Graph instance containing only the largest connected component
         """
+        nodes, edges, node_attrs, edge_attrs = self._filter_largest_component()
+        
+        # Create new Graph instance
+        filtered_graph = Graph(
+            graph_id=self.graph_id,
+            graph_label=self.graph_label,
+            nodes=nodes,
+            edges=edges,
+            node_attributes=node_attrs,
+            edge_attributes=edge_attrs,
+            graph_type=self.graph_type
+        )
+        
+        # Reindex nodes to be consecutive
+        return filtered_graph.reindex_nodes()
+    
+    
+    def _filter_largest_component(self) -> Tuple[
+        List[int], 
+        List[Tuple[int, int]], 
+        Dict[int, Dict[str, Union[float, int, str]]], 
+        Dict[Tuple[int, int], Dict[str, Union[float, int, str]]]
+    ]:
         if self.graph_type == "networkx":
             # Find largest connected component
             if not nx.is_connected(self.G):
@@ -126,7 +149,7 @@ class Graph(BaseModel):
                 subgraph = self.G.subgraph(largest_cc).copy()
             else:
                 # Already connected
-                return self
+                return self.nodes, self.edges, self.node_attributes, self.edge_attributes
                 
             # Extract nodes and edges from subgraph
             nodes = list(subgraph.nodes())
@@ -141,13 +164,13 @@ class Graph(BaseModel):
             
         else:  # igraph
             # Find largest connected component
-            components = self.G.clusters()
+            components = self.G.connected_components()
             if len(components) > 1:
                 largest_cc_idx = components.sizes().index(max(components.sizes()))
                 subgraph = self.G.subgraph(components[largest_cc_idx])
             else:
                 # Already connected
-                return self
+                return self.nodes, self.edges, self.node_attributes, self.edge_attributes
                 
             # Extract nodes and edges from subgraph
             nodes = [v.index for v in subgraph.vs]
@@ -165,20 +188,7 @@ class Graph(BaseModel):
                 attrs = {attr: e[attr] for attr in e.attributes()}
                 if attrs:
                     edge_attrs[(e.source, e.target)] = attrs
-        
-        # Create new Graph instance
-        filtered_graph = Graph(
-            graph_id=self.graph_id,
-            graph_label=self.graph_label,
-            nodes=nodes,
-            edges=edges,
-            node_attributes=node_attrs,
-            edge_attributes=edge_attrs,
-            graph_type=self.graph_type
-        )
-        
-        # Reindex nodes to be consecutive
-        return filtered_graph.reindex_nodes()
+        return nodes, edges, node_attrs, edge_attrs
 
     def get_graph_info(self):
         """
@@ -199,6 +209,9 @@ class Graph(BaseModel):
             "num_edges": len(self.edges),
             "graph_label": self.graph_label,
         }
+        
+    def set_graph_label(self, label: int):
+        self.graph_label = label
 
     def sample_nodes(self, sample_rate: float = 1.0, random_seed: Optional[int] = None) -> List[int]:
         """
@@ -222,3 +235,6 @@ class Graph(BaseModel):
         num_samples = max(1, int(num_nodes * sample_rate))  # Ensure at least 1 node is sampled
         self.sampled_nodes = random.sample(self.nodes, num_samples)
         return self.sampled_nodes
+
+    def update_node_attributes(self, ):
+        ...

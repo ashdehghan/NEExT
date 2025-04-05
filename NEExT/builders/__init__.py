@@ -1,0 +1,1 @@
+from NEExT.builders.embedding_builder import EmbeddingBuilder

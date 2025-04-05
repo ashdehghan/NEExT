@@ -1,9 +1,13 @@
-from pydantic import BaseModel, Field
-from typing import List, Dict, Optional, Set, Union, Literal
-import numpy as np
-from .graph import Graph
-import pandas as pd
 import random
+from typing import Dict, List, Literal, Optional, Set, Union
+
+import networkx as nx
+import numpy as np
+import pandas as pd
+from pydantic import BaseModel, Field
+
+from NEExT.graphs import Graph
+
 
 class GraphCollection(BaseModel):
     """
@@ -201,3 +205,35 @@ class GraphCollection(BaseModel):
             "graph_id": graph_ids,
             "label": graph_labels
         })
+        
+    def add_node_features(self, features_df: pd.DataFrame) -> None:
+        """
+        Add node features to graphs in the collection from an external pd.DataFrame.
+
+        Args:
+            features_df (pd.DataFrame): DataFrame containing node features.
+                Must have columns:
+                - graph_id: ID of the graph the node belongs to
+                - node_id: ID of the node
+                - feature columns: Columns containing the feature values
+        """
+        
+        for graph in self.graphs:
+            graph_features_df = (
+                features_df
+                .query(f'graph_id=={graph.graph_id}')
+                .set_index('node_id')
+                .drop(columns=['graph_id'])
+            )
+            
+            for feature, values in graph_features_df.to_dict().items():
+                for node_id, value in values.items():
+                    if node_id not in graph.nodes:
+                        raise(f'Unexpected node_id: {node_id} found in graph {graph.graph_id} when adding node features')
+                    
+                    graph.node_attributes[node_id][feature] = value
+                    
+                    if graph.graph_type == "networkx":
+                        nx.set_node_attributes(graph.G, {node_id: {feature:value}})
+                    else:
+                        graph.G.vs[node_id][feature] = value
