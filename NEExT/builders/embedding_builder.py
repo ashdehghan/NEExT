@@ -40,6 +40,7 @@ class EmbeddingBuilder:
             "separate_embeddings": self._separate_embeddings,
             "combined_embeddings": self._combined_embeddings,
             "structural_with_node_features": self._structural_with_node_features,
+            "feature_with_node_features": self._feature_with_node_features,
             "only_egonet_node_features": self._only_egonet_node_features,
         }
 
@@ -148,5 +149,16 @@ class EmbeddingBuilder:
 
         graph_structural_embeddings = GraphEmbeddings(**structural_config)
         embeddings = graph_structural_embeddings.compute()
+        embeddings = embeddings + self.graph_collection.egonet_node_features
+        return embeddings
+    
+    def _feature_with_node_features(self):
+        if not isinstance(self.graph_collection, EgonetCollection):
+            raise Exception("Graph collection is not an EgonetCollection!")
+
+        features_config = self._get_node_feature_config()
+
+        graph_feature_embeddings = GraphEmbeddings(**features_config)
+        embeddings = graph_feature_embeddings.compute()
         embeddings = embeddings + self.graph_collection.egonet_node_features
         return embeddings

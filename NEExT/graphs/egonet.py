@@ -10,6 +10,8 @@ class Egonet(Graph):
     Attributes:
         node_mapping Optional[Dict[int, int]]: Napping from internal nodes_id of an egonet to original graph nodes_id
     """
+    original_graph_id: int = Field(default=None)
+    original_node_id: int = Field(default=None)
     node_mapping: Optional[Dict[int, int]] = Field(default_factory=dict)
     
     def reindex_nodes(self) -> 'Egonet':
@@ -26,6 +28,8 @@ class Egonet(Graph):
             node_attributes=new_node_attrs,
             edge_attributes=new_edge_attrs,
             graph_type=self.graph_type,
+            original_graph_id=self.original_graph_id,
+            original_node_id=self.original_node_id,
             node_mapping=self.node_mapping,
         )
         
@@ -47,6 +51,8 @@ class Egonet(Graph):
             node_attributes=node_attrs,
             edge_attributes=edge_attrs,
             graph_type=self.graph_type,
+            original_graph_id=self.original_graph_id,
+            original_node_id=self.original_node_id,
             node_mapping=self.node_mapping,
         )
         
