@@ -8,7 +8,7 @@ from experiment_utils.unsupervised import unsupervised_eval
 
 from NEExT.collections import EgonetCollection
 from NEExT.io import GraphIO
-from NEExT.outliers import OutlierDataset
+from NEExT.outliers import GraphDataset
 
 
 # MODE = "supervised"
@@ -65,7 +65,7 @@ def data_processing(graph_io, edges_df, mapping_df, features_df, graph_data):
         embedding_algorithm="approx_wasserstein",
         # approx_wasserstein, wasserstein, sinkhornvectorizer
     )
-    dataset = OutlierDataset(subgraph_collection, embeddings, standardize=False)
+    dataset = GraphDataset(subgraph_collection, embeddings, standardize=False)
     return dataset
 
 datasets = [

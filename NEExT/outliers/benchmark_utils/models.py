@@ -2,17 +2,17 @@ import pandas as pd
 import numpy as np
 from sklearn.base import BaseEstimator
 from sklearn.metrics import roc_auc_score
-from NEExT.outliers import OutlierDataset
+from NEExT.datasets import GraphDataset
 
 
 def score_unlabeled_gt(
-    dataset: OutlierDataset,
+    dataset: GraphDataset,
     detector: BaseEstimator,
     ground_truth_df: pd.DataFrame = None,
 ):
     if ground_truth_df is not None:
         ground_truth_df = ground_truth_df.sort_values("graph_id")
-        out = predict_full_df(detector, dataset.graph_id, dataset.X)
+        out = predict_full_df(detector, dataset.graph_ids, dataset.X)
         bl_acc = roc_auc_score(ground_truth_df["is_outlier"], out["pred"])
     else:
         out = predict_full_df(detector, dataset.labeled_graphs, dataset.X_labeled)

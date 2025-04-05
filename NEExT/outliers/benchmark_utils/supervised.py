@@ -7,11 +7,12 @@ from sklearn.model_selection import StratifiedKFold, cross_val_score
 from sklearn.neighbors import KNeighborsClassifier
 
 
-from NEExT.outliers import CosineOutlierDetector, LGBMOutlier, OutlierDataset
+from NEExT.outliers import CosineOutlierDetector, LGBMOutlier
 from NEExT.outliers.benchmark_utils.models import score_unlabeled_gt
+from NEExT.datasets import GraphDataset
 
 
-def objective(trial: optuna.Trial, model: str, dataset: OutlierDataset):
+def objective(trial: optuna.Trial, model: str, dataset: GraphDataset):
     if model == "cosine":
         top_k = trial.suggest_int("top_k", 1, 20)
         detector = CosineOutlierDetector(top_k=top_k)
