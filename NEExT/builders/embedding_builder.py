@@ -28,9 +28,14 @@ class EmbeddingBuilder:
         self.memory_size = memory_size
         self.embedding_algorithm = embeddings_algorithm
 
-        self.structural_embeddings_dimension = min(len(self.structural_features.feature_columns), embeddings_dimension)
-        self.feature_embeddings_dimension = min(len(self.features.feature_columns), embeddings_dimension)
-        self.combined_embeddings_dimension = self.structural_embeddings_dimension + self.feature_embeddings_dimension
+        if structural_features is not None:
+            self.structural_embeddings_dimension = min(len(self.structural_features.feature_columns), embeddings_dimension)
+        
+        if features is not None:
+            self.feature_embeddings_dimension = min(len(self.features.feature_columns), embeddings_dimension)
+        
+        if structural_features is not None and features is not None:
+            self.combined_embeddings_dimension = self.structural_embeddings_dimension + self.feature_embeddings_dimension
 
         self.available_algorithms = {
             "structural_embeddings": self._structural_embeddings,
@@ -67,7 +72,7 @@ class EmbeddingBuilder:
             random_state=self.random_state,
             memory_size=self.memory_size,
             suffix="struct",
-        )
+        )   
 
     def _get_node_feature_config(self):
         return dict(

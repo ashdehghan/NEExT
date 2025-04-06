@@ -84,4 +84,7 @@ class NodeFeatures:
 
             out_features.append(features_df)
 
-        return pd.concat(out_features, axis=0, ignore_index=True)
+        out_df = pd.concat(out_features, axis=0, ignore_index=True)
+        out_df = out_df[["node_id", "graph_id"] + [col for col in out_df.columns if col not in ["node_id", "graph_id"]]]
+
+        return out_df
