@@ -14,7 +14,6 @@ class EmbeddingBuilder:
         structural_features: Optional[StructuralNodeFeatures] = None,
         features: Optional[NodeFeatures] = None,
         embeddings_dimension: int = 1,
-        feature_columns: List[str] = None,
         random_state: int = 42,
         memory_size: str = "4G",
         embeddings_algorithm: str = "approx_wasserstein",
@@ -25,7 +24,6 @@ class EmbeddingBuilder:
         self.graph_collection = graph_collection
         self.structural_features = structural_features
         self.features = features
-        self.feature_columns = feature_columns
         self.random_state = random_state
         self.memory_size = memory_size
         self.embedding_algorithm = embeddings_algorithm
@@ -65,7 +63,7 @@ class EmbeddingBuilder:
             features=self.structural_features,
             embedding_algorithm=self.embedding_algorithm,
             embedding_dimension=self.structural_embeddings_dimension,
-            feature_columns=self.feature_columns,
+            feature_columns=self.structural_features.feature_columns,
             random_state=self.random_state,
             memory_size=self.memory_size,
             suffix="struct",
@@ -77,7 +75,7 @@ class EmbeddingBuilder:
             features=self.features,
             embedding_algorithm=self.embedding_algorithm,
             embedding_dimension=self.feature_embeddings_dimension,
-            feature_columns=self.feature_columns,
+            feature_columns=self.features.feature_columns,
             random_state=self.random_state,
             memory_size=self.memory_size,
             suffix="feat",
@@ -90,7 +88,7 @@ class EmbeddingBuilder:
             features=combined_features,
             embedding_algorithm=self.embedding_algorithm,
             embedding_dimension=self.combined_embeddings_dimension,
-            feature_columns=self.feature_columns,
+            feature_columns=self.combined_features.feature_columns,
             random_state=self.random_state,
             memory_size=self.memory_size,
             suffix="combined",
@@ -119,12 +117,12 @@ class EmbeddingBuilder:
         graph_structural_embeddings = GraphEmbeddings(**structural_config)
         graph_feature_embeddings = GraphEmbeddings(**features_config)
 
-        structural_embeddings = graph_structural_embeddings.compute()
+        embeddings = graph_structural_embeddings.compute()
 
         # compute feature embedding and combine them only if node features are specified
-        if self.feature_columns is not None:
+        if self.features.feature_columns is not None:
             feature_embeddings = graph_feature_embeddings.compute()
-            embeddings = structural_embeddings + feature_embeddings
+            embeddings = embeddings + feature_embeddings
 
         return embeddings
 
