@@ -93,7 +93,7 @@ class EmbeddingBuilder:
             features=combined_features,
             embedding_algorithm=self.embedding_algorithm,
             embedding_dimension=self.combined_embeddings_dimension,
-            feature_columns=self.combined_features.feature_columns,
+            feature_columns=combined_features.feature_columns,
             random_state=self.random_state,
             memory_size=self.memory_size,
             suffix="combined",
