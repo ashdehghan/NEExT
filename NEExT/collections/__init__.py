@@ -1,0 +1,2 @@
+from NEExT.collections.graph_collection import GraphCollection
+from NEExT.collections.egonet_collection import EgonetCollection
