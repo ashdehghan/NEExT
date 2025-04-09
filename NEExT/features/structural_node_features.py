@@ -460,21 +460,31 @@ class StructuralNodeFeatures:
         if self.config.show_progress:
             graphs = tqdm(graphs, desc="Computing structural node features")
         
-        if self.config.n_jobs == 1:
-            feature_dfs = [self._compute_graph_node_features(graph) for graph in graphs]
+        if self.config.feature_list == []:
+            for graph in graphs:
+                _df = pd.DataFrame()
+                _df["node_id"] = graph.nodes
+                _df["graph_id"] = graph.graph_id
+                feature_dfs.append(_df)
+
+            features_df = pd.concat(feature_dfs, axis=0, ignore_index=True)
+            feature_columns = []
         else:
-            with Pool() as pool:
-                feature_dfs = pool.map(self._compute_graph_node_features, graphs)
-        
-        # Combine features from all graphs
-        if not feature_dfs:
-            raise ValueError("No features were computed. Check if the feature list is empty or if there are no graphs.")
+            if self.config.n_jobs == 1:
+                feature_dfs = [self._compute_graph_node_features(graph) for graph in graphs]
+            else:
+                with Pool() as pool:
+                    feature_dfs = pool.map(self._compute_graph_node_features, graphs)
             
-        features_df = pd.concat(feature_dfs, ignore_index=True)
-        
-        # Get feature columns (excluding node_id and graph_id)
-        feature_columns = [col for col in features_df.columns 
-                        if col not in ['node_id', 'graph_id']]
+            # Combine features from all graphs
+            if not feature_dfs:
+                raise ValueError("No features were computed. Check if the feature list is empty or if there are no graphs.")
+                
+            features_df = pd.concat(feature_dfs, ignore_index=True)
+            
+            # Get feature columns (excluding node_id and graph_id)
+            feature_columns = [col for col in features_df.columns 
+                            if col not in ['node_id', 'graph_id']]
         
         return Features(features_df, feature_columns)
 
