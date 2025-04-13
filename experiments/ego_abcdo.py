@@ -1,16 +1,18 @@
+import argparse
 import logging
 from collections import Counter
-import pyarrow.parquet as pq
+
 import igraph as ig
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+import pyarrow.parquet as pq
 import seaborn as sns
 import umap
-from sklearn.model_selection import train_test_split
+from lightgbm import LGBMClassifier
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import precision_score, roc_auc_score
-from lightgbm import LGBMClassifier
+from sklearn.model_selection import train_test_split
 
 from NEExT.builders import EmbeddingBuilder
 from NEExT.collections import EgonetCollection
@@ -19,45 +21,24 @@ from NEExT.features import NodeFeatures, StructuralNodeFeatures
 from NEExT.io import GraphIO
 from NEExT.outliers.benchmark_utils.data_loading import load_abcdo_data
 
-import argparse
-
 
 def main():
     log_format = "%(asctime)s - %(levelname)s - %(message)s"
     date_format = "%Y-%m-%d %H:%M:%S"
-    logging.basicConfig(level=1, format=log_format, datefmt=date_format)  # Defaults to console (stderr)
+    logging.basicConfig(level=logging.INFO, format=log_format, datefmt=date_format)  # Defaults to console (stderr)
     logging.info("Logging to console")
 
     parsed_arguments = parse_args()
-
     # You can now access the arguments like this:
-    logging.info(f"Data Path: {parsed_arguments.data_path}")
-    logging.info(f"Egonet K-Hop: {parsed_arguments.egonet_k_hop}")
-    logging.info(f"Embeddings Dimension: {parsed_arguments.embeddings_dimension}")
-    logging.info(f"Global Features: {parsed_arguments.global_structural_feature_list}")
-    logging.info(f"Filter Largest Component: {parsed_arguments.filter_largest_component}")
-    # ... and so on for all other arguments.
+    for key, value in vars(parsed_arguments).items():
+        logging.info(f"{key}: {value}")
 
-    # Example of how the derived local_feature_vector_length would be set:
     local_feature_vector_length = parsed_arguments.egonet_k_hop
-    logging.info(f"Derived Local Feature Vector Length: {local_feature_vector_length}")
+    
+    
 
     graph_io = GraphIO()
     edges_df, mapping_df, features_df = load_and_preprocess_data("abcdo_data_1000_200_0.3")
-
-    egonet_target = "is_outlier"
-    egonet_skip_features = []
-    egonet_k_hop = 1
-
-    global_structural_feature_list = ["all"]
-    global_feature_vector_length = 3
-
-    local_structural_feature_list = ["all"]
-    local_feature_vector_length = egonet_k_hop
-    local_node_features = []
-
-    embeddings_dimension = 5
-    embeddings_strategy = "feature_embeddings"
 
     # Compute global structural node features, add them as graph node features
     logging.info("Started computing global structural node features")
@@ -66,31 +47,31 @@ def main():
         node_graph_df=mapping_df,
         node_features_df=features_df,
         graph_type="igraph",
-        filter_largest_component=False,
+        filter_largest_component=parsed_arguments.filter_largest_component,
     )
 
     global_structural_node_features = StructuralNodeFeatures(
         graph_collection=graph_collection,
-        show_progress=False,
+        show_progress=parsed_arguments.show_progress,
         suffix="global",
-        feature_list=global_structural_feature_list,
-        feature_vector_length=global_feature_vector_length,
+        feature_list=parsed_arguments.global_structural_feature_list,
+        feature_vector_length=parsed_arguments.global_feature_vector_length,
         n_jobs=1,
     ).compute()
     graph_collection.add_node_features(global_structural_node_features.features_df)
     logging.info("Finished computing global structural node features")
 
-    egonet_collection = EgonetCollection(egonet_feature_target=egonet_target, skip_features=egonet_skip_features)
+    egonet_collection = EgonetCollection(egonet_feature_target=parsed_arguments.egonet_target, skip_features=parsed_arguments.egonet_skip_features)
     logging.info("Started building egonets")
-    egonet_collection.compute_k_hop_egonets(graph_collection, egonet_k_hop)
+    egonet_collection.compute_k_hop_egonets(graph_collection, parsed_arguments.egonet_k_hop)
     logging.info("Finished building egonets")
 
     logging.info("Started computing local strutural node features")
     local_structural_node_features = StructuralNodeFeatures(
         graph_collection=egonet_collection,
-        show_progress=False,
+        show_progress=parsed_arguments.show_progress,
         suffix="local",
-        feature_list=local_structural_feature_list,
+        feature_list=parsed_arguments.local_structural_feature_list,
         feature_vector_length=local_feature_vector_length,
         n_jobs=1,
     )
@@ -100,8 +81,8 @@ def main():
     logging.info("Started computing local node features")
     node_features = NodeFeatures(
         egonet_collection,
-        feature_list=global_structural_node_features.feature_columns + local_node_features,
-        show_progress=False,
+        feature_list=global_structural_node_features.feature_columns + parsed_arguments.local_node_features,
+        show_progress=parsed_arguments.show_progress,
         n_jobs=1,
     )
     features = node_features.compute()
@@ -112,9 +93,9 @@ def main():
         graph_collection=egonet_collection,
         structural_features=structural_features,
         features=features,
-        embeddings_dimension=embeddings_dimension,
+        embeddings_dimension=parsed_arguments.embeddings_dimension,
     )
-    embeddings = emb_builder.compute(embeddings_strategy)
+    embeddings = emb_builder.compute(parsed_arguments.embeddings_strategy)
     logging.info("Finished computing embeddings")
 
     dataset = GraphDataset(egonet_collection, embeddings)
@@ -126,7 +107,11 @@ def main():
         auc_std=pd.NamedAgg(column="auc", aggfunc=aggfunc),
         precision_mean=pd.NamedAgg(column="precision", aggfunc=aggfunc),
         precision_std=pd.NamedAgg(column="precision", aggfunc=aggfunc),
+    ).reset_index()
+    results = pd.concat(
+        [pd.DataFrame([dict(vars(parsed_arguments).items()) for _ in range(len(results))]),results], axis=1
     )
+    print(results)
     logging.info("Finished running experiment")
 
     pq.write_to_dataset(results, root_path="results/ego_abcdo.parquet")
