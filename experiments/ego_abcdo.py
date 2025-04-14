@@ -35,10 +35,8 @@ def main():
 
     local_feature_vector_length = parsed_arguments.egonet_k_hop
     
-    
-
     graph_io = GraphIO()
-    edges_df, mapping_df, features_df = load_and_preprocess_data("abcdo_data_1000_200_0.3")
+    edges_df, mapping_df, features_df = load_and_preprocess_data(parsed_arguments.data_path)
 
     # Compute global structural node features, add them as graph node features
     logging.info("Started computing global structural node features")
@@ -114,7 +112,7 @@ def main():
     print(results)
     logging.info("Finished running experiment")
 
-    pq.write_to_dataset(results, root_path="results/ego_abcdo.parquet")
+    pq.write_to_dataset(results, root_path=parsed_arguments.output_path)
 
 
 # --- Argument Parsing Function ---
@@ -130,7 +128,7 @@ def parse_args():
         help="Path or identifier for the input dataset. (Default: abcdo_data_1000_200_0.3)",
     )
     parser.add_argument(
-        "--output-path", type=str, default="ego_abcdo.parquet", help="Path to save the aggregated results parquet file. (Default: ego_abcdo.parquet)"
+        "--output-path", type=str, default="results/ego_abcdo.parquet", help="Path to save the aggregated results parquet file. (Default: ego_abcdo.parquet)"
     )
 
     # Egonet Arguments
@@ -196,7 +194,13 @@ def parse_args():
         action="store_true",  # Boolean flag, default is False when not present
         help="If set, display progress bars during long computations.",
     )
-
+    # Comment id Arguments
+    parser.add_argument(
+        "--comment",
+        type=str,
+        default="",
+        help="Comment for analysis",
+    )
     # Parse the arguments from the command line
     args = parser.parse_args()
     return args
