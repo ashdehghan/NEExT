@@ -101,10 +101,10 @@ def main():
     logging.info("Started running experiment")
     results = run_experiment(dataset)
     results = results.groupby("name").agg(
-        auc_mean=pd.NamedAgg(column="auc", aggfunc=aggfunc),
-        auc_std=pd.NamedAgg(column="auc", aggfunc=aggfunc),
-        precision_mean=pd.NamedAgg(column="precision", aggfunc=aggfunc),
-        precision_std=pd.NamedAgg(column="precision", aggfunc=aggfunc),
+        auc_mean=pd.NamedAgg(column="auc", aggfunc=aggfunc_mean),
+        auc_std=pd.NamedAgg(column="auc", aggfunc=aggfunc_std),
+        precision_mean=pd.NamedAgg(column="precision", aggfunc=aggfunc_mean),
+        precision_std=pd.NamedAgg(column="precision", aggfunc=aggfunc_std),
     ).reset_index()
     results = pd.concat(
         [pd.DataFrame([dict(vars(parsed_arguments).items()) for _ in range(len(results))]),results], axis=1
@@ -179,7 +179,7 @@ def parse_args():
         type=str,
         default="feature_embeddings",
         # Example choices - adjust if needed
-        choices=["feature_embeddings", "structural_embeddings", "combined_embeddings"],
+        choices=["feature_embeddings", "structural_embeddings", "combined_embeddings", 'separate_embeddings'],
         help="Strategy to use for computing node embeddings. (Default: feature_embeddings)",
     )
 
@@ -206,9 +206,12 @@ def parse_args():
     return args
 
 
-def aggfunc(x: np.ndarray):
+def aggfunc_mean(x: np.ndarray):
     return np.round(np.mean(x), 3)
 
+
+def aggfunc_std(x: np.ndarray):
+    return np.round(np.std(x), 3)
 
 def run_experiment(dataset: GraphDataset, n_runs=10):
     """
