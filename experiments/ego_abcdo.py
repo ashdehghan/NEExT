@@ -8,10 +8,11 @@ import numpy as np
 import pandas as pd
 import pyarrow.parquet as pq
 import seaborn as sns
+from sklearn.dummy import DummyClassifier
 import umap
 from lightgbm import LGBMClassifier
 from sklearn.linear_model import LogisticRegression
-from sklearn.metrics import precision_score, roc_auc_score
+from sklearn.metrics import average_precision_score, f1_score, precision_score, roc_auc_score
 from sklearn.model_selection import train_test_split
 
 from NEExT.builders import EmbeddingBuilder
@@ -33,8 +34,6 @@ def main():
     for key, value in vars(parsed_arguments).items():
         logging.info(f"{key}: {value}")
 
-    local_feature_vector_length = parsed_arguments.egonet_k_hop
-    
     graph_io = GraphIO()
     edges_df, mapping_df, features_df = load_and_preprocess_data(parsed_arguments.data_path)
 
@@ -70,7 +69,7 @@ def main():
         show_progress=parsed_arguments.show_progress,
         suffix="local",
         feature_list=parsed_arguments.local_structural_feature_list,
-        feature_vector_length=local_feature_vector_length,
+        feature_vector_length=parsed_arguments.local_feature_vector_length,
         n_jobs=1,
     )
     structural_features = local_structural_node_features.compute()
@@ -100,17 +99,29 @@ def main():
 
     logging.info("Started running experiment")
     results = run_experiment(dataset)
-    results = results.groupby("name").agg(
-        auc_mean=pd.NamedAgg(column="auc", aggfunc=aggfunc_mean),
-        auc_std=pd.NamedAgg(column="auc", aggfunc=aggfunc_std),
-        precision_mean=pd.NamedAgg(column="precision", aggfunc=aggfunc_mean),
-        precision_std=pd.NamedAgg(column="precision", aggfunc=aggfunc_std),
-    ).reset_index()
+    
+    metrics = ["auc", "average_precision", "f1_score"]
+    results = (
+        results.groupby("name")
+        .agg(
+            **{
+                f"{metric}_{agg_name}": pd.NamedAgg(column=metric, aggfunc=aggfunc)
+                for metric in metrics
+                for agg_name, aggfunc in [("mean", aggfunc_mean), ("std", aggfunc_std)]
+            }
+        )
+        .reset_index()
+    )
+    results['score'] = 0
+    for metric in metrics:
+        results['score'] += results[f'{metric}_mean'] 
+    results['score'] /= len(metrics)
+    
     results = pd.concat(
         [pd.DataFrame([dict(vars(parsed_arguments).items()) for _ in range(len(results))]),results], axis=1
     )
-    print(results)
     logging.info("Finished running experiment")
+    print(results)
 
     pq.write_to_dataset(results, root_path=parsed_arguments.output_path)
 
@@ -122,60 +133,63 @@ def parse_args():
 
     # Input/Output Arguments
     parser.add_argument(
-        "--data-path",
+        "--data_path",
         type=str,
         default="abcdo_data_1000_200_0.3",
         help="Path or identifier for the input dataset. (Default: abcdo_data_1000_200_0.3)",
     )
     parser.add_argument(
-        "--output-path", type=str, default="results/ego_abcdo.parquet", help="Path to save the aggregated results parquet file. (Default: ego_abcdo.parquet)"
+        "--output_path", type=str, default="results/ego_abcdo.parquet", help="Path to save the aggregated results parquet file. (Default: ego_abcdo.parquet)"
     )
 
     # Egonet Arguments
     parser.add_argument(
-        "--egonet-target", type=str, default="is_outlier", help="Name of the target feature column for egonet analysis. (Default: is_outlier)"
+        "--egonet_target", type=str, default="is_outlier", help="Name of the target feature column for egonet analysis. (Default: is_outlier)"
     )
     parser.add_argument(
-        "--egonet-skip-features",
+        "--egonet_skip_features",
         nargs="*",  # 0 or more arguments, space-separated
         default=[],
         help="List of feature names to skip during egonet creation. (Default: empty list)",
     )
-    parser.add_argument("--egonet-k-hop", type=int, default=1, help="Number of hops (k) to define the neighborhood for egonets. (Default: 1)")
+    parser.add_argument("--egonet_k_hop", type=int, default=1, help="Number of hops (k) to define the neighborhood for egonets. (Default: 1)")
 
     # Global Structural Feature Arguments
     parser.add_argument(
-        "--global-structural-feature-list",
+        "--global_structural_feature_list",
         nargs="+",  # 1 or more arguments, space-separated
-        default=["all"],
+        default=[],
         help="List of global structural features to compute ('all' or specific names). (Default: ['all'])",
     )
     parser.add_argument(
-        "--global-feature-vector-length", type=int, default=3, help="Dimensionality/length of the global structural feature vector. (Default: 3)"
+        "--global_feature_vector_length", type=int, default=3, help="Dimensionality/length of the global structural feature vector. (Default: 3)"
     )
 
     # Local Structural Feature Arguments
     parser.add_argument(
-        "--local-structural-feature-list",
+        "--local_structural_feature_list",
         nargs="+",  # 1 or more arguments, space-separated
-        default=["all"],
+        default=[],
         help="List of local structural features to compute ('all' or specific names). (Default: ['all'])",
+    )
+    parser.add_argument(
+        "--local_feature_vector_length", type=int, default=1, help="Dimensionality/length of the global structural feature vector. (Default: 3)"
     )
     # Note: local_feature_vector_length is derived from egonet_k_hop in the original code,
     # so it's not included as a separate argument here. It would be set inside main().
 
     # Local Node Feature Arguments
     parser.add_argument(
-        "--local-node-features",
+        "--local_node_features",
         nargs="*",  # 0 or more arguments, space-separated
         default=[],
         help="List of original node features to include locally in egonets. (Default: empty list)",
     )
 
     # Embedding Arguments
-    parser.add_argument("--embeddings-dimension", type=int, default=5, help="Dimension of the computed node embeddings. (Default: 5)")
+    parser.add_argument("--embeddings_dimension", type=int, default=5, help="Dimension of the computed node embeddings. (Default: 5)")
     parser.add_argument(
-        "--embeddings-strategy",
+        "--embeddings_strategy",
         type=str,
         default="feature_embeddings",
         # Example choices - adjust if needed
@@ -185,12 +199,12 @@ def parse_args():
 
     # Processing Flags
     parser.add_argument(
-        "--filter-largest-component",
+        "--filter_largest_component",
         action="store_true",  # Makes it a boolean flag, default is False when not present
         help="If set, only process the largest connected component of the main graph.",
     )
     parser.add_argument(
-        "--show-progress",
+        "--show_progress",
         action="store_true",  # Boolean flag, default is False when not present
         help="If set, display progress bars during long computations.",
     )
@@ -229,8 +243,9 @@ def run_experiment(dataset: GraphDataset, n_runs=10):
 
         # Logistic Regression
         models = [
+            ('random', DummyClassifier(strategy="stratified", random_state=i)),
             ("lr", LogisticRegression(max_iter=1000, random_state=i)),
-            ("lgbm", LGBMClassifier(random_state=i, verbose=0)),
+            ("lgbm", LGBMClassifier(random_state=i, verbose=-1)),
         ]
         for name, model in models:
             model.fit(x_train, y_train)
@@ -241,8 +256,9 @@ def run_experiment(dataset: GraphDataset, n_runs=10):
                 {
                     "run": i,
                     "name": name,
-                    "auc": roc_auc_score(y_test, y_pred_prob),
-                    "precision": precision_score(y_test, y_pred),
+                    "auc": roc_auc_score(y_test, y_pred_prob, average='micro'),
+                    "average_precision": average_precision_score(y_test, y_pred, average='micro'),
+                    "f1_score": f1_score(y_test, y_pred, average='micro'),
                 }
             )
 
