@@ -1,6 +1,7 @@
 import argparse
 import logging
 from collections import Counter
+import time
 
 import igraph as ig
 import matplotlib.pyplot as plt
@@ -46,7 +47,7 @@ def main():
         graph_type="igraph",
         filter_largest_component=parsed_arguments.filter_largest_component,
     )
-
+    start = time.time()
     global_structural_node_features = StructuralNodeFeatures(
         graph_collection=graph_collection,
         show_progress=parsed_arguments.show_progress,
@@ -55,6 +56,7 @@ def main():
         feature_vector_length=parsed_arguments.global_feature_vector_length,
         n_jobs=1,
     ).compute()
+    global_structural_time = time.time() - start
     graph_collection.add_node_features(global_structural_node_features.features_df)
     logging.info("Finished computing global structural node features")
 
@@ -64,6 +66,7 @@ def main():
     logging.info("Finished building egonets")
 
     logging.info("Started computing local strutural node features")
+    start = time.time()
     local_structural_node_features = StructuralNodeFeatures(
         graph_collection=egonet_collection,
         show_progress=parsed_arguments.show_progress,
@@ -73,6 +76,7 @@ def main():
         n_jobs=1,
     )
     structural_features = local_structural_node_features.compute()
+    local_structural_time = time.time() - start
     logging.info("Finished computing local strutural node features")
 
     logging.info("Started computing local node features")
@@ -116,7 +120,10 @@ def main():
     for metric in metrics:
         results['score'] += results[f'{metric}_mean'] 
     results['score'] /= len(metrics)
-    
+    results['global_structural_time'] = global_structural_time
+    results['local_structural_time'] = local_structural_time
+
+    print(results)
     results = pd.concat(
         [pd.DataFrame([dict(vars(parsed_arguments).items()) for _ in range(len(results))]),results], axis=1
     )
@@ -273,4 +280,13 @@ def load_and_preprocess_data(dataset_name: str):
 
 
 if __name__ == "__main__":
-    main()
+    import signal
+    def timeout_handler(signum, frame):
+        raise Exception('Timeout exception')
+    signal.signal(signal.SIGALRM, timeout_handler)
+    signal.alarm(int(60*5))
+    # signal.alarm(1)
+    try:
+        main()
+    finally:
+        signal.alarm(0)
