@@ -1,5 +1,7 @@
 import logging
+from collections import defaultdict
 from multiprocessing import Pool
+import random
 from typing import Dict, List, Literal, Optional, Union
 
 import igraph as ig
@@ -77,7 +79,8 @@ class StructuralNodeFeatures:
             "local_efficiency": self._compute_local_efficiency,
             "lsme": self._compute_lsme,
             "load_centrality": self._compute_load_centrality,
-            "basic_expansion": self._compute_basic_expansion
+            "basic_expansion": self._compute_basic_expansion,
+            "betastar": self._compute_betastar
         }
         
         # Handle "all" feature option
@@ -255,61 +258,6 @@ class StructuralNodeFeatures:
         df.insert(0, "graph_id", graph.graph_id)
         return df
 
-    def _compute_feature_parallel(self, feature_name: str) -> pd.DataFrame:
-        """
-        Compute a specific feature for all graphs in parallel.
-        
-        Args:
-            feature_name: Name of the feature to compute
-            
-        Returns:
-            pd.DataFrame: DataFrame containing the computed feature for all nodes
-        """
-        graphs = self.graph_collection.graphs
-        total_graphs = len(graphs)
-        
-        # Compute feature for each graph in parallel
-        feature_dfs = []
-        
-        if self.config.show_progress:
-            # For process backend, we need to use a different approach
-            # since tqdm doesn't work well with ProcessPoolExecutor
-            if self.config.parallel_backend == "process":
-                # Create a progress bar for this feature's graphs
-                graph_pbar = tqdm(
-                    total=total_graphs,
-                    desc=f"Computing {feature_name}",
-                    leave=False,
-                    position=1
-                )
-                
-                # Process graphs in parallel with manual progress tracking
-                for graph in graphs:
-                    feature_df = self.available_features[feature_name](graph)
-                    feature_dfs.append(feature_df)
-                    graph_pbar.update(1)
-                
-                graph_pbar.close()
-            else:
-                # For thread backend, we can use tqdm with executor.map
-                feature_func = self.available_features[feature_name]
-                feature_dfs = list(executor.map(feature_func, tqdm(
-                    graphs,
-                    desc=f"Computing {feature_name}",
-                    leave=False,
-                    position=1,
-                    disable=not self.config.show_progress
-                )))
-        else:
-            # No progress bar, just use executor.map
-            feature_func = self.available_features[feature_name]
-            feature_dfs = list(executor.map(feature_func, graphs))
-        
-        # Concatenate results
-        if feature_dfs:
-            return pd.concat(feature_dfs, ignore_index=True)
-        return pd.DataFrame()
-
     def _compute_betweenness_centrality(self, graph) -> pd.DataFrame:
         """Compute betweenness centrality features for all nodes in the graph."""
         return self._compute_structural_feature(
@@ -434,6 +382,60 @@ class StructuralNodeFeatures:
         df['graph_id'] = graph.graph_id
         
         return df[['node_id', 'graph_id'] + columns]
+    
+    def _compute_betastar(self, graph) -> pd.DataFrame:
+        """
+        Betastar community aware node feature
+        
+        https://arxiv.org/pdf/2311.04730
+        """
+        n_hops = self.config.feature_vector_length
+        G = graph.G
+        n_nodes = len(graph.nodes)
+        feature_matrix = np.zeros((n_nodes, n_hops))
+        nodes_in_community = defaultdict(list)
+
+        # get neighborhood mapping
+        if isinstance(G, nx.Graph):
+            # TODO implement code for networkx
+            neighborhoods = get_all_neighborhoods_nx(G, n_hops)
+            raise Exception('Betastar for nx not implemented')
+        else:  # igraph
+            seed = random.seed(13)
+            ig.set_random_number_generator(random)
+            neighborhoods = get_all_neighborhoods_ig(G, n_hops)
+
+            # generate communities using leiden
+            community_detection = G.community_leiden(objective_function="modularity", n_iterations=10, resolution=1.0)
+            node_community_mapping = {k: v for k, v in enumerate(community_detection.membership)}
+        
+        for k, v in node_community_mapping.items():
+            nodes_in_community[v].append(k)
+
+        for k, v in nodes_in_community.items():
+            nodes_in_community[k] = sorted(v)
+
+        degrees = G.degree()
+
+        for i, node in enumerate(graph.nodes):
+            G_a = community_detection.subgraph(node_community_mapping[node])
+            degrees_A = G_a.degree()
+
+            nodes_id_in_subgraph = {n: i for i, n in enumerate(nodes_in_community[node_community_mapping[node]])}
+
+            beta_star = 2 * (degrees_A[nodes_id_in_subgraph[node]] / degrees[node] - (G_a.vcount() - degrees[node]) / G.vcount())
+            feature_matrix[i, 0] = beta_star
+
+        for i, node in enumerate(graph.nodes):
+            for k in range(1, n_hops):
+                feature_matrix[i, k] = np.sum([feature_matrix[node_neig, 0] for node_neig in neighborhoods[node]])
+
+        columns = [f"betastar_{i}" for i in range(n_hops)]
+        df = pd.DataFrame(feature_matrix, columns=columns)
+        df["node_id"] = graph.nodes
+        df["graph_id"] = graph.graph_id
+
+        return df[["node_id", "graph_id"] + columns]
 
     def _normalize_features(self):
         """Normalize all feature columns using StandardScaler."""
