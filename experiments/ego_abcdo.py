@@ -1,8 +1,9 @@
+import signal
 import argparse
 import logging
 from collections import Counter
 import time
-
+import colorcet as cc
 import igraph as ig
 import matplotlib.pyplot as plt
 import numpy as np
@@ -36,7 +37,7 @@ def main():
         logging.info(f"{key}: {value}")
 
     graph_io = GraphIO()
-    edges_df, mapping_df, features_df = load_and_preprocess_data(parsed_arguments.data_path)
+    edges_df, mapping_df, features_df, community_id = load_and_preprocess_data(parsed_arguments.data_path)
 
     # Compute global structural node features, add them as graph node features
     logging.info("Started computing global structural node features")
@@ -90,6 +91,13 @@ def main():
     logging.info("Finished computing local node features")
 
     logging.info("Started computing embeddings")
+
+    egonet_position_features = egonet_collection.compute_egonet_positionaL_features()
+    if parsed_arguments.egonet_position and len(features.feature_columns) > 0:
+        features += egonet_position_features
+    elif parsed_arguments.egonet_position and len(structural_features.feature_columns) > 0:
+        structural_features += egonet_position_features
+
     emb_builder = EmbeddingBuilder(
         graph_collection=egonet_collection,
         structural_features=structural_features,
@@ -105,20 +113,10 @@ def main():
     results = run_experiment(dataset)
     
     metrics = ["auc", "average_precision", "f1_score"]
-    results = (
-        results.groupby("name")
-        .agg(
-            **{
-                f"{metric}_{agg_name}": pd.NamedAgg(column=metric, aggfunc=aggfunc)
-                for metric in metrics
-                for agg_name, aggfunc in [("mean", aggfunc_mean), ("std", aggfunc_std)]
-            }
-        )
-        .reset_index()
-    )
+    
     results['score'] = 0
     for metric in metrics:
-        results['score'] += results[f'{metric}_mean'] 
+        results['score'] += results[f'{metric}'] 
     results['score'] /= len(metrics)
     results['global_structural_time'] = global_structural_time
     results['local_structural_time'] = local_structural_time
@@ -130,7 +128,32 @@ def main():
     logging.info("Finished running experiment")
     print(results)
 
-    pq.write_to_dataset(results, root_path=parsed_arguments.output_path)
+    pq.write_to_dataset(results, root_path=f"{parsed_arguments.output_path}/ego_abcdo.parquet")
+    
+    palette = sns.color_palette(cc.glasbey, n_colors=25)
+    palette_short = [palette[-1], palette[0]] 
+    fig, ax = plt.subplots(1, 2, figsize=(16, 8))
+    for a in ax:
+        a.grid(True)
+    x1, x2 = dataset.X_labeled.iloc[:, 0], dataset.X_labeled.iloc[:, 1]
+    sns.scatterplot(x=x1, y=x2, hue=features_df['is_outlier'], ax=ax[0], palette=palette_short)
+    sns.scatterplot(x=x1, y=x2, hue=community_id, ax=ax[1], palette=palette)
+    
+    fig.tight_layout()
+    fig.savefig(f'{parsed_arguments.output_path}/embedding_{parsed_arguments.comment}.png')
+    
+    fig, ax = plt.subplots(1, 2, figsize=(16, 8))
+    for a in ax:
+        a.grid(True)
+    reducer = umap.UMAP()
+    umap_embed = reducer.fit_transform(dataset.X_labeled)
+    
+    x1, x2 = umap_embed[:, 0], umap_embed[:, 1]
+    sns.scatterplot(x=x1, y=x2, hue=features_df['is_outlier'], ax=ax[0],palette=palette_short)
+    sns.scatterplot(x=x1, y=x2, hue=community_id, ax=ax[1], palette=palette)
+    
+    fig.tight_layout()
+    fig.savefig(f'{parsed_arguments.output_path}/umap_embedding_{parsed_arguments.comment}.png')
 
 
 # --- Argument Parsing Function ---
@@ -146,7 +169,7 @@ def parse_args():
         help="Path or identifier for the input dataset. (Default: abcdo_data_1000_200_0.3)",
     )
     parser.add_argument(
-        "--output_path", type=str, default="results/ego_abcdo.parquet", help="Path to save the aggregated results parquet file. (Default: ego_abcdo.parquet)"
+        "--output_path", type=str, default="results", help="Path to save the aggregated results parquet file. (Default: ego_abcdo.parquet)"
     )
 
     # Egonet Arguments
@@ -215,6 +238,11 @@ def parse_args():
         action="store_true",  # Boolean flag, default is False when not present
         help="If set, display progress bars during long computations.",
     )
+    parser.add_argument(
+        "--egonet_position",
+        action="store_true",  # Boolean flag, default is False when not present
+        help="Node positional encoding feature in the egonet",
+    )
     # Comment id Arguments
     parser.add_argument(
         "--comment",
@@ -226,13 +254,6 @@ def parse_args():
     args = parser.parse_args()
     return args
 
-
-def aggfunc_mean(x: np.ndarray):
-    return np.round(np.mean(x), 3)
-
-
-def aggfunc_std(x: np.ndarray):
-    return np.round(np.std(x), 3)
 
 def run_experiment(dataset: GraphDataset, n_runs=10):
     """
@@ -275,17 +296,17 @@ def run_experiment(dataset: GraphDataset, n_runs=10):
 def load_and_preprocess_data(dataset_name: str):
     """Loads and preprocesses the ABCD dataset."""
     edges_df, mapping_df, features_df, _ = load_abcdo_data(dataset_name, hide_frac={0: 0, 1: 0})
+    community_id = features_df['community_id']
     features_df = features_df.drop(columns=["random_community_feature", "community_id"])
-    return edges_df, mapping_df, features_df
+    return edges_df, mapping_df, features_df, community_id
 
+def timeout_handler(signum, frame):
+    raise Exception('Timeout exception')
 
 if __name__ == "__main__":
-    import signal
-    def timeout_handler(signum, frame):
-        raise Exception('Timeout exception')
+    
     signal.signal(signal.SIGALRM, timeout_handler)
-    signal.alarm(int(60*5))
-    # signal.alarm(1)
+    signal.alarm(int(60*3))
     try:
         main()
     finally:
