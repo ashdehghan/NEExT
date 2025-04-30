@@ -2,11 +2,13 @@ from collections import defaultdict
 from typing import Callable, Dict, List, Literal, Optional, Set, Tuple, Union, get_args
 
 import networkx as nx
+import numpy as np
 import pandas as pd
 from pydantic import BaseModel, Field
 
 from NEExT.collections.graph_collection import GraphCollection
 from NEExT.embeddings.embeddings import Embeddings
+from NEExT.features import Features
 from NEExT.graphs import Egonet, Graph
 
 
@@ -114,7 +116,7 @@ class EgonetCollection(GraphCollection):
 
         for graph in graph_collection.graphs:
             for node_id in range(graph.G.vcount()):
-                egonet_nodes = graph.G.neighborhood(node_id, order=k_hop)
+                egonet_nodes = sorted(graph.G.neighborhood(node_id, order=k_hop))
                 egonet_label = graph.node_attributes[node_id][self.egonet_feature_target] if self.egonet_feature_target else None
 
                 egonet = self._build_egonet(
@@ -223,3 +225,27 @@ class EgonetCollection(GraphCollection):
             else (egonet_node_features_df.drop(columns=["graph_id", "node_id"]).rename(columns={"subgraph_id": "graph_id"}))
         )
         return Embeddings(egonet_node_features_df, "egonet_node_features", [col for col in egonet_node_features_df.columns if col != "graph_id"])
+
+    def compute_egonet_positionaL_features(self, one_hot_encode: bool = True):
+        """
+        Compute egonet positional features that can be used to encode central node
+        position in the egonet. The positional features have to be added independently
+        to features before embedding if you want to include it.
+        """        
+
+        df_position = []
+        for egonet in self.graphs:
+            _, central_node = self.egonet_to_graph_node_mapping[egonet.graph_id]
+
+            d = pd.DataFrame()
+            d['node_id'] = egonet.nodes
+            d['graph_id'] = egonet.graph_id
+            d['egonet_position']=egonet.G.distances(egonet.node_mapping[central_node])[0]
+            df_position.append(d)
+            
+        df_position = pd.concat(df_position, axis=0, ignore_index=True)
+
+        if one_hot_encode:
+            df_position = pd.get_dummies(df_position, columns=['egonet_position'], dtype=np.int8)
+        positional_features = Features(df_position, [i for i in df_position.columns if i not in ['node_id', 'graph_id']])
+        return positional_features
