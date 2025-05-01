@@ -48,66 +48,88 @@ def main():
         graph_type="igraph",
         filter_largest_component=parsed_arguments.filter_largest_component,
     )
-    start = time.time()
-    global_structural_node_features = StructuralNodeFeatures(
-        graph_collection=graph_collection,
-        show_progress=parsed_arguments.show_progress,
-        suffix="global",
-        feature_list=parsed_arguments.global_structural_feature_list,
-        feature_vector_length=parsed_arguments.global_feature_vector_length,
-        n_jobs=1,
-    ).compute()
-    global_structural_time = time.time() - start
-    graph_collection.add_node_features(global_structural_node_features.features_df)
-    logging.info("Finished computing global structural node features")
+    if parsed_arguments.n2v:
+        from fastnode2vec import Graph, Node2Vec
+        from NEExT.embeddings.embeddings import Embeddings
 
-    egonet_collection = EgonetCollection(egonet_feature_target=parsed_arguments.egonet_target, skip_features=parsed_arguments.egonet_skip_features)
-    logging.info("Started building egonets")
-    egonet_collection.compute_k_hop_egonets(graph_collection, parsed_arguments.egonet_k_hop)
-    logging.info("Finished building egonets")
+        embeddings = []
+        for graph in graph_collection.graphs:
+            graph_n2v = Graph(graph.G.get_edgelist(), directed=False, weighted=False)
+            n2v = Node2Vec(graph_n2v, dim=4, walk_length=100, window=10, p=2.0, q=0.5, workers=2)
+            n2v.train(epochs=2)
 
-    logging.info("Started computing local strutural node features")
-    start = time.time()
-    local_structural_node_features = StructuralNodeFeatures(
-        graph_collection=egonet_collection,
-        show_progress=parsed_arguments.show_progress,
-        suffix="local",
-        feature_list=parsed_arguments.local_structural_feature_list,
-        feature_vector_length=parsed_arguments.local_feature_vector_length,
-        n_jobs=1,
-    )
-    structural_features = local_structural_node_features.compute()
-    local_structural_time = time.time() - start
-    logging.info("Finished computing local strutural node features")
+            embedding_columns = [f'n2v_dim_{i}' for i in range(4)]
+            embedding_df = pd.DataFrame(n2v.wv[graph.nodes], columns = embedding_columns)
+            embeddings.append(embedding_df)
+            
+        embeddings = pd.concat(embeddings,axis=0, ignore_index=True)
+        embeddings['graph_id'] = list(range(len(embeddings)))
+        embeddings = Embeddings(embeddings, 'n2v',embedding_columns)
+        egonet_collection = EgonetCollection(egonet_feature_target=parsed_arguments.egonet_target, skip_features=parsed_arguments.egonet_skip_features)
+        egonet_collection.compute_k_hop_egonets(graph_collection, 0)
+        
+        dataset = GraphDataset(egonet_collection, embeddings)
+    else:
+        start = time.time()
+        global_structural_node_features = StructuralNodeFeatures(
+            graph_collection=graph_collection,
+            show_progress=parsed_arguments.show_progress,
+            suffix="global",
+            feature_list=parsed_arguments.global_structural_feature_list,
+            feature_vector_length=parsed_arguments.global_feature_vector_length,
+            n_jobs=1,
+        ).compute()
+        global_structural_time = time.time() - start
+        graph_collection.add_node_features(global_structural_node_features.features_df)
+        logging.info("Finished computing global structural node features")
 
-    logging.info("Started computing local node features")
-    node_features = NodeFeatures(
-        egonet_collection,
-        feature_list=global_structural_node_features.feature_columns + parsed_arguments.local_node_features,
-        show_progress=parsed_arguments.show_progress,
-        n_jobs=1,
-    )
-    features = node_features.compute()
-    logging.info("Finished computing local node features")
+        egonet_collection = EgonetCollection(egonet_feature_target=parsed_arguments.egonet_target, skip_features=parsed_arguments.egonet_skip_features)
+        logging.info("Started building egonets")
+        egonet_collection.compute_k_hop_egonets(graph_collection, parsed_arguments.egonet_k_hop)
+        logging.info("Finished building egonets")
 
-    logging.info("Started computing embeddings")
+        logging.info("Started computing local strutural node features")
+        start = time.time()
+        local_structural_node_features = StructuralNodeFeatures(
+            graph_collection=egonet_collection,
+            show_progress=parsed_arguments.show_progress,
+            suffix="local",
+            feature_list=parsed_arguments.local_structural_feature_list,
+            feature_vector_length=parsed_arguments.local_feature_vector_length,
+            n_jobs=1,
+        )
+        structural_features = local_structural_node_features.compute()
+        local_structural_time = time.time() - start
+        logging.info("Finished computing local strutural node features")
 
-    egonet_position_features = egonet_collection.compute_egonet_positionaL_features()
-    if parsed_arguments.egonet_position and len(features.feature_columns) > 0:
-        features += egonet_position_features
-    elif parsed_arguments.egonet_position and len(structural_features.feature_columns) > 0:
-        structural_features += egonet_position_features
+        logging.info("Started computing local node features")
+        node_features = NodeFeatures(
+            egonet_collection,
+            feature_list=global_structural_node_features.feature_columns + parsed_arguments.local_node_features,
+            show_progress=parsed_arguments.show_progress,
+            n_jobs=1,
+        )
+        features = node_features.compute()
+        logging.info("Finished computing local node features")
 
-    emb_builder = EmbeddingBuilder(
-        graph_collection=egonet_collection,
-        structural_features=structural_features,
-        features=features,
-        embeddings_dimension=parsed_arguments.embeddings_dimension,
-    )
-    embeddings = emb_builder.compute(parsed_arguments.embeddings_strategy)
-    logging.info("Finished computing embeddings")
 
-    dataset = GraphDataset(egonet_collection, embeddings)
+        egonet_position_features = egonet_collection.compute_egonet_positionaL_features()
+        if parsed_arguments.egonet_position and len(features.feature_columns) > 0:
+            features += egonet_position_features
+        elif parsed_arguments.egonet_position and len(structural_features.feature_columns) > 0:
+            structural_features += egonet_position_features
+
+        logging.info("Started computing embeddings")
+        emb_builder = EmbeddingBuilder(
+            graph_collection=egonet_collection,
+            structural_features=structural_features,
+            features=features,
+            embeddings_dimension=parsed_arguments.embeddings_dimension,
+        )
+        embeddings = emb_builder.compute(parsed_arguments.embeddings_strategy)
+        logging.info("Finished computing embeddings")
+
+        dataset = GraphDataset(egonet_collection, embeddings)
 
     logging.info("Started running experiment")
     results = run_experiment(dataset)
@@ -118,15 +140,15 @@ def main():
     for metric in metrics:
         results['score'] += results[f'{metric}'] 
     results['score'] /= len(metrics)
-    results['global_structural_time'] = global_structural_time
-    results['local_structural_time'] = local_structural_time
+    if not parsed_arguments.n2v:
+        results['global_structural_time'] = global_structural_time
+        results['local_structural_time'] = local_structural_time
 
     print(results)
     results = pd.concat(
         [pd.DataFrame([dict(vars(parsed_arguments).items()) for _ in range(len(results))]),results], axis=1
     )
     logging.info("Finished running experiment")
-    print(results)
 
     pq.write_to_dataset(results, root_path=f"{parsed_arguments.output_path}/ego_abcdo.parquet")
     
@@ -250,6 +272,13 @@ def parse_args():
         default="",
         help="Comment for analysis",
     )
+    parser.add_argument(
+        "--n2v",
+        action="store_true",  # Boolean flag, default is False when not present
+        help="Use node2vec embedding",
+    )
+    
+    
     # Parse the arguments from the command line
     args = parser.parse_args()
     return args

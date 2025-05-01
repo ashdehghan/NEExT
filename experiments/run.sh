@@ -101,3 +101,15 @@ python ego_abcdo.py \
     --local_feature_vector_length 1 \
     --embeddings_strategy separate_embeddings \
     --egonet_position
+
+
+
+
+python ego_abcdo.py \
+    --output_path results/ego_abcdo_30042025.parquet \
+    --comment 0hop \
+    --global_structural_feature_list all \
+    --global_feature_vector_length 4 \
+    --egonet_k_hop 0 \
+    --local_feature_vector_length 1 \
+    --embeddings_strategy feature_embeddings \

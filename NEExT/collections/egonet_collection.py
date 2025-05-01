@@ -116,7 +116,7 @@ class EgonetCollection(GraphCollection):
 
         for graph in graph_collection.graphs:
             for node_id in range(graph.G.vcount()):
-                egonet_nodes = sorted(graph.G.neighborhood(node_id, order=k_hop))
+                egonet_nodes = sorted(graph.G.neighborhood(node_id, order=k_hop)) if k_hop > 0 else [node_id]
                 egonet_label = graph.node_attributes[node_id][self.egonet_feature_target] if self.egonet_feature_target else None
 
                 egonet = self._build_egonet(
