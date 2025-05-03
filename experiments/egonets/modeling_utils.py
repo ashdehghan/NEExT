@@ -35,7 +35,7 @@ def train_random_model(params, features_df):
         mlflow.log_metric("f1_score", f1_score(y_test, y_pred_prob, average="micro"), step=i)
 
 
-def run_experiments(params, dataset):
+def run_experiments(params, partial_metrics, dataset):
     models = [
         ("lr", LogisticRegression(max_iter=1000, random_state=13)),
         ("lgbm", LGBMClassifier(random_state=13, verbose=-1)),
@@ -43,8 +43,7 @@ def run_experiments(params, dataset):
 
     for model_name, model in models:
         with mlflow.start_run(nested=True):
-            extended_params = params | {"model_name": model_name}
-            mlflow.log_params(extended_params)
+            extended_params = params | {"model_name": model_name, 'status': 'OK'}
             for i in range(10):
                 print(f"Experiment run id: {i}")
                 x_train, x_test, y_train, y_test = train_test_split(
@@ -59,6 +58,9 @@ def run_experiments(params, dataset):
                 y_pred = model.predict(x_test)
                 y_pred_prob = model.predict_proba(x_test)[:, 1]
 
+                mlflow.log_params(extended_params)
+                for key, value in partial_metrics.items():
+                    mlflow.log_metric(key, value, step=i)
                 mlflow.log_metric("auc", roc_auc_score(y_test, y_pred_prob, average="micro"), step=i)
                 mlflow.log_metric("average_precision", average_precision_score(y_test, y_pred_prob, average="micro"), step=i)
                 mlflow.log_metric("f1_score", f1_score(y_test, y_pred, average="micro"), step=i)

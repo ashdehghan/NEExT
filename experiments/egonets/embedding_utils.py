@@ -27,7 +27,7 @@ def node2vec_embedding(graph_collection):
     return embeddings
 
 
-def compute_global_features(params, graph_collection):
+def compute_global_features(params, partial_metrics, graph_collection):
     start = time.time()
     global_structural_node_features = StructuralNodeFeatures(
         graph_collection=graph_collection,
@@ -39,11 +39,12 @@ def compute_global_features(params, graph_collection):
     ).compute()
     global_structural_time = time.time() - start
     graph_collection.add_node_features(global_structural_node_features.features_df)
-    mlflow.log_metric("global_structural_time", global_structural_time)
+    partial_metrics["global_structural_time"] = global_structural_time
+    # mlflow.log_metric("global_structural_time", global_structural_time)
     return global_structural_node_features
 
 
-def compute_local_structural_features(params, egonet_collection):
+def compute_local_structural_features(params, partial_metrics, egonet_collection):
     start = time.time()
     local_structural_node_features = StructuralNodeFeatures(
         graph_collection=egonet_collection,
@@ -55,7 +56,8 @@ def compute_local_structural_features(params, egonet_collection):
     )
     structural_features = local_structural_node_features.compute()
     local_structural_time = time.time() - start
-    mlflow.log_metric("local_structural_time", local_structural_time)
+    partial_metrics["local_structural_time"] = local_structural_time
+    # mlflow.log_metric("local_structural_time", local_structural_time)
     return structural_features
 
 
