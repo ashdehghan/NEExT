@@ -15,16 +15,28 @@ features = [
 ]
 
 
-experiment = "local_structural_features_time"
+experiment = "local_structural_features_time_v1"
+
+
+combinations = []
+for feature in features:
+    combinations.append((feature, 0, 1))
+
+for j in [
+        (feature, k_hop, i) 
+        for feature in features 
+        for k_hop in range(1, 5) 
+        for i in range(1, k_hop + 1)
+    ]:
+    combinations.append(j)
+
 params = [
     Param(
-        comment=f"local_structural_{feature}_{i}",
+        comment=f"local_structural_{feature}_{k_hop}_{i}",
         local_structural_feature_list=[feature],
         local_feature_vector_length=i,
-        k_hop=k_hop,
-        embeddings_strategy='structural_embeddings',
+        egonet_k_hop=k_hop,
+        embeddings_strategy="structural_embeddings",
     )
-    for feature in features
-    for k_hop in range(0, 5)
-    for i in range(1, k_hop + 1)
+    for feature, k_hop, i in combinations
 ]
