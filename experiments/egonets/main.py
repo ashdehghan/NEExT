@@ -2,6 +2,7 @@ import argparse
 import importlib
 import multiprocessing as mp
 from functools import partial
+import traceback
 
 import mlflow
 from embedding_utils import (
@@ -79,7 +80,9 @@ def evaluation_loop(params, data_path):
             run_experiments(params, partial_metrics, dataset)
 
             make_charts(params, features_df, community_id, dataset)
-        except:
+        except Exception as e:
+            print('RUN FAILED!')
+            print(traceback.format_exc())
             mlflow.log_params(params | {"status": "FAILURE"})
 
 
