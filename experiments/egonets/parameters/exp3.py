@@ -16,6 +16,7 @@ features = [
 
 
 experiment = "local_structural_features_time_v1"
+data_path = "abcdo_data_1000_200_0.3" 
 
 
 combinations = []

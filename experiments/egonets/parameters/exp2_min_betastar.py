@@ -1,6 +1,8 @@
 from template import Param
 
 experiment = "global_features_effect_min_betastar"
+data_path = "abcdo_data_1000_200_0.3" 
+
 params = [
     Param(
         comment=f"global_structural_features_{i}",

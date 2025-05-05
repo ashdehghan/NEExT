@@ -3,6 +3,7 @@ import matplotlib.pyplot as plt
 import mlflow
 import numpy as np
 import seaborn as sns
+from sklearn.metrics import accuracy_score
 import umap
 from lightgbm import LGBMClassifier
 from mlflow.models import infer_signature
@@ -28,9 +29,10 @@ def train_random_model(params, features_df):
         )
         model.fit(x_train, y_train)
         y_pred = model.predict(x_test)
-        y_pred_prob = model.predict_proba(x_test)[:, 1]
+        y_pred_prob = model.predict_proba(x_test)#[:, 1]
 
-        mlflow.log_metric("auc", roc_auc_score(y_test, y_pred_prob, average="micro"), step=i)
+        mlflow.log_metric("accuracy", accuracy_score(y_test, y_pred), step=i)
+        mlflow.log_metric("auc", roc_auc_score(y_test, y_pred_prob, average="micro", multi_class="ovr"), step=i)
         mlflow.log_metric("average_precision", average_precision_score(y_test, y_pred_prob, average="micro"), step=i)
         mlflow.log_metric("f1_score", f1_score(y_test, y_pred_prob, average="micro"), step=i)
 
@@ -43,7 +45,7 @@ def run_experiments(params, partial_metrics, dataset):
 
     for model_name, model in models:
         with mlflow.start_run(nested=True):
-            extended_params = params | {"model_name": model_name, 'status': 'OK'}
+            extended_params = params | {"model_name": model_name, "status": "OK"}
             for i in range(10):
                 print(f"Experiment run id: {i}")
                 x_train, x_test, y_train, y_test = train_test_split(
@@ -56,12 +58,13 @@ def run_experiments(params, partial_metrics, dataset):
 
                 model.fit(x_train, y_train)
                 y_pred = model.predict(x_test)
-                y_pred_prob = model.predict_proba(x_test)[:, 1]
+                y_pred_prob = model.predict_proba(x_test)#[:, 1]
 
                 mlflow.log_params(extended_params)
                 for key, value in partial_metrics.items():
                     mlflow.log_metric(key, value, step=i)
-                mlflow.log_metric("auc", roc_auc_score(y_test, y_pred_prob, average="micro"), step=i)
+                mlflow.log_metric("accuracy", accuracy_score(y_test, y_pred), step=i)
+                mlflow.log_metric("auc", roc_auc_score(y_test, y_pred_prob, average="micro", multi_class="ovr"), step=i)
                 mlflow.log_metric("average_precision", average_precision_score(y_test, y_pred_prob, average="micro"), step=i)
                 mlflow.log_metric("f1_score", f1_score(y_test, y_pred, average="micro"), step=i)
     print("done?")

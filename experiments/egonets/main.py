@@ -18,14 +18,19 @@ from modeling_utils import make_charts, run_experiments, train_random_model
 from NEExT.collections import EgonetCollection
 from NEExT.datasets import GraphDataset
 from NEExT.io import GraphIO
-from NEExT.outliers.benchmark_utils.data_loading import load_abcdo_data
+from NEExT.outliers.benchmark_utils.data_loading import load_abcdo_data, load_airports_data
 
 
 def load_and_preprocess_data(dataset_name: str):
     """Loads and preprocesses the ABCD dataset."""
-    edges_df, mapping_df, features_df, _ = load_abcdo_data(dataset_name, hide_frac={0: 0, 1: 0})
-    community_id = features_df["community_id"]
-    features_df = features_df.drop(columns=["random_community_feature", "community_id"])
+    if dataset_name.startswith("abcdo"):
+        edges_df, mapping_df, features_df, _ = load_abcdo_data(dataset_name, hide_frac={0: 0, 1: 0})
+        community_id = features_df["community_id"]
+        features_df = features_df.drop(columns=["random_community_feature", "community_id"])
+    elif dataset_name.startswith("airports"):
+        edges_df, mapping_df, features_df, _ = load_airports_data(dataset_name, hide_frac={0: 0, 1: 0})
+        community_id = features_df["is_outlier"]
+        
     return edges_df, mapping_df, features_df, community_id
 
 
@@ -96,12 +101,12 @@ if __name__ == "__main__":
 
     params = [dict(param) for param in params_module.params]
 
-    data_path = "abcdo_data_1000_200_0.3"
+    
     mlflow.set_tracking_uri(uri="http://127.0.0.1:5001")
-    experiment_name = f"/{data_path}_{params_module.experiment}"
+    experiment_name = f"/{params_module.data_path}_{params_module.experiment}"
     mlflow.set_experiment(experiment_name)
 
-    fun = partial(evaluation_loop, data_path=data_path)
+    fun = partial(evaluation_loop, data_path=params_module.data_path)
     if args.workers == 1:
         for param in params:
             fun(param)

@@ -2,6 +2,7 @@ from template import Param
 
 
 experiment = "embedding_combinations"
+data_path = "abcdo_data_1000_200_0.3" 
 
 features = [
     "degree_centrality",
