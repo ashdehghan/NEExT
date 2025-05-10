@@ -29,7 +29,7 @@ def train_random_model(params, features_df):
         )
         model.fit(x_train, y_train)
         y_pred = model.predict(x_test)
-        y_pred_prob = model.predict_proba(x_test)#[:, 1]
+        y_pred_prob = model.predict_proba(x_test)[:, 1]
 
         mlflow.log_metric("accuracy", accuracy_score(y_test, y_pred), step=i)
         mlflow.log_metric("auc", roc_auc_score(y_test, y_pred_prob, average="micro", multi_class="ovr"), step=i)
@@ -58,7 +58,7 @@ def run_experiments(params, partial_metrics, dataset):
 
                 model.fit(x_train, y_train)
                 y_pred = model.predict(x_test)
-                y_pred_prob = model.predict_proba(x_test)#[:, 1]
+                y_pred_prob = model.predict_proba(x_test)[:, 1]
 
                 mlflow.log_params(extended_params)
                 for key, value in partial_metrics.items():
