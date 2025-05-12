@@ -3,6 +3,7 @@ import time
 import mlflow
 import pandas as pd
 from NEExT.builders import EmbeddingBuilder
+from NEExT.collections.egonet_collection import EgonetCollection
 from NEExT.features import NodeFeatures, StructuralNodeFeatures
 
 
@@ -72,12 +73,34 @@ def compute_local_node_features(params, egonet_collection, global_structural_nod
     return features
 
 
-def add_positional_features(params, egonet_collection, structural_features, features):
-    egonet_position_features = egonet_collection.compute_egonet_positionaL_features(params["position_one_hot"])
-    if params["egonet_position"] and len(features.feature_columns) > 0:
-        features += egonet_position_features
-    elif params["egonet_position"] and len(structural_features.feature_columns) > 0:
-        structural_features += egonet_position_features
+def add_positional_features(
+    params,
+    egonet_collection: EgonetCollection,
+    structural_features: StructuralNodeFeatures,
+    features: NodeFeatures,
+):
+    egonet_position_features = egonet_collection.compute_egonet_positionaL_features(params["egonet_position"], params["position_one_hot"])
+
+    if not params["position_as_vector"]:
+        # mode that encodes position into egonet features
+        if len(features.feature_columns) > 0:
+            features.features_df = features.features_df.merge(egonet_position_features.features_df, on=["graph_id", "node_id"])
+            for column in features.feature_columns:
+                features.features_df[column] = features.features_df[column] * features.features_df["egonet_position"]
+
+            features.features_df = features.features_df.drop(columns=["egonet_position"])
+        if len(structural_features.feature_columns) > 0:
+            structural_features.features_df = structural_features.features_df.merge(egonet_position_features.features_df, on=["graph_id", "node_id"])
+            for column in structural_features.feature_columns:
+                structural_features.features_df[column] = structural_features.features_df[column] * structural_features.features_df["egonet_position"]
+
+            structural_features.features_df = structural_features.features_df.drop(columns=["egonet_position"])
+    else:
+        if len(features.feature_columns) > 0:
+            features += egonet_position_features
+        elif len(structural_features.feature_columns) > 0:
+            structural_features += egonet_position_features
+
     return structural_features, features
 
 

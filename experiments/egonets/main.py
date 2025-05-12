@@ -102,7 +102,7 @@ if __name__ == "__main__":
     params = [dict(param) for param in params_module.params]
 
     
-    mlflow.set_tracking_uri(uri="http://127.0.0.1:5002")
+    mlflow.set_tracking_uri(uri="http://127.0.0.1:5001")
     experiment_name = f"/{params_module.data_path}_{params_module.experiment}"
     mlflow.set_experiment(experiment_name)
 

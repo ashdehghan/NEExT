@@ -1,4 +1,4 @@
-from typing import List, Literal
+from typing import List, Literal, Optional
 
 from pydantic import BaseModel, Field
 
@@ -36,5 +36,6 @@ class Param(BaseModel):
         "only_egonet_node_features",
     ] = "feature_embeddings"
     # node positional embedding
-    egonet_position: bool = False
+    egonet_position: Optional[Literal["distance", "inv_distance", "inv_exp_distance"]] = None
     position_one_hot: bool = False
+    position_as_vector: bool = False

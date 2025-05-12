@@ -5,6 +5,7 @@ import networkx as nx
 import numpy as np
 import pandas as pd
 from pydantic import BaseModel, Field
+from sklearn.preprocessing import MinMaxScaler
 
 from NEExT.collections.graph_collection import GraphCollection
 from NEExT.embeddings.embeddings import Embeddings
@@ -226,7 +227,11 @@ class EgonetCollection(GraphCollection):
         )
         return Embeddings(egonet_node_features_df, "egonet_node_features", [col for col in egonet_node_features_df.columns if col != "graph_id"])
 
-    def compute_egonet_positionaL_features(self, one_hot_encode: bool = True):
+    def compute_egonet_positionaL_features(
+        self,
+        strategy: Literal["distance", "inv_distance", 'inv_exp_distance'],
+        one_hot_encode: bool = False,
+    ):
         """
         Compute egonet positional features that can be used to encode central node
         position in the egonet. The positional features have to be added independently
@@ -240,12 +245,19 @@ class EgonetCollection(GraphCollection):
             d = pd.DataFrame()
             d['node_id'] = egonet.nodes
             d['graph_id'] = egonet.graph_id
-            d['egonet_position']=egonet.G.distances(egonet.node_mapping[central_node])[0]
+            d['egonet_position'] = egonet.G.distances(egonet.node_mapping[central_node])[0]
+            if strategy == 'inv_distance':
+                d['egonet_position'] = 1 / (d['egonet_position'] + 1)
+            elif strategy == 'inv_exp_distance':
+                d['egonet_position'] = 1 / np.exp(d['egonet_position'] + 1)
             df_position.append(d)
             
         df_position = pd.concat(df_position, axis=0, ignore_index=True)
 
-        if one_hot_encode:
+        if one_hot_encode and strategy == 'distance':
             df_position = pd.get_dummies(df_position, columns=['egonet_position'], dtype=np.int8)
+        elif not one_hot_encode and strategy == 'distance':
+            df_position['egonet_position'] = MinMaxScaler().fit_transform(df_position[['egonet_position']])
+
         positional_features = Features(df_position, [i for i in df_position.columns if i not in ['node_id', 'graph_id']])
         return positional_features
