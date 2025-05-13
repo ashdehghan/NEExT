@@ -1,2 +1,36 @@
+[project]
+name = "NEExT"
+version = "0.2.8"
+readme = "README.md"
+dependencies = [
+    "cairocffi>=1.7.1",
+    "imbalanced-learn>=0.13.0",
+    "ipykernel>=6.29.5",
+    "jupyter>=1.1.1",
+    "matplotlib>=3.10.3",
+    "networkx>=3.4.2",
+    "numpy>=2.2.5",
+    "optuna>=4.3.0",
+    "pandas>=2.2.3",
+    "plotly>=6.0.1",
+    "pydantic>=2.11.4",
+    "python-igraph>=0.11.8",
+    "ruff>=0.11.9",
+    "scikit-learn>=1.6.1",
+    "scipy>=1.15.3",
+    "seaborn>=0.13.2",
+    "tqdm>=4.67.1",
+    "vectorizers>=0.2.2",
+    "xgboost>=3.0.1",
+]
+
 [tool.ruff]
 line-length = 150
+
+[tool.uv.sources]
+neext = { workspace = true }
+
+[dependency-groups]
+dev = [
+    "neext[dev,docs,experiments,test]",
+]
