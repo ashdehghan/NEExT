@@ -20,6 +20,7 @@ dependencies = [
     "scipy>=1.15.3",
     "seaborn>=0.13.2",
     "tqdm>=4.67.1",
+    "umap-learn>=0.5.7",
     "vectorizers>=0.2.2",
     "xgboost>=3.0.1",
 ]
