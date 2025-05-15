@@ -195,3 +195,5 @@ experiments/results/*
 !experiments/results/.gitkeeps
 local
 benchmark/partial_results/*
+mlruns
+mlartifacts
