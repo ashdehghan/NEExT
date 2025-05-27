@@ -36,6 +36,74 @@ Detailed documentation is available in the `docs` directory. Build it locally or
   - Cross-validation with customizable splits
   - Feature importance analysis
 
+### Custom Node Feature Functions
+
+NEExT allows you to define and compute your own custom node feature functions alongside the built-in ones. This provides great flexibility for experimenting with novel graph metrics.
+
+**Defining a Custom Feature Function:**
+
+Your custom feature function must adhere to the following structure:
+
+1.  **Input**: It must accept a single argument, which will be a `graph` object. This object provides access to the graph's structure (nodes, edges) and properties (e.g., `graph.nodes`, `graph.graph_id`, `graph.G` which is the underlying NetworkX or iGraph object).
+2.  **Output**: It must return a `pandas.DataFrame` with the following specific columns in order:
+    *   `"node_id"`: Identifiers for the nodes for which features are computed.
+    *   `"graph_id"`: The identifier of the graph to which these nodes belong.
+    *   One or more feature columns: These columns should contain the computed feature values. The naming convention for these columns should ideally follow the pattern `your_feature_name_0`, `your_feature_name_1`, etc., if your feature has multiple components or is expanded over hops (though a single feature column like `your_feature_name` is also acceptable).
+
+**Example:**
+
+Here's how you can define a simple custom feature function and use it:
+
+```python
+import pandas as pd
+
+# 1. Define your custom feature function
+# This function must be defined at the top level of your script/module
+# if you plan to use multiprocessing (n_jobs != 1).
+def my_node_degree_squared(graph):
+    nodes = list(graph.nodes) # or range(graph.G.vcount()) for igraph if nodes are 0-indexed
+    graph_id = graph.graph_id
+    
+    if hasattr(graph.G, 'degree'): # Handles both NetworkX and iGraph
+        if isinstance(graph.G, nx.Graph): # NetworkX
+            degrees = [graph.G.degree(n) for n in nodes]
+        else: # iGraph
+            degrees = graph.G.degree(nodes)
+    else:
+        raise TypeError("Graph object does not have a degree method.")
+        
+    degree_squared_values = [d**2 for d in degrees]
+    
+    df = pd.DataFrame({
+        'node_id': nodes,
+        'graph_id': graph_id,
+        'degree_sq_0': degree_squared_values
+    })
+    # Ensure the correct column order
+    return df[['node_id', 'graph_id', 'degree_sq_0']]
+
+# 2. Prepare the list of custom feature methods
+my_feature_methods = [
+    {"feature_name": "my_degree_squared", "feature_function": my_node_degree_squared}
+]
+
+# 3. Pass it to compute_node_features
+# Initialize NEExT and load your graph_collection as shown in the Quick Start
+# nxt = NEExT()
+# graph_collection = nxt.read_from_csv(...)
+
+features = nxt.compute_node_features(
+    graph_collection=graph_collection,
+    feature_list=["page_rank", "my_degree_squared"], # Include your custom feature name
+    feature_vector_length=3, # Applies to built-in features that use it
+    my_feature_methods=my_feature_methods
+)
+
+print(features.features_df.head())
+```
+
+When you include `"my_degree_squared"` in the `feature_list` and provide `my_feature_methods`, NEExT will automatically register and compute your custom function. If `"all"` is in `feature_list`, your custom registered function will also be included in the computation.
+
 ## 📦 Installation
 
 ### Basic Installation

@@ -80,20 +80,12 @@ class StructuralNodeFeatures:
             "lsme": self._compute_lsme,
             "load_centrality": self._compute_load_centrality,
             "basic_expansion": self._compute_basic_expansion,
-            "betastar": self._compute_betastar
+            # "betastar": self._compute_betastar # Assuming this was intentionally commented out
         }
         
-        # Handle "all" feature option
-        if len(feature_list) == 1 and feature_list[0].lower() == "all":
-            feature_list = list(self.available_features.keys())
-        
-        # Validate features
-        for feature in feature_list:
-            if feature not in self.available_features:
-                raise ValueError(f"Unknown feature: {feature}. Available features: {list(self.available_features.keys())}")
-        
+        # Store the raw feature_list; resolution and validation will occur in compute()
         self.config = StructuralNodeFeatureConfig(
-            feature_list=feature_list,
+            feature_list=list(feature_list), # Store a copy
             feature_vector_length=feature_vector_length,
             normalize_features=normalize_features,
             show_progress=show_progress,
@@ -151,31 +143,118 @@ class StructuralNodeFeatures:
         return df[['node_id', 'graph_id'] + columns]
 
     def _compute_page_rank(self, graph) -> pd.DataFrame:
-        """Compute PageRank features for all nodes."""
-        return self._compute_structural_feature(
-            graph,
-            lambda G: nx.pagerank(G),
-            lambda G: dict(enumerate(G.pagerank())),
-            "page_rank"
-        )
+        """Compute PageRank features for all nodes (supports networkx and igraph)."""
+        G = graph.G
+        nodes = graph.nodes
+        n_hops = self.config.feature_vector_length
+        feature_matrix = np.zeros((len(nodes), n_hops))
+        if isinstance(G, nx.Graph):
+            page_rank = nx.pagerank(G)
+            for i, node in enumerate(nodes):
+                feature_matrix[i, 0] = page_rank[node]
+                neighbors_by_hop = get_nodes_x_hops_away(G, node, n_hops)
+                for hop in range(1, n_hops):
+                    hop_nodes = neighbors_by_hop.get(hop, [])
+                    if hop_nodes:
+                        feature_matrix[i, hop] = np.mean([page_rank[n] for n in hop_nodes])
+                    else:
+                        feature_matrix[i, hop] = 0.0
+        else:  # igraph
+            pr_list = G.pagerank()
+            for i, node in enumerate(nodes):
+                feature_matrix[i, 0] = pr_list[node]
+                neighbors_by_hop = get_nodes_x_hops_away(G, node, n_hops)
+                for hop in range(1, n_hops):
+                    hop_nodes = neighbors_by_hop.get(hop, [])
+                    if hop_nodes:
+                        feature_matrix[i, hop] = np.mean([pr_list[n] for n in hop_nodes])
+                    else:
+                        feature_matrix[i, hop] = 0.0
+
+        columns = [f"page_rank_{i}" for i in range(n_hops)]
+        df = pd.DataFrame(feature_matrix, columns=columns)
+        df['node_id'] = nodes
+        df['graph_id'] = graph.graph_id
+        return df[['node_id', 'graph_id'] + columns]
 
     def _compute_degree_centrality(self, graph) -> pd.DataFrame:
-        """Compute degree centrality features for all nodes in the graph."""
-        return self._compute_structural_feature(
-            graph,
-            nx.degree_centrality,
-            lambda G: {i: deg/float(G.vcount()-1) if G.vcount() > 1 else -1 for i, deg in enumerate(G.degree())},  # Normalize by n-1
-            feature_name="degree_centrality"
-        )
+        """Compute degree centrality features for all nodes (supports networkx and igraph)."""
+        G = graph.G
+        nodes = graph.nodes
+        n_hops = self.config.feature_vector_length
+        feature_matrix = np.zeros((len(nodes), n_hops))
+
+        if isinstance(G, nx.Graph):
+            deg_cent = nx.degree_centrality(G)
+            for i, node in enumerate(nodes):
+                feature_matrix[i, 0] = deg_cent[node]
+                neighbors_by_hop = get_nodes_x_hops_away(G, node, n_hops)
+                for hop in range(1, n_hops):
+                    hop_nodes = neighbors_by_hop.get(hop, [])
+                    if hop_nodes:
+                        feature_matrix[i, hop] = np.mean([deg_cent[n] for n in hop_nodes])
+                    else:
+                        feature_matrix[i, hop] = 0.0
+        else:  # igraph
+            n = G.vcount()
+            degs = G.degree()
+            if n > 1:
+                deg_cent = [deg / float(n - 1) for deg in degs]
+            else:
+                deg_cent = [-1 for _ in degs]
+            for i, node in enumerate(nodes):
+                feature_matrix[i, 0] = deg_cent[node]
+                neighbors_by_hop = get_nodes_x_hops_away(G, node, n_hops)
+                for hop in range(1, n_hops):
+                    hop_nodes = neighbors_by_hop.get(hop, [])
+                    if hop_nodes:
+                        feature_matrix[i, hop] = np.mean([deg_cent[n] for n in hop_nodes])
+                    else:
+                        feature_matrix[i, hop] = 0.0
+
+        columns = [f"degree_centrality_{i}" for i in range(n_hops)]
+        df = pd.DataFrame(feature_matrix, columns=columns)
+        df['node_id'] = nodes
+        df['graph_id'] = graph.graph_id
+        return df[['node_id', 'graph_id'] + columns]
 
     def _compute_closeness_centrality(self, graph) -> pd.DataFrame:
-        """Compute closeness centrality features for all nodes in the graph."""
-        return self._compute_structural_feature(
-            graph,
-            nx.closeness_centrality,
-            lambda G: {i: clo if not np.isnan(clo) else -1 for i, clo in enumerate(G.closeness())}, # G.closeness() is correct
-            feature_name="closeness_centrality"
-        )
+        """Compute closeness centrality features for all nodes (supports networkx and igraph)."""
+        G = graph.G
+        nodes = graph.nodes
+        n_hops = self.config.feature_vector_length
+        feature_matrix = np.zeros((len(nodes), n_hops))
+
+        if isinstance(G, nx.Graph):
+            clo_cent = nx.closeness_centrality(G)
+            for i, node in enumerate(nodes):
+                feature_matrix[i, 0] = clo_cent[node]
+                neighbors_by_hop = get_nodes_x_hops_away(G, node, n_hops)
+                for hop in range(1, n_hops):
+                    hop_nodes = neighbors_by_hop.get(hop, [])
+                    if hop_nodes:
+                        feature_matrix[i, hop] = np.mean([clo_cent[n] for n in hop_nodes])
+                    else:
+                        feature_matrix[i, hop] = 0.0
+        else:  # igraph
+            clo_list = G.closeness()
+            for i, node in enumerate(nodes):
+                val = clo_list[node]
+                feature_matrix[i, 0] = val if not np.isnan(val) else -1
+                neighbors_by_hop = get_nodes_x_hops_away(G, node, n_hops)
+                for hop in range(1, n_hops):
+                    hop_nodes = neighbors_by_hop.get(hop, [])
+                    if hop_nodes:
+                        vals = [clo_list[n] if not np.isnan(clo_list[n]) else -1 for n in hop_nodes]
+                        feature_matrix[i, hop] = np.mean(vals)
+                    else:
+                        feature_matrix[i, hop] = 0.0
+
+        columns = [f"closeness_centrality_{i}" for i in range(n_hops)]
+        df = pd.DataFrame(feature_matrix, columns=columns)
+        df['node_id'] = nodes
+        df['graph_id'] = graph.graph_id
+        return df[['node_id', 'graph_id'] + columns]
 
     def _compute_eigenvector_centrality(self, graph) -> pd.DataFrame:
         """Compute eigenvector centrality features for all nodes."""
@@ -259,22 +338,80 @@ class StructuralNodeFeatures:
         return df
 
     def _compute_betweenness_centrality(self, graph) -> pd.DataFrame:
-        """Compute betweenness centrality features for all nodes in the graph."""
-        return self._compute_structural_feature(
-            graph,
-            nx.betweenness_centrality,
-            lambda G: {i: bet if not np.isnan(bet) else -1 for i, bet in enumerate(G.betweenness())},
-            feature_name="betweenness_centrality"
-        )
+        """Compute betweenness centrality features for all nodes (supports networkx and igraph)."""
+        G = graph.G
+        nodes = graph.nodes
+        n_hops = self.config.feature_vector_length
+        feature_matrix = np.zeros((len(nodes), n_hops))
+
+        if isinstance(G, nx.Graph):
+            bet_cent = nx.betweenness_centrality(G)
+            for i, node in enumerate(nodes):
+                feature_matrix[i, 0] = bet_cent[node]
+                neighbors_by_hop = get_nodes_x_hops_away(G, node, n_hops)
+                for hop in range(1, n_hops):
+                    hop_nodes = neighbors_by_hop.get(hop, [])
+                    if hop_nodes:
+                        feature_matrix[i, hop] = np.mean([bet_cent[n] for n in hop_nodes])
+                    else:
+                        feature_matrix[i, hop] = 0.0
+        else:  # igraph
+            bet_list = G.betweenness()
+            for i, node in enumerate(nodes):
+                val = bet_list[node]
+                feature_matrix[i, 0] = val if not np.isnan(val) else -1
+                neighbors_by_hop = get_nodes_x_hops_away(G, node, n_hops)
+                for hop in range(1, n_hops):
+                    hop_nodes = neighbors_by_hop.get(hop, [])
+                    if hop_nodes:
+                        vals = [bet_list[n] if not np.isnan(bet_list[n]) else -1 for n in hop_nodes]
+                        feature_matrix[i, hop] = np.mean(vals)
+                    else:
+                        feature_matrix[i, hop] = 0.0
+
+        columns = [f"betweenness_centrality_{i}" for i in range(n_hops)]
+        df = pd.DataFrame(feature_matrix, columns=columns)
+        df['node_id'] = nodes
+        df['graph_id'] = graph.graph_id
+        return df[['node_id', 'graph_id'] + columns]
 
     def _compute_clustering_coefficient(self, graph) -> pd.DataFrame:
-        """Compute clustering coefficient features for all nodes in the graph."""
-        return self._compute_structural_feature(
-            graph,
-            nx.clustering,
-            lambda G: dict(enumerate(G.transitivity_local_undirected(mode="zero"))),
-            feature_name="clustering_coefficient"
-        )
+        """Compute clustering coefficient features for all nodes (supports networkx and igraph)."""
+        G = graph.G
+        nodes = graph.nodes
+        n_hops = self.config.feature_vector_length
+        feature_matrix = np.zeros((len(nodes), n_hops))
+
+        if isinstance(G, nx.Graph):
+            clust = nx.clustering(G)
+            for i, node in enumerate(nodes):
+                feature_matrix[i, 0] = clust[node]
+                neighbors_by_hop = get_nodes_x_hops_away(G, node, n_hops)
+                for hop in range(1, n_hops):
+                    hop_nodes = neighbors_by_hop.get(hop, [])
+                    if hop_nodes:
+                        feature_matrix[i, hop] = np.mean([clust[n] for n in hop_nodes])
+                    else:
+                        feature_matrix[i, hop] = 0.0
+        else:  # igraph
+            clust_list = G.transitivity_local_undirected(mode="zero")
+            for i, node in enumerate(nodes):
+                val = clust_list[node]
+                feature_matrix[i, 0] = val if not np.isnan(val) else 0.0
+                neighbors_by_hop = get_nodes_x_hops_away(G, node, n_hops)
+                for hop in range(1, n_hops):
+                    hop_nodes = neighbors_by_hop.get(hop, [])
+                    if hop_nodes:
+                        vals = [clust_list[n] if not np.isnan(clust_list[n]) else 0.0 for n in hop_nodes]
+                        feature_matrix[i, hop] = np.mean(vals)
+                    else:
+                        feature_matrix[i, hop] = 0.0
+
+        columns = [f"clustering_coefficient_{i}" for i in range(n_hops)]
+        df = pd.DataFrame(feature_matrix, columns=columns)
+        df['node_id'] = nodes
+        df['graph_id'] = graph.graph_id
+        return df[['node_id', 'graph_id'] + columns]
 
     def _compute_local_efficiency(self, graph) -> pd.DataFrame:
         """Compute local efficiency features for all nodes in the graph."""
@@ -454,15 +591,32 @@ class StructuralNodeFeatures:
                 )
 
     def compute(self) -> Features:
-        """Compute all requested features for all graphs."""
         feature_dfs = []
         
-        # Process each graph sequentially
+        # Resolve and validate feature list here, after custom metrics might be registered
+        resolved_feature_list = []
+        original_feature_list = self.config.feature_list
+        
+        if any(f.lower() == "all" for f in original_feature_list):
+            # Add all available features
+            resolved_feature_list.extend(self.available_features.keys())
+            # Add any other explicitly mentioned features that aren't "all"
+            for feature_name in original_feature_list:
+                if feature_name.lower() != "all" and feature_name not in resolved_feature_list:
+                    resolved_feature_list.append(feature_name)
+        else:
+            resolved_feature_list = list(original_feature_list)
+
+        # Validate resolved list
+        for feature in resolved_feature_list:
+            if feature not in self.available_features:
+                raise ValueError(f"Unknown feature: {feature}. Available features: {list(self.available_features.keys())}")
+
         graphs = self.graph_collection.graphs
         if self.config.show_progress:
             graphs = tqdm(graphs, desc="Computing structural node features")
         
-        if self.config.feature_list == []:
+        if not resolved_feature_list: # Check if the list is empty after resolution
             for graph in graphs:
                 _df = pd.DataFrame()
                 _df["node_id"] = graph.nodes
@@ -473,33 +627,39 @@ class StructuralNodeFeatures:
             feature_columns = []
         else:
             if self.config.n_jobs == 1:
-                feature_dfs = [self._compute_graph_node_features(graph) for graph in graphs]
+                feature_dfs = [self._compute_graph_node_features(graph, resolved_feature_list) for graph in graphs]
             else:
                 with Pool() as pool:
-                    feature_dfs = pool.map(self._compute_graph_node_features, graphs)
+                    # We need a way to pass resolved_feature_list to the mapped function
+                    # Using functools.partial or a lambda wrapper
+                    from functools import partial
+                    compute_func = partial(self._compute_graph_node_features, resolved_feature_list=resolved_feature_list)
+                    feature_dfs = pool.map(compute_func, graphs)
             
-            # Combine features from all graphs
             if not feature_dfs:
                 raise ValueError("No features were computed. Check if the feature list is empty or if there are no graphs.")
                 
             features_df = pd.concat(feature_dfs, ignore_index=True)
             
-            # Get feature columns (excluding node_id and graph_id)
             feature_columns = [col for col in features_df.columns 
                             if col not in ['node_id', 'graph_id']]
         
         return Features(features_df, feature_columns)
 
-    def _compute_graph_node_features(self, graph):
+    def _compute_graph_node_features(self, graph, resolved_feature_list: List[str]):
         graph_features = []
-        for feature_name in self.config.feature_list:
+        for feature_name in resolved_feature_list: # Use the resolved list
+            # This check is now redundant due to validation in compute(), but kept for safety
             if feature_name not in self.available_features:
                 raise ValueError(f"Unknown feature: {feature_name}")
                 
             feature_df = self.available_features[feature_name](graph)
             graph_features.append(feature_df)
             
-            # Merge all features for this graph
+        if not graph_features: # Handle case where no features were computed for this graph
+            graph_df = pd.DataFrame({'node_id': graph.nodes, 'graph_id': graph.graph_id})
+            return graph_df
+
         graph_df = graph_features[0]
         for df in graph_features[1:]:
             graph_df = graph_df.merge(df, on=['node_id', 'graph_id'])
@@ -512,3 +672,10 @@ class StructuralNodeFeatures:
             ]
         
         return graph_df
+
+    def register_metric(self, name: str, func):
+        """
+        Register a custom metric function to this instance.
+        The function should take a graph object and return a DataFrame in the expected format.
+        """
+        self.available_features[name] = func

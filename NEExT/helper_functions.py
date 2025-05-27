@@ -28,30 +28,32 @@ def get_numb_of_nb_x_hops_away(G: Union[nx.Graph, ig.Graph], node: int, max_hop_
 
 
 def get_nodes_x_hops_away(G: Union[nx.Graph, ig.Graph], node: int, max_hop_length: int) -> Dict[int, Set[int]]:
-    """This function should now only be used for single-node queries."""
+    """Efficiently get nodes at each hop distance from a given node, up to max_hop_length."""
     if isinstance(G, nx.Graph):
-        seen = {node}
-        current_set = {node}
-        hop_dict = {}
-        
-        for hop in range(1, max_hop_length + 1):
-            boundary = nx.node_boundary(G, current_set)
-            next_hop = boundary - seen
-            
-            if not next_hop:
-                break
-                
-            hop_dict[hop] = next_hop
-            seen.update(boundary)
-            current_set = boundary
-            
+        from collections import deque, defaultdict
+        hop_dict = defaultdict(set)
+        visited = {node}
+        queue = deque([(node, 0)])
+        while queue:
+            current, hop = queue.popleft()
+            if hop == max_hop_length:
+                continue
+            for neighbor in G.neighbors(current):
+                if neighbor not in visited:
+                    hop_dict[hop + 1].add(neighbor)
+                    visited.add(neighbor)
+                    queue.append((neighbor, hop + 1))
+        return dict(hop_dict)
     else:
         hop_dict = {}
-        for hop in range(1, max_hop_length + 1):
-            nodes_at_hop = set(G.neighborhood(node, order=hop)) - set(G.neighborhood(node, order=hop - 1))
-            if nodes_at_hop:
-                hop_dict[hop] = nodes_at_hop
-    return hop_dict
+        bfs = G.bfsiter(node, max_depth=max_hop_length)
+        for v, depth, _, _, _ in bfs:
+            if depth == 0:
+                continue
+            if depth > max_hop_length:
+                break
+            hop_dict.setdefault(depth, set()).add(v)
+        return hop_dict
 
 
 def get_all_neighborhoods_nx(G, max_hops: int, nodes_to_process: Optional[List[int]] = None) -> Dict:

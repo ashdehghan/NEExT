@@ -154,6 +154,7 @@ class NEExT:
         normalize_features: bool = True,
         show_progress: bool = True,
         n_jobs:int = -1,
+        my_feature_methods: list = None,
     ) -> pd.DataFrame:
         """
         Compute node features for all graphs in the collection.
@@ -178,6 +179,10 @@ class NEExT:
             show_progress=show_progress,
             n_jobs=n_jobs
         )
+        
+        if my_feature_methods:
+            for entry in my_feature_methods:
+                node_features.register_metric(entry["feature_name"], entry["feature_function"])
         
         features = node_features.compute()
         self.logger.info(f"Computed features for {len(features.features_df)} nodes")
