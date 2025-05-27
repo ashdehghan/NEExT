@@ -1,6 +1,18 @@
 from NEExT import NEExT
 import numpy as np
 import time
+import pandas as pd
+
+# Define your custom metric function at the TOP LEVEL of the module
+def my_custom_metric(graph):
+    # Example: return a DataFrame with node_id, graph_id, and a constant feature
+    df = pd.DataFrame({
+        'node_id': graph.nodes,
+        'graph_id': graph.graph_id,
+        'my_custom_feature_0': [1.0] * len(graph.nodes)
+    })
+    # Ensure correct column order for consistency, though your example was already correct
+    return df[["node_id", "graph_id", "my_custom_feature_0"]]
 
 def main():
     # Define data URLs
@@ -15,6 +27,7 @@ def main():
     edges = f"https://raw.githubusercontent.com/AnomalyPoint/NEExT_datasets/refs/heads/main/{dataset_source}/csv_format/{dataset}/edges.csv"
     node_graph_mapping = f"https://raw.githubusercontent.com/AnomalyPoint/NEExT_datasets/refs/heads/main/{dataset_source}/csv_format/{dataset}/node_graph_mapping.csv"
     graph_labels = f"https://raw.githubusercontent.com/AnomalyPoint/NEExT_datasets/refs/heads/main/{dataset_source}/csv_format/{dataset}/graph_labels.csv"
+    node_features = f"https://raw.githubusercontent.com/AnomalyPoint/NEExT_datasets/refs/heads/main/{dataset_source}/csv_format/{dataset}/node_features.csv"
 
     # Initialize NEExT and set logging level
     nxt = NEExT()
@@ -25,6 +38,7 @@ def main():
         edges_path=edges,
         node_graph_mapping_path=node_graph_mapping,
         graph_label_path=graph_labels,
+        node_features_path=node_features,
         reindex_nodes=True,
         filter_largest_component=True,
         graph_type="networkx",
@@ -38,12 +52,18 @@ def main():
     # Time the node feature computation
     start_time = time.time()
     
-    # Compute node features
+    # The custom function is now defined globally
+    my_feature_methods = [
+        {"feature_name": "my_custom_metric", "feature_function": my_custom_metric}
+    ]
+
+    # Compute node features, including the custom metric
     features = nxt.compute_node_features(
         graph_collection=graph_collection,
-        feature_list=["all"],
+        feature_list=["all", "my_custom_metric"],
         feature_vector_length=3,
-        show_progress=True
+        show_progress=True,
+        my_feature_methods=my_feature_methods
     )
     
     end_time = time.time()
