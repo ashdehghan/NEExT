@@ -80,7 +80,7 @@ class StructuralNodeFeatures:
             "lsme": self._compute_lsme,
             "load_centrality": self._compute_load_centrality,
             "basic_expansion": self._compute_basic_expansion,
-            # "betastar": self._compute_betastar # Assuming this was intentionally commented out
+            "betastar": self._compute_betastar 
         }
         
         # Store the raw feature_list; resolution and validation will occur in compute()
@@ -536,6 +536,8 @@ class StructuralNodeFeatures:
         if isinstance(G, nx.Graph):
             # TODO implement code for networkx
             neighborhoods = get_all_neighborhoods_nx(G, n_hops)
+            community_detection = ...
+            node_community_mapping = ...
             raise Exception('Betastar for nx not implemented')
         else:  # igraph
             seed = random.seed(13)
