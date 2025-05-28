@@ -95,7 +95,14 @@ class EgonetCollection(GraphCollection):
         egonet.initialize_graph()
         return egonet
 
-    def compute_k_hop_egonets(self, graph_collection: GraphCollection, k_hop: int = 1):
+    def compute_k_hop_egonets(
+        self,
+        graph_collection: GraphCollection,
+        k_hop: int = 1,
+        nodes_to_sample: Optional[Dict[int, List[int]]] = None,
+        sample_fraction: Optional[float] = 1.0,
+        random_seed:int = 13
+    ):
         """
         Computes egonets based on k-hop neighborhood.
 
@@ -110,13 +117,24 @@ class EgonetCollection(GraphCollection):
                 to include in the egonet. Defaults to 1.
 
         """
+        np.random.seed(random_seed)
+        if nodes_to_sample is None:
+            nodes_to_sample = {}
 
         self.graph_id_node_array = []
         self.egonet_to_graph_node_mapping = {}
         egonet_id = 0
 
+        valid_nodes = {}
+        # draw nodes to sample from for each graph
         for graph in graph_collection.graphs:
-            for node_id in range(graph.G.vcount()):
+            nodes = graph.nodes
+            random_nodes = np.random.choice(nodes, int(len(nodes)* sample_fraction), replace=False).tolist()
+            forced_nodes = nodes_to_sample.get(graph.graph_id, [])
+            valid_nodes[graph.graph_id] = list(set(random_nodes + forced_nodes))
+
+        for graph in graph_collection.graphs:
+            for node_id in valid_nodes[graph.graph_id]:
                 egonet_nodes = sorted(graph.G.neighborhood(node_id, order=k_hop)) if k_hop > 0 else [node_id]
                 egonet_label = graph.node_attributes[node_id][self.egonet_feature_target] if self.egonet_feature_target else None
 

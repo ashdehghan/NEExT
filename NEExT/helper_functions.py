@@ -46,13 +46,13 @@ def get_nodes_x_hops_away(G: Union[nx.Graph, ig.Graph], node: int, max_hop_lengt
         return dict(hop_dict)
     else:
         hop_dict = {}
-        bfs = G.bfsiter(node, max_depth=max_hop_length)
-        for v, depth, _, _, _ in bfs:
+        bfs = G.bfsiter(node, advanced=True)
+        for v, depth, _ in bfs:
             if depth == 0:
                 continue
             if depth > max_hop_length:
                 break
-            hop_dict.setdefault(depth, set()).add(v)
+            hop_dict.setdefault(depth, set()).add(v.index)
         return hop_dict
 
 
