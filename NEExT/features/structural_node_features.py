@@ -80,7 +80,7 @@ class StructuralNodeFeatures:
             "lsme": self._compute_lsme,
             "load_centrality": self._compute_load_centrality,
             "basic_expansion": self._compute_basic_expansion,
-            # "betastar": self._compute_betastar # Assuming this was intentionally commented out
+            "betastar": self._compute_betastar 
         }
         
         # Store the raw feature_list; resolution and validation will occur in compute()
