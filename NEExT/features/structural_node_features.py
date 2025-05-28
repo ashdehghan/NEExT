@@ -536,6 +536,8 @@ class StructuralNodeFeatures:
         if isinstance(G, nx.Graph):
             # TODO implement code for networkx
             neighborhoods = get_all_neighborhoods_nx(G, n_hops)
+            community_detection = ...
+            node_community_mapping = ...
             raise Exception('Betastar for nx not implemented')
         else:  # igraph
             seed = random.seed(13)
