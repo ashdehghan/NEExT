@@ -2,6 +2,7 @@ from collections import defaultdict
 from typing import Callable, Dict, List, Literal, Optional, Set, Tuple, Union, get_args
 
 import networkx as nx
+from NEExT.helper_functions import get_nodes_x_hops_away
 import numpy as np
 import pandas as pd
 from pydantic import BaseModel, Field
@@ -76,9 +77,15 @@ class EgonetCollection(GraphCollection):
             if node_id in egonet_nodes
         }
         # extract egonet subgraph
-        G_egonet = graph.G.subgraph(list(set(egonet_nodes)))
-        nodes = list(range(G_egonet.vcount()))
-        edges = G_egonet.get_edgelist()
+        if graph.graph_type == "networkx":
+            G_egonet = graph.G.subgraph(list(set(egonet_nodes)))
+            nodes = list(range(G_egonet.number_of_nodes()))
+            edges = list(G_egonet.edges())
+            
+        else:
+            G_egonet = graph.G.subgraph(list(set(egonet_nodes)))
+            nodes = list(range(G_egonet.vcount()))
+            edges = G_egonet.get_edgelist()
 
         egonet = Egonet(
             graph_id=egonet_id,
@@ -135,7 +142,14 @@ class EgonetCollection(GraphCollection):
 
         for graph in graph_collection.graphs:
             for node_id in valid_nodes[graph.graph_id]:
-                egonet_nodes = sorted(graph.G.neighborhood(node_id, order=k_hop)) if k_hop > 0 else [node_id]
+                if k_hop > 0: 
+                    egonet_nodes_dict = get_nodes_x_hops_away(graph.G, node_id, k_hop)
+                    egonet_nodes = [node_id] 
+                    for v in egonet_nodes_dict.values():
+                        egonet_nodes.extend(list(v))
+                else: 
+                    egonet_nodes = [node_id]
+                # egonet_nodes = sorted(graph.G.neighborhood(node_id, order=k_hop)) 
                 egonet_label = graph.node_attributes[node_id][self.egonet_feature_target] if self.egonet_feature_target else None
 
                 egonet = self._build_egonet(

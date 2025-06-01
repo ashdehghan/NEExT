@@ -536,9 +536,8 @@ class StructuralNodeFeatures:
         if isinstance(G, nx.Graph):
             # TODO implement code for networkx
             neighborhoods = get_all_neighborhoods_nx(G, n_hops)
-            community_detection = ...
-            node_community_mapping = ...
-            raise Exception('Betastar for nx not implemented')
+            community_detection = nx.community.louvain_communities(G, seed=13)
+            node_community_mapping = {node: i for i, community in enumerate(community_detection) for node in community}
         else:  # igraph
             seed = random.seed(13)
             ig.set_random_number_generator(random)
@@ -554,15 +553,27 @@ class StructuralNodeFeatures:
         for k, v in nodes_in_community.items():
             nodes_in_community[k] = sorted(v)
 
-        degrees = G.degree()
+        if isinstance(G, nx.Graph):
+            degrees = {k: v for k, v in G.degree}
+        else:
+            degrees = G.degree()
 
         for i, node in enumerate(graph.nodes):
-            G_a = community_detection.subgraph(node_community_mapping[node])
-            degrees_A = G_a.degree()
+            if isinstance(G, nx.Graph):
+                G_a = G.subgraph(nodes_in_community[node_community_mapping[node]])
+                degrees_A = {k: v for k, v in G_a.degree}
+                G_num_nodes = G.number_of_nodes()
+                G_a_num_nodes = G_a.number_of_nodes()
+                
+                beta_star = 2 * (degrees_A[node] / degrees[node] - (G_a_num_nodes - degrees[node]) / G_num_nodes)
+            else:
+                G_a = community_detection.subgraph(node_community_mapping[node])
+                degrees_A = G_a.degree()
+                G_num_nodes = G.vcount()
+                G_a_num_nodes = G_a.vcount()
 
-            nodes_id_in_subgraph = {n: i for i, n in enumerate(nodes_in_community[node_community_mapping[node]])}
-
-            beta_star = 2 * (degrees_A[nodes_id_in_subgraph[node]] / degrees[node] - (G_a.vcount() - degrees[node]) / G.vcount())
+                nodes_id_in_subgraph = {n: i for i, n in enumerate(nodes_in_community[node_community_mapping[node]])}
+                beta_star = 2 * (degrees_A[nodes_id_in_subgraph[node]] / degrees[node] - (G_a_num_nodes - degrees[node]) / G_num_nodes)
             feature_matrix[i, 0] = beta_star
 
         for i, node in enumerate(graph.nodes):
