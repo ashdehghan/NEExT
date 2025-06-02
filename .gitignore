@@ -192,6 +192,7 @@ test.ipynb
 
 # Experiment results
 experiments/results/*
+experiments/archive/results/*
 !experiments/results/.gitkeeps
 local
 benchmark/partial_results/*
