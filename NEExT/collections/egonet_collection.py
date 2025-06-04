@@ -2,6 +2,7 @@ from collections import defaultdict
 from typing import Callable, Dict, List, Literal, Optional, Set, Tuple, Union, get_args
 
 import networkx as nx
+from NEExT.helper_functions import get_nodes_x_hops_away
 import numpy as np
 import pandas as pd
 from pydantic import BaseModel, Field
@@ -76,9 +77,15 @@ class EgonetCollection(GraphCollection):
             if node_id in egonet_nodes
         }
         # extract egonet subgraph
-        G_egonet = graph.G.subgraph(list(set(egonet_nodes)))
-        nodes = list(range(G_egonet.vcount()))
-        edges = G_egonet.get_edgelist()
+        if graph.graph_type == "networkx":
+            G_egonet = graph.G.subgraph(list(set(egonet_nodes)))
+            nodes = list(range(G_egonet.number_of_nodes()))
+            edges = list(G_egonet.edges())
+            
+        else:
+            G_egonet = graph.G.subgraph(list(set(egonet_nodes)))
+            nodes = list(range(G_egonet.vcount()))
+            edges = G_egonet.get_edgelist()
 
         egonet = Egonet(
             graph_id=egonet_id,
@@ -95,7 +102,14 @@ class EgonetCollection(GraphCollection):
         egonet.initialize_graph()
         return egonet
 
-    def compute_k_hop_egonets(self, graph_collection: GraphCollection, k_hop: int = 1):
+    def compute_k_hop_egonets(
+        self,
+        graph_collection: GraphCollection,
+        k_hop: int = 1,
+        nodes_to_sample: Optional[Dict[int, List[int]]] = None,
+        sample_fraction: Optional[float] = 1.0,
+        random_seed:int = 13
+    ):
         """
         Computes egonets based on k-hop neighborhood.
 
@@ -110,14 +124,32 @@ class EgonetCollection(GraphCollection):
                 to include in the egonet. Defaults to 1.
 
         """
+        np.random.seed(random_seed)
+        if nodes_to_sample is None:
+            nodes_to_sample = {}
 
         self.graph_id_node_array = []
         self.egonet_to_graph_node_mapping = {}
         egonet_id = 0
 
+        valid_nodes = {}
+        # draw nodes to sample from for each graph
         for graph in graph_collection.graphs:
-            for node_id in range(graph.G.vcount()):
-                egonet_nodes = sorted(graph.G.neighborhood(node_id, order=k_hop)) if k_hop > 0 else [node_id]
+            nodes = graph.nodes
+            random_nodes = np.random.choice(nodes, int(len(nodes)* sample_fraction), replace=False).tolist()
+            forced_nodes = nodes_to_sample.get(graph.graph_id, [])
+            valid_nodes[graph.graph_id] = list(set(random_nodes + forced_nodes))
+
+        for graph in graph_collection.graphs:
+            for node_id in valid_nodes[graph.graph_id]:
+                if k_hop > 0: 
+                    egonet_nodes_dict = get_nodes_x_hops_away(graph.G, node_id, k_hop)
+                    egonet_nodes = [node_id] 
+                    for v in egonet_nodes_dict.values():
+                        egonet_nodes.extend(list(v))
+                else: 
+                    egonet_nodes = [node_id]
+                # egonet_nodes = sorted(graph.G.neighborhood(node_id, order=k_hop)) 
                 egonet_label = graph.node_attributes[node_id][self.egonet_feature_target] if self.egonet_feature_target else None
 
                 egonet = self._build_egonet(
