@@ -54,6 +54,8 @@ def load_pygod_data(
         y_target = np.where((dataset.y == 2) | (dataset.y == 3), 1, 0)
     elif outlier_mode == "contextual":
         y_target = np.where((dataset.y == 1) | (dataset.y == 3), 1, 0)
+    else:
+        y_target = dataset.y.bool()
 
     edges_df = pd.DataFrame(dataset.edge_index.T)
     edges_df.columns = ["src_node_id", "dest_node_id"]

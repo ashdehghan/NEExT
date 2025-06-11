@@ -5,19 +5,19 @@ from config import Params
 from joblib import Parallel, delayed
 
 from experiment import evaluation_loop
-from NEExT.outliers.benchmark_utils.data_loading import load_abcdo_data
+from NEExT.outliers.benchmark_utils.data_loading import load_abcdo_data, load_pygod_data
 
 
 def prepare_dataset(data: str):
-    edges_df, mapping_df, features_df, _ = load_abcdo_data(data, hide_frac={0: 0, 1: 0})
-    community_id = features_df["community_id"]
-    features_df = features_df.drop(columns=["random_community_feature", "community_id"])
+    # edges_df, mapping_df, features_df, _ = load_abcdo_data(data, hide_frac={0: 0, 1: 0})
+    edges_df, mapping_df, features_df, _ = load_pygod_data(data, hide_frac={0: 0, 1: 0})
+    community_id = features_df.is_outlier
     return edges_df, mapping_df, features_df, community_id
 
 
 def main():
     workers = 4
-    data = "abcdo_data_10000_100_0.3"
+    data = "books"
     # default models
     params = [
         Params(
@@ -40,18 +40,6 @@ def main():
         )
         for feature in ["all", "betastar", "page_rank", "degree_centrality", "clustering_coefficient"]
     ]
-    # just ego node features as embedding test
-    params += [
-        Params(
-            comment=f"neext_single_node_{feature}",
-            global_structural_feature_list=[feature],
-            global_feature_vector_length=1,
-            embeddings_strategy="feature_embeddings",
-            egonet_k_hop=0,
-        )
-        for feature in ["all", "betastar", "page_rank", "degree_centrality", "clustering_coefficient"]
-    ]
-
     # global models
     MAX_K_HOP = 3
 
@@ -62,6 +50,29 @@ def main():
             global_feature_vector_length=vec_len,
             embeddings_strategy="feature_embeddings",
             egonet_k_hop=k_hop,
+        )
+        for feature in [
+            "all",
+            "degree_centrality",
+            "betastar",
+            "load_centrality",
+            "lsme",
+            "local_efficiency",
+            "betweenness_centrality",
+            "closeness_centrality",
+        ]
+        for k_hop in range(1, MAX_K_HOP + 1)
+        for vec_len in range(1, k_hop + 1)
+    ]
+    
+    params += [
+        Params(
+            comment=f"global_structural_features_{feature}_{k_hop}_{vec_len}",
+            global_structural_feature_list=[feature],
+            global_feature_vector_length=vec_len,
+            embeddings_strategy="feature_embeddings",
+            egonet_k_hop=k_hop,
+            local_node_features=[f'x_{i}' for i in range(0, 400)]
         )
         for feature in [
             "all",
