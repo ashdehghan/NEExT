@@ -39,5 +39,6 @@ class Params(BaseModel):
     
     # node positional embedding
     egonet_position: Optional[Literal["distance", "inv_distance", "inv_exp_distance"]] = None
-    position_one_hot: bool = False
-    position_as_vector: bool = False
+    include_position: bool = False
+    one_hot_encoding: bool = False
+    position_encoding: bool = False
