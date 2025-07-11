@@ -217,9 +217,13 @@ class MLModels:
         balance_dataset = iteration_data['balance_dataset']
         num_classes = iteration_data['num_classes']
         
+        # Ensure arrays are writable (fix for multiprocessing with numpy 2.x)
+        X_features = np.array(X[feature_cols].values, copy=True)
+        y_array = np.array(y, copy=True)
+        
         # Split data
         X_train, X_test, y_train, y_test = train_test_split(
-            X[feature_cols], y, test_size=test_size, random_state=random_state, stratify=y, shuffle=True,
+            X_features, y_array, test_size=test_size, random_state=random_state, stratify=y_array, shuffle=True,
         )
         
         # Balance dataset if requested
@@ -364,9 +368,13 @@ class MLModels:
         test_size = iteration_data['test_size']
         random_state = iteration_data['random_state'] + i
         
+        # Ensure arrays are writable (fix for multiprocessing with numpy 2.x)
+        X_features = np.array(X[feature_cols].values, copy=True)
+        y_array = np.array(y, copy=True)
+        
         # Split data
         X_train, X_test, y_train, y_test = train_test_split(
-            X[feature_cols], y, test_size=test_size, random_state=random_state
+            X_features, y_array, test_size=test_size, random_state=random_state
         )
         
         # Train model based on selected algorithm

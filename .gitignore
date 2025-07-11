@@ -197,3 +197,5 @@ local
 benchmark/partial_results/*
 mlruns
 mlartifacts
+# uv lock file (development only)
+uv.lock
