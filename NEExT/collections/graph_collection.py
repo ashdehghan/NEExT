@@ -53,26 +53,68 @@ class GraphCollection(BaseModel):
                 if graph.sampled_nodes:
                     self.graph_id_node_array.extend([graph.graph_id] * len(graph.sampled_nodes))
 
+    def _networkx_to_dict(self, nx_graph: nx.Graph, graph_id: int) -> Dict:
+        """
+        Convert a NetworkX graph to the dictionary format expected by add_graphs.
+        
+        Args:
+            nx_graph (nx.Graph): NetworkX graph to convert
+            graph_id (int): Unique identifier to assign to this graph
+            
+        Returns:
+            Dict: Dictionary containing graph data in expected format
+        """
+        # Extract basic graph structure
+        nodes = list(nx_graph.nodes())
+        edges = list(nx_graph.edges())
+        
+        # Extract node attributes
+        node_attributes = {}
+        for node in nodes:
+            attrs = nx_graph.nodes[node]
+            if attrs:  # Only add if there are attributes
+                node_attributes[node] = dict(attrs)
+        
+        # Extract edge attributes
+        edge_attributes = {}
+        for edge in edges:
+            attrs = nx_graph.edges[edge]
+            if attrs:  # Only add if there are attributes
+                edge_attributes[edge] = dict(attrs)
+        
+        # Extract graph-level attributes as graph_label if 'label' exists
+        graph_label = nx_graph.graph.get('label', None)
+        
+        return {
+            "graph_id": graph_id,
+            "graph_label": graph_label,
+            "nodes": nodes,
+            "edges": edges,
+            "node_attributes": node_attributes,
+            "edge_attributes": edge_attributes
+        }
+
     def add_graphs(
         self,
-        graph_data_list: List[Dict],
+        graph_data_list: List[Union[Dict, nx.Graph]],
         graph_type: Optional[Literal["networkx", "igraph"]] = None,
         reindex_nodes: bool = True,
         filter_largest_component: bool = True,
         node_sample_rate: Optional[float] = None
     ) -> None:
         """
-        Creates Graph instances from a list of dictionaries containing graph data.
+        Creates Graph instances from a list of dictionaries or NetworkX graphs.
 
         Args:
-            graph_data_list (List[Dict]): List of dictionaries containing graph data.
-                Each dictionary should have:
+            graph_data_list (List[Union[Dict, nx.Graph]]): List of dictionaries or NetworkX graphs.
+                For dictionaries, each should have:
                 - graph_id (required): Unique identifier for the graph
                 - graph_label (optional): Label for the graph
                 - nodes (required): List of node IDs
                 - edges (required): List of (source, target) edge tuples
                 - node_attributes (optional): Dictionary of node attributes
                 - edge_attributes (optional): Dictionary of edge attributes
+                For NetworkX graphs, graph_id will be auto-assigned and attributes preserved.
             graph_type (str, optional): Backend to use ("networkx" or "igraph").
                                       If None, uses the collection's default.
             reindex_nodes (bool): Whether to reindex nodes to start from 0 (default: True)
@@ -92,7 +134,18 @@ class GraphCollection(BaseModel):
         # Clear existing graph_id_node_array
         self.graph_id_node_array = []
 
-        for graph_data in graph_data_list:
+        # Convert NetworkX graphs to dictionary format
+        processed_graph_data = []
+        for i, graph_data in enumerate(graph_data_list):
+            if isinstance(graph_data, nx.Graph):
+                # Convert NetworkX graph to dictionary format
+                dict_data = self._networkx_to_dict(graph_data, graph_id=i)
+                processed_graph_data.append(dict_data)
+            else:
+                # Already in dictionary format
+                processed_graph_data.append(graph_data)
+
+        for graph_data in processed_graph_data:
             # Extract required fields
             graph_id = graph_data["graph_id"]
             nodes = graph_data["nodes"]

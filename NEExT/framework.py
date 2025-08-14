@@ -129,6 +129,50 @@ class NEExT:
             self.logger.error(f"Failed to read CSV files: {str(e)}")
             raise
 
+    def load_from_networkx(
+        self,
+        nx_graphs: List,
+        graph_type: str = "networkx",
+        reindex_nodes: bool = True,
+        filter_largest_component: bool = True,
+        node_sample_rate: float = 1.0
+    ) -> GraphCollection:
+        """
+        Create a GraphCollection from a list of NetworkX graphs.
+        
+        Args:
+            nx_graphs (List): List of NetworkX graph objects
+            graph_type (str): Backend to use ("networkx" or "igraph"). Defaults to "networkx"
+            reindex_nodes (bool): Whether to reindex nodes to start from 0 (default: True)
+            filter_largest_component (bool): Whether to keep only the largest connected 
+                                           component of each graph (default: True)
+            node_sample_rate (float): Rate at which to sample nodes from each graph (default: 1.0).
+                                    Must be between 0 and 1.
+        
+        Returns:
+            GraphCollection: Collection of graphs created from the NetworkX graphs
+        """
+        self.logger.info(f"Loading {len(nx_graphs)} NetworkX graphs")
+        self.logger.debug(f"Graph type: {graph_type}")
+        self.logger.debug(f"Reindex nodes: {reindex_nodes}")
+        self.logger.debug(f"Filter largest component: {filter_largest_component}")
+        self.logger.debug(f"Node sample rate: {node_sample_rate}")
+        
+        try:
+            graph_collection = self.graph_io.load_from_networkx(
+                nx_graphs=nx_graphs,
+                graph_type=graph_type,
+                reindex_nodes=reindex_nodes,
+                filter_largest_component=filter_largest_component,
+                node_sample_rate=node_sample_rate
+            )
+            self.logger.info("Successfully loaded NetworkX graphs into collection")
+            self.logger.debug(f"Loaded {len(graph_collection.graphs)} graphs")
+            return graph_collection
+        except Exception as e:
+            self.logger.error(f"Failed to load NetworkX graphs: {str(e)}")
+            raise
+
     def get_collection_info(self, graph_collection: GraphCollection) -> dict:
         """
         Get basic information about a graph collection.

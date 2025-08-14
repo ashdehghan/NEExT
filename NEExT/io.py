@@ -240,3 +240,47 @@ class GraphIO:
             graphs_data.append(graph_data)
 
         return graphs_data
+
+    def load_from_networkx(
+        self,
+        nx_graphs: List,
+        graph_type: str = "networkx",
+        reindex_nodes: bool = True,
+        filter_largest_component: bool = True,
+        node_sample_rate: float = 1.0
+    ) -> GraphCollection:
+        """
+        Create a GraphCollection from a list of NetworkX graphs.
+        
+        Args:
+            nx_graphs (List): List of NetworkX graph objects
+            graph_type (str): Backend to use ("networkx" or "igraph"). Defaults to "networkx"
+            reindex_nodes (bool): Whether to reindex nodes to start from 0 (default: True)
+            filter_largest_component (bool): Whether to keep only the largest connected 
+                                           component of each graph (default: True)
+            node_sample_rate (float): Rate at which to sample nodes from each graph (default: 1.0).
+                                    Must be between 0 and 1.
+        
+        Returns:
+            GraphCollection: Collection of graphs created from the NetworkX graphs
+        """
+        import networkx as nx
+        
+        # Validate inputs
+        if not all(isinstance(g, nx.Graph) for g in nx_graphs):
+            raise ValueError("All items in nx_graphs must be NetworkX Graph objects")
+        
+        if not 0.0 < node_sample_rate <= 1.0:
+            raise ValueError("node_sample_rate must be between 0 and 1")
+        
+        # Create GraphCollection and add graphs directly
+        collection = GraphCollection(graph_type=graph_type, node_sample_rate=node_sample_rate)
+        collection.add_graphs(
+            graph_data_list=nx_graphs,
+            graph_type=graph_type,
+            reindex_nodes=reindex_nodes,
+            filter_largest_component=filter_largest_component,
+            node_sample_rate=node_sample_rate
+        )
+        
+        return collection
