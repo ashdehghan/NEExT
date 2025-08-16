@@ -50,16 +50,20 @@ cd docs && make clean
 make clean
 ```
 
-### Installation
+### Environment Setup and Installation
 ```bash
-# Basic installation
-pip install -e .
+# Create virtual environment using uv
+uv venv
+source .venv/bin/activate  # On Windows: .venv\Scripts\activate
 
-# Development installation with all tools
-pip install -e ".[dev]"
+# Install NEExT in editable mode
+uv pip install -e .
+
+# Install with development dependencies
+uv pip install -e ".[dev]"
 
 # Install with specific components
-pip install -e ".[dev,test,docs,experiments]"
+uv pip install -e ".[dev,test,docs,experiments]"
 ```
 
 ## High-Level Architecture
@@ -68,9 +72,18 @@ NEExT is a graph machine learning framework with a clean modular architecture de
 
 ### Core Data Flow Pipeline
 ```
-CSV/URLs → GraphIO → GraphCollection → Features → Embeddings → ML Models
-                          ↓
-                    EgonetCollection → Features → Embeddings → Outlier Detection
+Input Sources:
+├── CSV/URLs → GraphIO.read_from_csv()
+├── DataFrames → GraphIO.load_from_dfs()
+└── NetworkX → GraphIO.load_from_networkx()
+                    ↓
+              GraphCollection
+                    ↓
+    ┌───────────────┴───────────────┐
+    ↓                               ↓
+Features → Embeddings → ML      EgonetCollection
+                                    ↓
+                            Features → Embeddings → Outlier Detection
 ```
 
 ### Key Architectural Components
@@ -147,6 +160,27 @@ CSV/URLs → GraphIO → GraphCollection → Features → Embeddings → ML Mode
 
 ### Common Workflows
 
+#### Loading Data from Different Sources
+
+```python
+# From CSV files
+nxt = NEExT()
+collection = nxt.read_from_csv(edges_path, node_graph_mapping_path, graph_label_path)
+
+# From NetworkX graphs
+import networkx as nx
+G1 = nx.karate_club_graph()
+G1.graph['label'] = 0
+G2 = nx.complete_graph(10)
+G2.graph['label'] = 1
+collection = nxt.load_from_networkx([G1, G2])
+
+# From DataFrames
+from NEExT.io import GraphIO
+graph_io = GraphIO()
+collection = graph_io.load_from_dfs(edges_df, node_graph_df, graph_labels_df)
+```
+
 #### Basic Graph Classification
 ```python
 nxt = NEExT()
@@ -168,3 +202,8 @@ embeddings = EmbeddingBuilder(egonet_collection, features).compute()
 
 ### Testing Approach
 The codebase uses pytest with fixtures. Tests are in `tests/` directory. Always run tests after modifications to core components.
+
+### Recent Updates
+- **NetworkX Support**: Added native support for loading NetworkX graphs directly via `load_from_networkx()` method. The implementation maintains backwards compatibility with existing CSV/DataFrame loading methods.
+- **Mixed Format Loading**: GraphCollection.add_graphs() now accepts both dictionary format and NetworkX graphs in the same list.
+- **Test Files**: `test_networkx.py` in root directory demonstrates NetworkX integration.
