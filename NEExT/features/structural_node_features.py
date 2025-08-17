@@ -93,14 +93,31 @@ class StructuralNodeFeatures:
             suffix=suffix,
         )
         self.features_df = None
+        
+        # Cache for neighborhoods to avoid redundant computation
+        self._neighborhood_cache = {}
 
     def _precompute_neighborhoods(self, graph):
-        """Precompute neighborhoods for all nodes in the graph."""
-        neighborhoods = {}
-        for node in graph.nodes:
-            neighborhoods[node] = get_nodes_x_hops_away(
-                graph.G, node, self.config.feature_vector_length
-            )
+        """Precompute neighborhoods for all nodes in the graph.
+        
+        This optimization caches neighborhoods to avoid redundant computation
+        across different feature methods.
+        """
+        # Check if already cached for this graph
+        if graph.graph_id in self._neighborhood_cache:
+            return self._neighborhood_cache[graph.graph_id]
+        
+        # Determine which nodes to process
+        nodes_to_process = list(graph.sampled_nodes if graph.sampled_nodes is not None else graph.nodes)
+        
+        # Compute neighborhoods based on graph type
+        if isinstance(graph.G, nx.Graph):
+            neighborhoods = get_all_neighborhoods_nx(graph.G, self.config.feature_vector_length, nodes_to_process)
+        else:  # igraph
+            neighborhoods = get_all_neighborhoods_ig(graph.G, self.config.feature_vector_length, nodes_to_process)
+        
+        # Cache the result
+        self._neighborhood_cache[graph.graph_id] = neighborhoods
         return neighborhoods
 
     def _compute_structural_feature(self, graph, feature_func_nx, feature_func_ig=None, feature_name=None) -> pd.DataFrame:
@@ -145,31 +162,28 @@ class StructuralNodeFeatures:
     def _compute_page_rank(self, graph) -> pd.DataFrame:
         """Compute PageRank features for all nodes (supports networkx and igraph)."""
         G = graph.G
-        nodes = graph.nodes
+        nodes = list(graph.sampled_nodes if graph.sampled_nodes is not None else graph.nodes)
         n_hops = self.config.feature_vector_length
         feature_matrix = np.zeros((len(nodes), n_hops))
+        
+        # Get pre-computed neighborhoods
+        neighborhoods = self._precompute_neighborhoods(graph)
+        
         if isinstance(G, nx.Graph):
             page_rank = nx.pagerank(G)
-            for i, node in enumerate(nodes):
-                feature_matrix[i, 0] = page_rank[node]
-                neighbors_by_hop = get_nodes_x_hops_away(G, node, n_hops)
-                for hop in range(1, n_hops):
-                    hop_nodes = neighbors_by_hop.get(hop, [])
-                    if hop_nodes:
-                        feature_matrix[i, hop] = np.mean([page_rank[n] for n in hop_nodes])
-                    else:
-                        feature_matrix[i, hop] = 0.0
         else:  # igraph
-            pr_list = G.pagerank()
-            for i, node in enumerate(nodes):
-                feature_matrix[i, 0] = pr_list[node]
-                neighbors_by_hop = get_nodes_x_hops_away(G, node, n_hops)
-                for hop in range(1, n_hops):
-                    hop_nodes = neighbors_by_hop.get(hop, [])
-                    if hop_nodes:
-                        feature_matrix[i, hop] = np.mean([pr_list[n] for n in hop_nodes])
-                    else:
-                        feature_matrix[i, hop] = 0.0
+            page_rank = dict(enumerate(G.pagerank()))
+        
+        # Fill feature matrix using pre-computed neighborhoods
+        for i, node in enumerate(nodes):
+            feature_matrix[i, 0] = page_rank[node]
+            node_neighborhoods = neighborhoods.get(node, {})
+            for hop in range(1, n_hops):
+                hop_nodes = node_neighborhoods.get(hop, [])
+                if hop_nodes:
+                    feature_matrix[i, hop] = np.mean([page_rank[n] for n in hop_nodes])
+                else:
+                    feature_matrix[i, hop] = 0.0
 
         columns = [f"page_rank_{i}" for i in range(n_hops)]
         df = pd.DataFrame(feature_matrix, columns=columns)
@@ -180,37 +194,33 @@ class StructuralNodeFeatures:
     def _compute_degree_centrality(self, graph) -> pd.DataFrame:
         """Compute degree centrality features for all nodes (supports networkx and igraph)."""
         G = graph.G
-        nodes = graph.nodes
+        nodes = list(graph.sampled_nodes if graph.sampled_nodes is not None else graph.nodes)
         n_hops = self.config.feature_vector_length
         feature_matrix = np.zeros((len(nodes), n_hops))
+        
+        # Get pre-computed neighborhoods
+        neighborhoods = self._precompute_neighborhoods(graph)
 
         if isinstance(G, nx.Graph):
             deg_cent = nx.degree_centrality(G)
-            for i, node in enumerate(nodes):
-                feature_matrix[i, 0] = deg_cent[node]
-                neighbors_by_hop = get_nodes_x_hops_away(G, node, n_hops)
-                for hop in range(1, n_hops):
-                    hop_nodes = neighbors_by_hop.get(hop, [])
-                    if hop_nodes:
-                        feature_matrix[i, hop] = np.mean([deg_cent[n] for n in hop_nodes])
-                    else:
-                        feature_matrix[i, hop] = 0.0
         else:  # igraph
             n = G.vcount()
             degs = G.degree()
             if n > 1:
-                deg_cent = [deg / float(n - 1) for deg in degs]
+                deg_cent = {i: deg / float(n - 1) for i, deg in enumerate(degs)}
             else:
-                deg_cent = [-1 for _ in degs]
-            for i, node in enumerate(nodes):
-                feature_matrix[i, 0] = deg_cent[node]
-                neighbors_by_hop = get_nodes_x_hops_away(G, node, n_hops)
-                for hop in range(1, n_hops):
-                    hop_nodes = neighbors_by_hop.get(hop, [])
-                    if hop_nodes:
-                        feature_matrix[i, hop] = np.mean([deg_cent[n] for n in hop_nodes])
-                    else:
-                        feature_matrix[i, hop] = 0.0
+                deg_cent = {i: -1 for i in range(n)}
+        
+        # Fill feature matrix using pre-computed neighborhoods
+        for i, node in enumerate(nodes):
+            feature_matrix[i, 0] = deg_cent[node]
+            node_neighborhoods = neighborhoods.get(node, {})
+            for hop in range(1, n_hops):
+                hop_nodes = node_neighborhoods.get(hop, [])
+                if hop_nodes:
+                    feature_matrix[i, hop] = np.mean([deg_cent[n] for n in hop_nodes])
+                else:
+                    feature_matrix[i, hop] = 0.0
 
         columns = [f"degree_centrality_{i}" for i in range(n_hops)]
         df = pd.DataFrame(feature_matrix, columns=columns)
@@ -221,34 +231,31 @@ class StructuralNodeFeatures:
     def _compute_closeness_centrality(self, graph) -> pd.DataFrame:
         """Compute closeness centrality features for all nodes (supports networkx and igraph)."""
         G = graph.G
-        nodes = graph.nodes
+        nodes = list(graph.sampled_nodes if graph.sampled_nodes is not None else graph.nodes)
         n_hops = self.config.feature_vector_length
         feature_matrix = np.zeros((len(nodes), n_hops))
+        
+        # Get pre-computed neighborhoods
+        neighborhoods = self._precompute_neighborhoods(graph)
 
         if isinstance(G, nx.Graph):
             clo_cent = nx.closeness_centrality(G)
-            for i, node in enumerate(nodes):
-                feature_matrix[i, 0] = clo_cent[node]
-                neighbors_by_hop = get_nodes_x_hops_away(G, node, n_hops)
-                for hop in range(1, n_hops):
-                    hop_nodes = neighbors_by_hop.get(hop, [])
-                    if hop_nodes:
-                        feature_matrix[i, hop] = np.mean([clo_cent[n] for n in hop_nodes])
-                    else:
-                        feature_matrix[i, hop] = 0.0
         else:  # igraph
             clo_list = G.closeness()
-            for i, node in enumerate(nodes):
-                val = clo_list[node]
-                feature_matrix[i, 0] = val if not np.isnan(val) else -1
-                neighbors_by_hop = get_nodes_x_hops_away(G, node, n_hops)
-                for hop in range(1, n_hops):
-                    hop_nodes = neighbors_by_hop.get(hop, [])
-                    if hop_nodes:
-                        vals = [clo_list[n] if not np.isnan(clo_list[n]) else -1 for n in hop_nodes]
-                        feature_matrix[i, hop] = np.mean(vals)
-                    else:
-                        feature_matrix[i, hop] = 0.0
+            clo_cent = dict(enumerate(clo_list))
+        
+        # Fill feature matrix using pre-computed neighborhoods
+        for i, node in enumerate(nodes):
+            val = clo_cent[node]
+            feature_matrix[i, 0] = val if not np.isnan(val) else -1
+            node_neighborhoods = neighborhoods.get(node, {})
+            for hop in range(1, n_hops):
+                hop_nodes = node_neighborhoods.get(hop, [])
+                if hop_nodes:
+                    vals = [clo_cent[n] if not np.isnan(clo_cent[n]) else -1 for n in hop_nodes]
+                    feature_matrix[i, hop] = np.mean(vals)
+                else:
+                    feature_matrix[i, hop] = 0.0
 
         columns = [f"closeness_centrality_{i}" for i in range(n_hops)]
         df = pd.DataFrame(feature_matrix, columns=columns)
@@ -300,8 +307,11 @@ class StructuralNodeFeatures:
             pd.DataFrame: DataFrame containing expansion features for each node
         """
         G = graph.G
-        nodes = graph.nodes
+        nodes = list(graph.sampled_nodes if graph.sampled_nodes is not None else graph.nodes)
         feature_vectors = []
+        
+        # Get pre-computed neighborhoods
+        neighborhoods = self._precompute_neighborhoods(graph)
         
         # Calculate average degree
         if isinstance(G, nx.Graph):
@@ -310,12 +320,9 @@ class StructuralNodeFeatures:
             avg_degree = (2 * G.ecount()) / G.vcount()
             
         for node in nodes:
-            # Get number of neighbors at each distance
-            if isinstance(G, nx.Graph):
-                neighbors = get_nodes_x_hops_away(G, node, self.config.feature_vector_length)
-            else:
-                neighbors = get_nodes_x_hops_away(G, node, self.config.feature_vector_length)
-            nr_neighbors = [len(neighbors.get(i, [])) for i in range(1, self.config.feature_vector_length + 1)]
+            # Use pre-computed neighborhoods
+            node_neighborhoods = neighborhoods.get(node, {})
+            nr_neighbors = [len(node_neighborhoods.get(i, [])) for i in range(1, self.config.feature_vector_length + 1)]
             
             # Calculate expansion ratios
             vector = []
@@ -340,34 +347,31 @@ class StructuralNodeFeatures:
     def _compute_betweenness_centrality(self, graph) -> pd.DataFrame:
         """Compute betweenness centrality features for all nodes (supports networkx and igraph)."""
         G = graph.G
-        nodes = graph.nodes
+        nodes = list(graph.sampled_nodes if graph.sampled_nodes is not None else graph.nodes)
         n_hops = self.config.feature_vector_length
         feature_matrix = np.zeros((len(nodes), n_hops))
+        
+        # Get pre-computed neighborhoods
+        neighborhoods = self._precompute_neighborhoods(graph)
 
         if isinstance(G, nx.Graph):
             bet_cent = nx.betweenness_centrality(G)
-            for i, node in enumerate(nodes):
-                feature_matrix[i, 0] = bet_cent[node]
-                neighbors_by_hop = get_nodes_x_hops_away(G, node, n_hops)
-                for hop in range(1, n_hops):
-                    hop_nodes = neighbors_by_hop.get(hop, [])
-                    if hop_nodes:
-                        feature_matrix[i, hop] = np.mean([bet_cent[n] for n in hop_nodes])
-                    else:
-                        feature_matrix[i, hop] = 0.0
         else:  # igraph
             bet_list = G.betweenness()
-            for i, node in enumerate(nodes):
-                val = bet_list[node]
-                feature_matrix[i, 0] = val if not np.isnan(val) else -1
-                neighbors_by_hop = get_nodes_x_hops_away(G, node, n_hops)
-                for hop in range(1, n_hops):
-                    hop_nodes = neighbors_by_hop.get(hop, [])
-                    if hop_nodes:
-                        vals = [bet_list[n] if not np.isnan(bet_list[n]) else -1 for n in hop_nodes]
-                        feature_matrix[i, hop] = np.mean(vals)
-                    else:
-                        feature_matrix[i, hop] = 0.0
+            bet_cent = dict(enumerate(bet_list))
+        
+        # Fill feature matrix using pre-computed neighborhoods
+        for i, node in enumerate(nodes):
+            val = bet_cent[node]
+            feature_matrix[i, 0] = val if not np.isnan(val) else -1
+            node_neighborhoods = neighborhoods.get(node, {})
+            for hop in range(1, n_hops):
+                hop_nodes = node_neighborhoods.get(hop, [])
+                if hop_nodes:
+                    vals = [bet_cent[n] if not np.isnan(bet_cent[n]) else -1 for n in hop_nodes]
+                    feature_matrix[i, hop] = np.mean(vals)
+                else:
+                    feature_matrix[i, hop] = 0.0
 
         columns = [f"betweenness_centrality_{i}" for i in range(n_hops)]
         df = pd.DataFrame(feature_matrix, columns=columns)
@@ -378,34 +382,31 @@ class StructuralNodeFeatures:
     def _compute_clustering_coefficient(self, graph) -> pd.DataFrame:
         """Compute clustering coefficient features for all nodes (supports networkx and igraph)."""
         G = graph.G
-        nodes = graph.nodes
+        nodes = list(graph.sampled_nodes if graph.sampled_nodes is not None else graph.nodes)
         n_hops = self.config.feature_vector_length
         feature_matrix = np.zeros((len(nodes), n_hops))
+        
+        # Get pre-computed neighborhoods
+        neighborhoods = self._precompute_neighborhoods(graph)
 
         if isinstance(G, nx.Graph):
             clust = nx.clustering(G)
-            for i, node in enumerate(nodes):
-                feature_matrix[i, 0] = clust[node]
-                neighbors_by_hop = get_nodes_x_hops_away(G, node, n_hops)
-                for hop in range(1, n_hops):
-                    hop_nodes = neighbors_by_hop.get(hop, [])
-                    if hop_nodes:
-                        feature_matrix[i, hop] = np.mean([clust[n] for n in hop_nodes])
-                    else:
-                        feature_matrix[i, hop] = 0.0
         else:  # igraph
             clust_list = G.transitivity_local_undirected(mode="zero")
-            for i, node in enumerate(nodes):
-                val = clust_list[node]
-                feature_matrix[i, 0] = val if not np.isnan(val) else 0.0
-                neighbors_by_hop = get_nodes_x_hops_away(G, node, n_hops)
-                for hop in range(1, n_hops):
-                    hop_nodes = neighbors_by_hop.get(hop, [])
-                    if hop_nodes:
-                        vals = [clust_list[n] if not np.isnan(clust_list[n]) else 0.0 for n in hop_nodes]
-                        feature_matrix[i, hop] = np.mean(vals)
-                    else:
-                        feature_matrix[i, hop] = 0.0
+            clust = dict(enumerate(clust_list))
+        
+        # Fill feature matrix using pre-computed neighborhoods
+        for i, node in enumerate(nodes):
+            val = clust[node]
+            feature_matrix[i, 0] = val if not np.isnan(val) else 0.0
+            node_neighborhoods = neighborhoods.get(node, {})
+            for hop in range(1, n_hops):
+                hop_nodes = node_neighborhoods.get(hop, [])
+                if hop_nodes:
+                    vals = [clust[n] if not np.isnan(clust[n]) else 0.0 for n in hop_nodes]
+                    feature_matrix[i, hop] = np.mean(vals)
+                else:
+                    feature_matrix[i, hop] = 0.0
 
         columns = [f"clustering_coefficient_{i}" for i in range(n_hops)]
         df = pd.DataFrame(feature_matrix, columns=columns)
@@ -660,6 +661,14 @@ class StructuralNodeFeatures:
         return Features(features_df, feature_columns)
 
     def _compute_graph_node_features(self, graph, resolved_feature_list: List[str]):
+        # Clear neighborhood cache for previous graphs to save memory
+        # Keep only current graph if it exists
+        if len(self._neighborhood_cache) > 1:
+            current_cache = self._neighborhood_cache.get(graph.graph_id)
+            self._neighborhood_cache.clear()
+            if current_cache is not None:
+                self._neighborhood_cache[graph.graph_id] = current_cache
+        
         graph_features = []
         for feature_name in resolved_feature_list: # Use the resolved list
             # This check is now redundant due to validation in compute(), but kept for safety
