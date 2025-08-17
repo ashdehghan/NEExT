@@ -199,3 +199,6 @@ mlruns
 mlartifacts
 # uv lock file (development only)
 uv.lock
+
+# Test and debug directory for optimization testing
+test_and_debug/
