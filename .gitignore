@@ -202,3 +202,8 @@ uv.lock
 
 # Test and debug directory for optimization testing
 test_and_debug/
+
+# Large data files in experiments (download externally)
+ash_experiments/*/data/*.npz
+ash_experiments/*/data/*.pkl
+ash_experiments/*/*.pkl
