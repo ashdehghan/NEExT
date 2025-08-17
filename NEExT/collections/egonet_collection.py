@@ -64,8 +64,12 @@ class EgonetCollection(GraphCollection):
 
         """
 
+        # Sort nodes for deterministic ordering
+        egonet_nodes_sorted = sorted(set(egonet_nodes))  # Remove duplicates and sort for determinism
+        
         # build internal egonet node mapping and extract the features
-        node_mapping = {n: i for i, n in enumerate(egonet_nodes)}
+        # Use sorted nodes for deterministic mapping
+        node_mapping = {n: i for i, n in enumerate(egonet_nodes_sorted)}
         egonet_node_attributes = {
             node_mapping[node_id]: {key: value for key, value in feature_dict.items() if key not in self.skip_features + [self.egonet_feature_target]}
             for node_id, feature_dict in graph.node_attributes.items()
@@ -78,12 +82,12 @@ class EgonetCollection(GraphCollection):
         }
         # extract egonet subgraph
         if graph.graph_type == "networkx":
-            G_egonet = graph.G.subgraph(list(set(egonet_nodes)))
+            G_egonet = graph.G.subgraph(egonet_nodes_sorted)
             nodes = list(range(G_egonet.number_of_nodes()))
             edges = list(G_egonet.edges())
             
         else:
-            G_egonet = graph.G.subgraph(list(set(egonet_nodes)))
+            G_egonet = graph.G.subgraph(egonet_nodes_sorted)
             nodes = list(range(G_egonet.vcount()))
             edges = G_egonet.get_edgelist()
 
@@ -254,7 +258,7 @@ class EgonetCollection(GraphCollection):
                 .drop(columns=["graph_id", "node_id"])
                 .rename(columns={"subgraph_id": "graph_id"})
             )
-            if len(raw_features > 0)
+            if raw_features is not None and len(raw_features) > 0
             else (egonet_node_features_df.drop(columns=["graph_id", "node_id"]).rename(columns={"subgraph_id": "graph_id"}))
         )
         return Embeddings(egonet_node_features_df, "egonet_node_features", [col for col in egonet_node_features_df.columns if col != "graph_id"])

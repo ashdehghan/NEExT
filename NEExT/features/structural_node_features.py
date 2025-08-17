@@ -540,7 +540,8 @@ class StructuralNodeFeatures:
             community_detection = nx.community.louvain_communities(G, seed=13)
             node_community_mapping = {node: i for i, community in enumerate(community_detection) for node in community}
         else:  # igraph
-            seed = random.seed(13)
+            # Set random seed for deterministic community detection
+            random.seed(13)
             ig.set_random_number_generator(random)
             neighborhoods = get_all_neighborhoods_ig(G, n_hops)
 
