@@ -1,0 +1,192 @@
+{
+  "dataset_info": {
+    "name": "Reddit Binary Classification Dataset",
+    "description": "Binary classification version of Reddit GraphSAGE dataset for node-level classification",
+    "task": "Predict if a Reddit post is from a SERIOUS vs ENTERTAINMENT subreddit based on local graph structure",
+    "creation_date": "2025-08-18",
+    "framework": "NEExT",
+    "node_task": true,
+    "graph_task": false
+  },
+  
+  "source_dataset": {
+    "name": "Reddit GraphSAGE Dataset",
+    "paper": "Inductive Representation Learning on Large Graphs (Hamilton et al., 2017)",
+    "original_nodes": 232965,
+    "original_edges": 11606919,
+    "original_features": 602,
+    "original_classes": 41,
+    "time_period": "September 2014",
+    "description": "Reddit posts connected if same user commented on both"
+  },
+  
+  "binary_classification_scheme": {
+    "creation_method": "Semantic grouping of subreddits",
+    "class_0": {
+      "label": "serious",
+      "description": "News, science, technology, politics, informational content",
+      "subreddit_ids": [0, 1, 8, 18, 19, 20, 21, 23, 25, 26, 27, 30, 31, 32],
+      "subreddit_names": [
+        "AskReddit", "worldnews", "news", "science", "technology", 
+        "space", "gadgets", "politics", "history", "economics", 
+        "philosophy", "programming", "dataisbeautiful", "Futurology"
+      ]
+    },
+    "class_1": {
+      "label": "entertainment", 
+      "description": "Fun, media, art, gaming, recreational content",
+      "subreddit_ids": [2, 3, 5, 6, 9, 10, 11, 12, 13, 14, 22, 24, 28, 33, 34, 37],
+      "subreddit_names": [
+        "videos", "funny", "pics", "gaming", "gifs", "aww", 
+        "Music", "television", "books", "sports", "Art", "anime", 
+        "photography", "OldSchoolCool", "GetMotivated", "Showerthoughts"
+      ]
+    },
+    "excluded_subreddits": {
+      "description": "Subreddits not fitting clearly into binary categories were removed",
+      "reason": "To create clean binary classification task with clear semantic distinction"
+    }
+  },
+  
+  "dataset_variants": {
+    "reddit_binary_5pct.pkl": {
+      "description": "5% stratified sample with binary labels",
+      "sampling_method": "Stratified sampling preserving class distribution",
+      "sampling_rate": 0.05,
+      "nodes": 7315,
+      "edges": 97422,
+      "file_size_mb": 99.1,
+      "class_distribution": {
+        "serious": 4108,
+        "entertainment": 3207,
+        "balance_ratio": 0.78
+      },
+      "split_distribution": {
+        "train": {"total": 4828, "serious": 2694, "entertainment": 2134},
+        "val": {"total": 730, "serious": 414, "entertainment": 316},
+        "test": {"total": 1757, "serious": 1000, "entertainment": 757}
+      },
+      "node_reduction": "37.2%",
+      "edge_reduction": "45.3%",
+      "connectivity": "97.5% in largest connected component"
+    },
+    
+    "reddit_binary_20pct.pkl": {
+      "description": "20% stratified sample with binary labels",
+      "sampling_method": "Stratified sampling preserving class distribution", 
+      "sampling_rate": 0.20,
+      "nodes": 31575,
+      "edges": 1086881,
+      "file_size_mb": 447.5,
+      "class_distribution": {
+        "serious": 18063,
+        "entertainment": 13512,
+        "balance_ratio": 0.75
+      },
+      "split_distribution": {
+        "train": {"total": 21334, "serious": 12160, "entertainment": 9174},
+        "val": {"total": 3106, "serious": 1801, "entertainment": 1305},
+        "test": {"total": 7135, "serious": 4102, "entertainment": 3033}
+      },
+      "node_reduction": "32.2%",
+      "edge_reduction": "37.0%",
+      "connectivity": "99.4% in largest connected component"
+    }
+  },
+  
+  "features": {
+    "node_features": {
+      "count": 602,
+      "description": "Original GloVe embeddings + metadata features from GraphSAGE dataset",
+      "storage": "Individual node attributes (feature_0 to feature_601)",
+      "normalization": "StandardScaler applied during experiments"
+    },
+    "node_labels": {
+      "original_subreddit": "Original 41-class subreddit ID (0-40)",
+      "binary_label": "Binary classification label (0=serious, 1=entertainment)",
+      "binary_category": "Text label ('serious' or 'entertainment')",
+      "split": "Train/val/test split designation"
+    },
+    "graph_attributes": {
+      "label": "Graph-level label (0 for single graph)",
+      "task": "binary_node_classification",
+      "classes": ["serious", "entertainment"]
+    }
+  },
+  
+  "egonet_configuration": {
+    "purpose": "Transform node classification to graph classification via ego-centered subgraphs",
+    "method": "k-hop neighborhoods around each node",
+    "target_attribute": "binary_label",
+    "recommended_k_hop": [1, 2],
+    "recommended_sample_fraction": [0.1, 0.15, 0.2],
+    "expected_egonets_5pct": "~730-1460 with 10-20% sampling"
+  },
+  
+  "neext_compatibility": {
+    "framework_version": "Compatible with NEExT framework",
+    "loading_method": "nxt.load_from_networkx([graph])",
+    "egonet_target": "binary_label",
+    "feature_computation": "All standard NEExT structural features",
+    "embedding_algorithms": ["approx_wasserstein", "exact_wasserstein", "sinkhorn"],
+    "ml_models": ["XGBoost classifier", "Random Forest", "SVM"]
+  },
+  
+  "experiment_recommendations": {
+    "quick_experiments": {
+      "dataset": "reddit_binary_5pct.pkl",
+      "k_hop": 1,
+      "sample_fraction": 0.15,
+      "features": ["degree_centrality", "clustering_coefficient", "page_rank"],
+      "embedding_dim": 15,
+      "expected_runtime": "30-60 seconds"
+    },
+    "full_experiments": {
+      "dataset": "reddit_binary_5pct.pkl", 
+      "k_hop": 2,
+      "sample_fraction": 0.2,
+      "features": ["all"],
+      "embedding_dim": 30,
+      "expected_runtime": "2-5 minutes"
+    },
+    "large_scale": {
+      "dataset": "reddit_binary_20pct.pkl",
+      "k_hop": 2,
+      "sample_fraction": 0.1,
+      "features": ["all"],
+      "embedding_dim": 50,
+      "expected_runtime": "10-15 minutes"
+    }
+  },
+  
+  "research_questions": {
+    "primary": "Can local graph structure (commenting patterns) predict content type on Reddit?",
+    "secondary": [
+      "Do users interact differently with serious vs entertainment content?",
+      "How does community structure reflect content semantics?",
+      "What graph features are most predictive of content type?",
+      "How does neighborhood size (k-hop) affect classification performance?"
+    ]
+  },
+  
+  "validation": {
+    "class_balance": "Good (0.75-0.78 ratio)",
+    "split_preservation": "Train/val/test proportions maintained",
+    "connectivity": "High (>97% in largest component)",
+    "feature_integrity": "All 602 original features preserved",
+    "neext_validation": "Passes all 5 NEExT compatibility checks"
+  },
+  
+  "citations": {
+    "original_paper": "Hamilton, W. L., Ying, R., & Leskovec, J. (2017). Inductive representation learning on large graphs. NIPS.",
+    "dataset_source": "Reddit posts from September 2014",
+    "framework": "NEExT - Network Embedding and eXplainability Toolkit"
+  },
+  
+  "creation_scripts": {
+    "analyze_binary_grouping.py": "Analysis of subreddit categories for binary grouping",
+    "create_binary_reddit.py": "Generation of binary classification datasets",
+    "run_binary_experiment.py": "Quick binary classification experiment",
+    "check_class_distribution.py": "Class distribution analysis across samples"
+  }
+}
