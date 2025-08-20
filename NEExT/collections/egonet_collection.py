@@ -1,5 +1,6 @@
 from collections import defaultdict
 from typing import Callable, Dict, List, Literal, Optional, Set, Tuple, Union, get_args
+import logging
 
 import networkx as nx
 from NEExT.helper_functions import get_nodes_x_hops_away
@@ -12,6 +13,10 @@ from NEExT.collections.graph_collection import GraphCollection
 from NEExT.embeddings.embeddings import Embeddings
 from NEExT.features import Features
 from NEExT.graphs import Egonet, Graph
+from NEExT.sampling.base import SamplingStrategy, get_sampler
+
+# Set up logger
+logger = logging.getLogger(__name__)
 
 
 class EgonetCollection(GraphCollection):
@@ -64,8 +69,11 @@ class EgonetCollection(GraphCollection):
 
         """
 
-        # Sort nodes for deterministic ordering
-        egonet_nodes_sorted = sorted(set(egonet_nodes))  # Remove duplicates and sort for determinism
+        # Ensure egonet_nodes is a list and sort for deterministic ordering
+        if isinstance(egonet_nodes, np.ndarray):
+            egonet_nodes = egonet_nodes.tolist()
+        egonet_nodes_set = set(egonet_nodes)  # Convert to set for O(1) lookups
+        egonet_nodes_sorted = sorted(egonet_nodes_set)  # Remove duplicates and sort for determinism
         
         # build internal egonet node mapping and extract the features
         # Use sorted nodes for deterministic mapping
@@ -73,12 +81,12 @@ class EgonetCollection(GraphCollection):
         egonet_node_attributes = {
             node_mapping[node_id]: {key: value for key, value in feature_dict.items() if key not in self.skip_features + [self.egonet_feature_target]}
             for node_id, feature_dict in graph.node_attributes.items()
-            if node_id in egonet_nodes
+            if node_id in egonet_nodes_set
         }
         egonet_edge_attributes = {
             node_mapping[node_id]: {key: value for key, value in feature_dict.items() if key not in self.skip_features + [self.egonet_feature_target]}
             for node_id, feature_dict in graph.edge_attributes.items()
-            if node_id in egonet_nodes
+            if node_id in egonet_nodes_set
         }
         # extract egonet subgraph
         if graph.graph_type == "networkx":
@@ -112,25 +120,51 @@ class EgonetCollection(GraphCollection):
         k_hop: int = 1,
         nodes_to_sample: Optional[Dict[int, List[int]]] = None,
         sample_fraction: Optional[float] = 1.0,
-        random_seed:int = 13
+        random_seed: int = 13,
+        # NEW: Neighborhood sampling parameters (backwards compatible)
+        sampling_strategy: Union[str, SamplingStrategy] = SamplingStrategy.K_HOP,
+        walk_length: int = 10,
+        num_walks: int = 5,
+        restart_prob: float = 0.15,
+        max_nodes_per_egonet: Optional[int] = None
     ):
         """
-        Computes egonets based on k-hop neighborhood.
+        Computes egonets based on neighborhood sampling strategies.
 
         This method iterates through each node in each graph of the input
-        GraphCollection and creates an egonet centered around that node,
-        including all nodes within k-hop distance.
+        GraphCollection and creates an egonet centered around that node.
+        The neighborhood can be sampled using different strategies.
 
         Args:
             graph_collection (GraphCollection): The collection of graphs from
                 which to derive egonets.
-            k_hop (int): The maximum distance (in hops) from the center node
-                to include in the egonet. Defaults to 1.
+            k_hop (int): For k-hop strategy: maximum distance from center node.
+                For random walk: used as hint for walk_length if not specified.
+                Defaults to 1.
+            nodes_to_sample (Optional[Dict[int, List[int]]]): Dictionary mapping 
+                graph IDs to lists of specific nodes to sample. If None, samples
+                from all nodes based on sample_fraction.
+            sample_fraction (Optional[float]): Fraction of nodes to sample as 
+                ego centers (0.0-1.0). Defaults to 1.0 (all nodes).
+            random_seed (int): Random seed for reproducibility. Defaults to 13.
+            sampling_strategy (Union[str, SamplingStrategy]): Neighborhood sampling
+                strategy. Options: 'k_hop' or 'random_walk'. Defaults to 'k_hop'.
+            walk_length (int): For random walk: maximum length of each walk.
+                Defaults to 10.
+            num_walks (int): For random walk: number of walks per ego node.
+                Defaults to 5.
+            restart_prob (float): For random walk: probability of restarting at
+                ego node at each step. Defaults to 0.15.
+            max_nodes_per_egonet (Optional[int]): Maximum number of nodes per
+                egonet. If None, no limit is applied.
 
         """
         np.random.seed(random_seed)
         if nodes_to_sample is None:
             nodes_to_sample = {}
+
+        # Get the appropriate sampler
+        sampler = get_sampler(sampling_strategy)
 
         self.graph_id_node_array = []
         self.egonet_to_graph_node_mapping = {}
@@ -146,14 +180,43 @@ class EgonetCollection(GraphCollection):
 
         for graph in graph_collection.graphs:
             for node_id in valid_nodes[graph.graph_id]:
-                if k_hop > 0: 
-                    egonet_nodes_dict = get_nodes_x_hops_away(graph.G, node_id, k_hop)
-                    egonet_nodes = [node_id] 
-                    for v in egonet_nodes_dict.values():
-                        egonet_nodes.extend(list(v))
-                else: 
-                    egonet_nodes = [node_id]
-                # egonet_nodes = sorted(graph.G.neighborhood(node_id, order=k_hop)) 
+                # Use the sampler to get neighborhood nodes
+                sampler_kwargs = {
+                    'k_hop': k_hop,
+                    'walk_length': walk_length,
+                    'num_walks': num_walks, 
+                    'restart_prob': restart_prob,
+                    'max_nodes': max_nodes_per_egonet,
+                    'random_seed': random_seed
+                }
+                
+                try:
+                    egonet_nodes = sampler.sample_neighborhood(
+                        graph=graph.G, 
+                        ego_node=node_id,
+                        **sampler_kwargs
+                    )
+                except (ValueError, IndexError, KeyError) as e:
+                    # Specific errors related to sampling parameters or graph structure
+                    logger.warning(f"Sampling failed for node {node_id} due to {type(e).__name__}: {e}. Falling back to k-hop sampling.")
+                    if k_hop > 0: 
+                        egonet_nodes_dict = get_nodes_x_hops_away(graph.G, node_id, k_hop)
+                        egonet_nodes = [node_id] 
+                        for v in egonet_nodes_dict.values():
+                            egonet_nodes.extend(list(v))
+                    else: 
+                        egonet_nodes = [node_id]
+                except Exception as e:
+                    # Unexpected errors - log with higher severity but still fallback
+                    logger.error(f"Unexpected error during sampling for node {node_id}: {type(e).__name__}: {e}. Falling back to k-hop sampling.")
+                    if k_hop > 0: 
+                        egonet_nodes_dict = get_nodes_x_hops_away(graph.G, node_id, k_hop)
+                        egonet_nodes = [node_id] 
+                        for v in egonet_nodes_dict.values():
+                            egonet_nodes.extend(list(v))
+                    else: 
+                        egonet_nodes = [node_id]
+                
                 egonet_label = graph.node_attributes[node_id][self.egonet_feature_target] if self.egonet_feature_target else None
 
                 egonet = self._build_egonet(

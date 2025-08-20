@@ -1,0 +1,17 @@
+# Ash Experiments specific ignores
+
+# Large data files and pickles
+*.pkl
+data/
+experiment_cache/
+experiment_results/
+
+# GEXF visualization files (large)
+*.gexf
+
+# Generated PDFs (regeneratable)
+*.pdf
+
+# OS files
+.DS_Store
+**/.DS_Store

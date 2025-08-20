@@ -33,31 +33,27 @@ keywords = ["graph", "network", "embedding", "machine-learning", "graph-ml", "ne
 # Core dependencies - everything needed for test.py to work
 dependencies = [
     # Data manipulation
-    "numpy>=1.24.0,<2.0",  # Use numpy 1.x for better compatibility
+    "numpy>=1.24.0,<2.0", # Use numpy 1.x for better compatibility
     "pandas>=2.0.0,<3",
-    
     # Graph processing
     "networkx>=3.0,<4",
     "python-igraph>=0.10.0",
-    "cairocffi>=1.3.0",  # For igraph plotting support
-    
+    "cairocffi>=1.3.0", # For igraph plotting support
     # Machine learning
-    "scikit-learn>=1.3.0,<1.5",  # Compatible with imbalanced-learn
+    "scikit-learn>=1.3.0,<1.5", # Compatible with imbalanced-learn
     "xgboost>=1.7.0",
-    "imbalanced-learn>=0.11.0,<0.13",  # Compatible with sklearn
-    
+    "imbalanced-learn>=0.11.0,<0.13", # Compatible with sklearn
     # Graph embeddings
     "vectorizers>=0.2,<0.3",
-    "scipy>=1.13.0",  # 1.13.x supports Python 3.9
-    
+    "scipy>=1.13.0", # 1.13.x supports Python 3.9
     # Core utilities
     "pydantic>=2.0.0",
     "tqdm>=4.64.0",
-    "requests>=2.25.0",  # For loading data from URLs
-    
+    "requests>=2.25.0", # For loading data from URLs
     # Force newer versions to avoid Python compatibility issues
     "numba>=0.58.0",
     "llvmlite>=0.41.0",
+    "plotly>=6.2.0",
 ]
 
 [project.optional-dependencies]
