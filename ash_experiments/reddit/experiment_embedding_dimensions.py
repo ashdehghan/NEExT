@@ -34,6 +34,9 @@ sys.path.insert(0, str(Path(__file__).parents[2]))
 from NEExT.framework import NEExT
 from NEExT.collections import EgonetCollection
 from NEExT.features import Features
+from sklearn.model_selection import StratifiedKFold
+from sklearn.metrics import accuracy_score, f1_score, precision_score, recall_score
+from xgboost import XGBClassifier
 
 
 def extract_node_features(egonet_collection, feature_prefix='feature_'):
@@ -96,7 +99,7 @@ def extract_node_features(egonet_collection, feature_prefix='feature_'):
 
 def save_intermediate_results(results_df, timestamp):
     """Save intermediate results to CSV."""
-    results_dir = Path("experiment_results")
+    results_dir = Path("experiment1results")
     results_dir.mkdir(exist_ok=True)
     
     csv_path = results_dir / f"embedding_dimensions_{timestamp}.csv"
@@ -153,8 +156,8 @@ def create_scientific_plot(results_df, timestamp):
         # Add max dimension point if exists
         if not max_data.empty:
             max_dim_value = {
-                'combined': 606,
-                'node_only': 602,
+                'combined': 200,  # Capped to NUM_EGONETS
+                'node_only': 200,  # Capped to NUM_EGONETS
                 'structural_only': 4,
                 'random_baseline': 100  # arbitrary for baseline
             }[model]
@@ -286,7 +289,7 @@ def create_scientific_plot(results_df, timestamp):
             fig.update_yaxes(range=[0, 1], row=i, col=j)
     
     # Save the plot
-    results_dir = Path("experiment_results")
+    results_dir = Path("experiment1results")
     html_path = results_dir / f"embedding_dimensions_plot_{timestamp}.html"
     fig.write_html(str(html_path))
     print(f"\nPlot saved to: {html_path}")
@@ -299,8 +302,8 @@ def create_scientific_plot(results_df, timestamp):
     except:
         print("Note: Install kaleido to save static images: pip install kaleido")
     
-    # Show the plot
-    fig.show()
+    # Show the plot (commented out for headless environments)
+    # fig.show()
     
     return fig
 
@@ -308,21 +311,21 @@ def create_scientific_plot(results_df, timestamp):
 def run_embedding_dimension_experiment():
     """Run the embedding dimension experiment."""
     
+    # Configuration
+    GRAPH_FILE = "reddit_binary_5pct.pkl"
+    NUM_EGONETS = 500
+    RANDOM_SEED = 42
+    
+    # Dimensions to test (full range)
+    DIMENSIONS = [5, 10, 15, 20, 25, 30, 35, 40, 45, 50]
+    
     print("\n" + "="*80)
     print("EMBEDDING DIMENSION EXPERIMENT")
     print("="*80)
     print("Testing effect of Wasserstein embedding dimension on performance")
-    print("Dimensions to test: 2, 5, 10, 15, 25, 50, max")
-    print(f"Total experiments: 3 models × 7 dimensions = 21 experiments")
+    print("Dimensions to test: 5, 10, 15, 20, 25, 30, 35, 40, 45, 50")
+    print(f"Total experiments: 3 models × {len(DIMENSIONS)} dimensions = {3 * len(DIMENSIONS)} experiments")
     print("="*80)
-    
-    # Configuration
-    GRAPH_FILE = "reddit_binary_5pct.pkl"
-    NUM_EGONETS = 200
-    RANDOM_SEED = 42
-    
-    # Dimensions to test
-    DIMENSIONS = [2, 5, 10, 15, 25, 50, 'max']
     
     # Random walk parameters
     WALK_LENGTH = 8
@@ -347,8 +350,8 @@ def run_embedding_dimension_experiment():
     # Cache file paths
     cache_dir = Path("experiment_cache")
     cache_dir.mkdir(exist_ok=True)
-    egonets_cache = cache_dir / "egonets_200.pkl"
-    features_cache = cache_dir / "features_200.pkl"
+    egonets_cache = cache_dir / f"egonets_{NUM_EGONETS}.pkl"
+    features_cache = cache_dir / f"features_{NUM_EGONETS}.pkl"
     
     # ========== Step 1: Load/Create Egonets ==========
     if egonets_cache.exists():
@@ -423,11 +426,14 @@ def run_embedding_dimension_experiment():
             graph_collection=egonet_collection,
             feature_list=[
                 "degree_centrality",
-                "clustering_coefficient",
+                "clustering_coefficient", 
                 "page_rank",
-                "betweenness_centrality"
+                "betweenness_centrality",
+                "closeness_centrality",
+                "eigenvector_centrality",
+                "lsme"
             ],
-            feature_vector_length=1,
+            feature_vector_length=4,
             show_progress=False,
             n_jobs=-1
         )
@@ -492,7 +498,8 @@ def run_embedding_dimension_experiment():
         for dim in dim_pbar:
             # Determine actual dimension
             if dim == 'max':
-                actual_dim = len(features_obj.feature_columns)
+                # Cap max dimension to number of samples (200) to avoid IndexError
+                actual_dim = min(len(features_obj.feature_columns), NUM_EGONETS)
                 dim_label = f"max ({actual_dim})"
             else:
                 actual_dim = min(dim, len(features_obj.feature_columns))
@@ -504,8 +511,11 @@ def run_embedding_dimension_experiment():
             print(f"\n    Testing dimension: {dim_label}")
             start = time.time()
             
-            # Normalize features
-            features_norm = features_obj.copy()
+            # Normalize features (create a copy since Features doesn't have copy method)
+            features_norm = Features(
+                features_obj.features_df.copy(),
+                features_obj.feature_columns.copy()
+            )
             features_norm.normalize(type="StandardScaler")
             
             # Generate embeddings
@@ -517,14 +527,39 @@ def run_embedding_dimension_experiment():
                 random_state=RANDOM_SEED
             )
             
-            # Train model
-            results = nxt.train_ml_model(
-                graph_collection=egonet_collection,
-                embeddings=embeddings,
-                model_type="classifier",
-                sample_size=100,
-                balance_dataset=False
-            )
+            # Use proper k-fold cross-validation instead of NEExT's pseudo-replication
+            # Extract embeddings and labels
+            feature_cols = [col for col in embeddings.embeddings_df.columns if col.startswith('emb_')]
+            X = embeddings.embeddings_df[feature_cols].values
+            y = np.array([g.graph_label for g in egonet_collection.graphs])
+            
+            # Perform 5-fold stratified cross-validation
+            cv_results = {
+                'accuracy': [],
+                'f1_score': [],
+                'precision': [],
+                'recall': []
+            }
+            
+            skf = StratifiedKFold(n_splits=5, shuffle=True, random_state=RANDOM_SEED)
+            
+            for train_idx, test_idx in skf.split(X, y):
+                X_train, X_test = X[train_idx], X[test_idx]
+                y_train, y_test = y[train_idx], y[test_idx]
+                
+                # Train XGBoost (same as NEExT default)
+                model = XGBClassifier(random_state=RANDOM_SEED, n_jobs=-1)
+                model.fit(X_train, y_train)
+                y_pred = model.predict(X_test)
+                
+                # Calculate metrics
+                cv_results['accuracy'].append(accuracy_score(y_test, y_pred))
+                cv_results['f1_score'].append(f1_score(y_test, y_pred, average='weighted'))
+                cv_results['precision'].append(precision_score(y_test, y_pred, average='weighted'))
+                cv_results['recall'].append(recall_score(y_test, y_pred, average='weighted'))
+            
+            # Format results to match NEExT's structure
+            results = cv_results
             
             # Store results
             result_entry = {
@@ -535,8 +570,11 @@ def run_embedding_dimension_experiment():
                 'accuracy': np.mean(results['accuracy']),
                 'accuracy_std': np.std(results['accuracy']),
                 'f1_score': np.mean(results['f1_score']),
+                'f1_score_std': np.std(results['f1_score']),
                 'precision': np.mean(results['precision']),
+                'precision_std': np.std(results['precision']),
                 'recall': np.mean(results['recall']),
+                'recall_std': np.std(results['recall']),
                 'time': time.time() - start
             }
             
@@ -566,8 +604,11 @@ def run_embedding_dimension_experiment():
             'accuracy': 0.5,
             'accuracy_std': 0.0,
             'f1_score': 0.5,
+            'f1_score_std': 0.0,
             'precision': 0.5,
+            'precision_std': 0.0,
             'recall': 0.5,
+            'recall_std': 0.0,
             'time': 0
         })
     

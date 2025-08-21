@@ -1,6 +1,7 @@
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
 from multiprocessing import cpu_count
 from typing import Dict, List, Literal, Optional, Union
+import warnings
 
 import numpy as np
 import pandas as pd
@@ -66,6 +67,9 @@ class GraphEmbeddings:
         self.graph_collection = graph_collection
         self.features = features
         
+        # Validate embedding dimensions against feature count
+        self._validate_embedding_dimensions()
+        
         # Define available embedding algorithms
         self.available_algorithms = {
             "approx_wasserstein": self._compute_approx_wasserstein,
@@ -100,8 +104,8 @@ class GraphEmbeddings:
         # Compute embeddings
         embeddings_df = embedding_func(self.features.features_df)
         
-        # Get embedding column names
-        embedding_columns = [f"emb_{i}_{self.config.suffix}" if self.config.suffix else f"emb_{i}" for i in range(self.config.embedding_dimension)]
+        # Get embedding column names based on actual columns in the DataFrame
+        embedding_columns = [col for col in embeddings_df.columns if col.startswith('emb_')]
         
         return Embeddings(
             embeddings_df=embeddings_df,
@@ -169,8 +173,9 @@ class GraphEmbeddings:
         embeddings_df = pd.DataFrame()
         embeddings_df['graph_id'] = graph_ids
         
-        # Add embedding columns
-        for i in range(self.config.embedding_dimension):
+        # Add embedding columns - use actual number of dimensions from embeddings
+        actual_dimensions = embeddings.shape[1]
+        for i in range(actual_dimensions):
             embeddings_df[f"emb_{i}_{self.config.suffix}" if self.config.suffix else f"emb_{i}"] = embeddings[:, i]
         
         return embeddings_df
@@ -199,8 +204,9 @@ class GraphEmbeddings:
         embeddings_df = pd.DataFrame()
         embeddings_df['graph_id'] = graph_ids
         
-        # Add embedding columns
-        for i in range(self.config.embedding_dimension):
+        # Add embedding columns - use actual number of dimensions from embeddings
+        actual_dimensions = embeddings.shape[1]
+        for i in range(actual_dimensions):
             embeddings_df[f"emb_{i}_{self.config.suffix}" if self.config.suffix else f"emb_{i}"] = embeddings[:, i]
         
         return embeddings_df
@@ -229,8 +235,54 @@ class GraphEmbeddings:
         embeddings_df = pd.DataFrame()
         embeddings_df['graph_id'] = graph_ids
         
-        # Add embedding columns
-        for i in range(self.config.embedding_dimension):
+        # Add embedding columns - use actual number of dimensions from embeddings
+        actual_dimensions = embeddings.shape[1]
+        for i in range(actual_dimensions):
             embeddings_df[f"emb_{i}_{self.config.suffix}" if self.config.suffix else f"emb_{i}"] = embeddings[:, i]
         
         return embeddings_df
+
+
+    def _validate_embedding_dimensions(self):
+        """
+        Validate that the requested embedding dimension is reasonable given the feature count.
+        
+        Warns users when embedding dimension exceeds feature count, as this leads to
+        SVD rank limitations that produce identical embeddings regardless of requested dimension.
+        """
+        n_features = len(self.config.feature_columns)
+        n_samples = len(self.graph_collection.graphs)
+        
+        # Maximum useful dimension is limited by SVD rank
+        max_useful_dims = min(n_features, n_samples - 1) if n_samples > 1 else n_features
+        
+        if self.config.embedding_dimension > max_useful_dims:
+            warnings.warn(
+                f"\nEMBEDDING DIMENSION WARNING:\n"
+                f"Requested embedding dimension ({self.config.embedding_dimension}) exceeds the maximum "
+                f"useful dimensions ({max_useful_dims}) based on your feature count ({n_features}) and "
+                f"sample count ({n_samples}).\n"
+                f"\nThe {self.config.embedding_algorithm} algorithm uses SVD, which will automatically "
+                f"cap the effective dimensions to {max_useful_dims}. This means:\n"
+                f"  • Embeddings will have {max_useful_dims} dimensions, not {self.config.embedding_dimension}\n"
+                f"  • All requests for > {max_useful_dims} dimensions produce identical results\n"
+                f"  • Consider using embedding_dimension <= {max_useful_dims} for meaningful comparisons\n"
+                f"\nTo fix: Use more diverse features or reduce embedding_dimension to {max_useful_dims}",
+                UserWarning,
+                stacklevel=3
+            )
+            
+        # Also check if features are very limited (common case)
+        if n_features <= 5 and self.config.embedding_dimension > n_features:
+            warnings.warn(
+                f"\nLIMITED FEATURES DETECTED:\n"
+                f"You have only {n_features} features but requested {self.config.embedding_dimension} embedding dimensions.\n"
+                f"Consider adding more diverse features to avoid the SVD rank limitation.\n"
+                f"Typical solutions:\n"
+                f"  • Add more structural features (e.g., closeness_centrality, eigenvector_centrality)\n"
+                f"  • Use k-hop feature aggregation (feature_vector_length > 1)\n"
+                f"  • Combine with node attributes if available",
+                UserWarning,
+                stacklevel=3
+            )
+
