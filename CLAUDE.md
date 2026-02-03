@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ### Testing
 ```bash
-# Run all tests
+# Run all tests (once tests/ directory is created)
 pytest
 
 # Run with coverage
@@ -17,6 +17,10 @@ pytest tests/test_node_sampling.py
 
 # Run tests with verbose output
 pytest -v --tb=short
+
+# Run example scripts to verify functionality
+python test.py              # Main integration test
+python test_networkx.py     # NetworkX loading test
 ```
 
 ### Code Quality
@@ -201,9 +205,23 @@ embeddings = EmbeddingBuilder(egonet_collection, features).compute()
 ```
 
 ### Testing Approach
-The codebase uses pytest with fixtures. Tests are in `tests/` directory. Always run tests after modifications to core components.
+Integration tests are available as root-level scripts (`test.py`, `test_networkx.py`). Run these after modifications to core components. When a `tests/` directory is added, pytest will be used for unit testing.
 
-### Recent Updates
-- **NetworkX Support**: Added native support for loading NetworkX graphs directly via `load_from_networkx()` method. The implementation maintains backwards compatibility with existing CSV/DataFrame loading methods.
-- **Mixed Format Loading**: GraphCollection.add_graphs() now accepts both dictionary format and NetworkX graphs in the same list.
-- **Test Files**: `test_networkx.py` in root directory demonstrates NetworkX integration.
+### Input File Formats
+The framework expects CSV files with these structures:
+- **edges.csv**: `src_node_id,dest_node_id`
+- **node_graph_mapping.csv**: `node_id,graph_id`
+- **graph_labels.csv**: `graph_id,graph_label`
+- **node_features.csv** (optional): `node_id,graph_id,feature1,feature2,...`
+
+### Custom Feature Functions
+Custom features must return a DataFrame with columns in order: `node_id`, `graph_id`, `feature_name_0`, etc.
+```python
+def my_custom_feature(graph):
+    return pd.DataFrame({
+        'node_id': graph.nodes,
+        'graph_id': graph.graph_id,
+        'my_feature_0': [computed_values]
+    })[['node_id', 'graph_id', 'my_feature_0']]
+```
+Register via `my_feature_methods=[{"feature_name": "...", "feature_function": func}]` in `compute_node_features()`.
