@@ -202,3 +202,9 @@ uv.lock
 
 # Test and debug directory for optimization testing
 test_and_debug/
+
+# Manuscript (separate private repo)
+manuscript/
+
+# Paper experiments (separate private repo)
+paper_experiments/
