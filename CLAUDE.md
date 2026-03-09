@@ -149,7 +149,6 @@ Features → Embeddings → ML      EgonetCollection
 #### Entry Points
 - `NEExT.framework.NEExT`: Main user interface class
 - `test.py`: Example usage showing complete pipeline
-- `experiments/`: Various experimental setups for research
 
 #### Important Files
 - `NEExT/collections/egonet_collection.py`: Core egonet decomposition logic

@@ -190,11 +190,9 @@ test.ipynb
 #  option (not recommended) you can uncomment the following to ignore the entire idea folder.
 #.idea/
 
-# Experiment results
-experiments/results/*
-!experiments/results/.gitkeeps
+# Experiments directory (research experiments, kept locally)
+experiments/
 local
-benchmark/partial_results/*
 mlruns
 mlartifacts
 # uv lock file (development only)
