@@ -7,6 +7,7 @@ import pandas as pd
 from sklearn.preprocessing import StandardScaler
 
 from NEExT.collections import GraphCollection
+from NEExT.collections.egonet_collection import EgonetCollection
 from NEExT.embeddings import Embeddings
 from NEExT.embeddings import GraphEmbeddings
 from NEExT.features import Features
@@ -322,6 +323,86 @@ class NEExT:
             self.logger.info(f"Model trained with average RMSE: {np.mean(results['rmse']):.4f}")
         
         return results
+
+    def compute_k_hop_egonets(
+        self,
+        graph_collection: GraphCollection,
+        k_hop: int = 1,
+        egonet_feature_target: Optional[str] = None,
+        skip_features: Optional[List[str]] = None,
+        nodes_to_sample: Optional[Dict[int, List[int]]] = None,
+        sample_fraction: float = 1.0,
+        random_seed: int = 13,
+    ) -> EgonetCollection:
+        """
+        Decompose graphs into k-hop egonets (per-node subgraphs).
+
+        Args:
+            graph_collection: Collection of graphs to decompose
+            k_hop: Number of hops for neighborhood extraction (default: 1)
+            egonet_feature_target: Node attribute to use as egonet label (default: None)
+            skip_features: Node features to exclude from egonets (default: None)
+            nodes_to_sample: Dict mapping graph_id to list of nodes to always include
+            sample_fraction: Fraction of nodes to sample egonets for (default: 1.0)
+            random_seed: Random seed for node sampling (default: 13)
+
+        Returns:
+            EgonetCollection: Collection of egonets
+        """
+        self.logger.info(f"Computing {k_hop}-hop egonets")
+
+        egonet_collection = EgonetCollection(
+            egonet_feature_target=egonet_feature_target,
+            skip_features=skip_features or [],
+        )
+        egonet_collection.compute_k_hop_egonets(
+            graph_collection=graph_collection,
+            k_hop=k_hop,
+            nodes_to_sample=nodes_to_sample,
+            sample_fraction=sample_fraction,
+            random_seed=random_seed,
+        )
+
+        self.logger.info(f"Created {len(egonet_collection.graphs)} egonets")
+        return egonet_collection
+
+    def compute_leiden_egonets(
+        self,
+        graph_collection: GraphCollection,
+        egonet_feature_target: Optional[str] = None,
+        skip_features: Optional[List[str]] = None,
+        n_iterations: int = 10,
+        resolution: float = 1.0,
+    ) -> EgonetCollection:
+        """
+        Decompose graphs into community-based egonets using Leiden algorithm.
+
+        Requires iGraph backend.
+
+        Args:
+            graph_collection: Collection of graphs to decompose
+            egonet_feature_target: Node attribute to use as egonet label (default: None)
+            skip_features: Node features to exclude from egonets (default: None)
+            n_iterations: Number of Leiden iterations (default: 10)
+            resolution: Resolution parameter for Leiden (default: 1.0)
+
+        Returns:
+            EgonetCollection: Collection of egonets
+        """
+        self.logger.info("Computing Leiden community egonets")
+
+        egonet_collection = EgonetCollection(
+            egonet_feature_target=egonet_feature_target,
+            skip_features=skip_features or [],
+        )
+        egonet_collection.compute_leiden_egonets(
+            graph_collection=graph_collection,
+            n_iterations=n_iterations,
+            resolution=resolution,
+        )
+
+        self.logger.info(f"Created {len(egonet_collection.graphs)} egonets")
+        return egonet_collection
 
     def compute_feature_importance(
         self,

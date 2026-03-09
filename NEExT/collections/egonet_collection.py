@@ -70,21 +70,26 @@ class EgonetCollection(GraphCollection):
         # build internal egonet node mapping and extract the features
         # Use sorted nodes for deterministic mapping
         node_mapping = {n: i for i, n in enumerate(egonet_nodes_sorted)}
+        skip_keys = self.skip_features + ([self.egonet_feature_target] if self.egonet_feature_target else [])
         egonet_node_attributes = {
-            node_mapping[node_id]: {key: value for key, value in feature_dict.items() if key not in self.skip_features + [self.egonet_feature_target]}
-            for node_id, feature_dict in graph.node_attributes.items()
-            if node_id in egonet_nodes
+            node_mapping[nid]: {key: value for key, value in feature_dict.items() if key not in skip_keys}
+            for nid, feature_dict in graph.node_attributes.items()
+            if nid in egonet_nodes
         }
+        egonet_nodes_set = set(egonet_nodes_sorted)
         egonet_edge_attributes = {
-            node_mapping[node_id]: {key: value for key, value in feature_dict.items() if key not in self.skip_features + [self.egonet_feature_target]}
-            for node_id, feature_dict in graph.edge_attributes.items()
-            if node_id in egonet_nodes
+            (node_mapping[src], node_mapping[dst]): {
+                key: value for key, value in attrs.items()
+                if key not in skip_keys
+            }
+            for (src, dst), attrs in graph.edge_attributes.items()
+            if src in egonet_nodes_set and dst in egonet_nodes_set
         }
         # extract egonet subgraph
         if graph.graph_type == "networkx":
             G_egonet = graph.G.subgraph(egonet_nodes_sorted)
             nodes = list(range(G_egonet.number_of_nodes()))
-            edges = list(G_egonet.edges())
+            edges = [(node_mapping[u], node_mapping[v]) for u, v in G_egonet.edges()]
             
         else:
             G_egonet = graph.G.subgraph(egonet_nodes_sorted)
@@ -165,8 +170,8 @@ class EgonetCollection(GraphCollection):
                 )
 
                 self.graphs.append(egonet)
-                # Update graph_id_node_array with this graph's nodes
-                self.graph_id_node_array.extend([node_id] * len(egonet.nodes))
+                # Update graph_id_node_array with this egonet's id
+                self.graph_id_node_array.extend([egonet_id] * len(egonet.nodes))
 
                 self.egonet_to_graph_node_mapping[egonet_id] = (graph.graph_id, node_id)
                 egonet_id += 1
@@ -191,6 +196,9 @@ class EgonetCollection(GraphCollection):
 
         """
 
+        if any(g.graph_type == "networkx" for g in graph_collection.graphs):
+            raise NotImplementedError("Leiden egonets require iGraph backend. Use graph_type='igraph' when loading graphs.")
+
         self.graph_id_node_array = []
         self.egonet_to_graph_node_mapping = {}
         egonet_id = 0
@@ -202,7 +210,7 @@ class EgonetCollection(GraphCollection):
             for node_id in range(graph.G.vcount()):
                 community_id = node_community_mapping[node_id]
                 egonet_nodes = [n_id for n_id, com_id in node_community_mapping.items() if com_id == community_id]
-                egonet_label = graph.node_attributes[node_id][self.egonet_feature_target]
+                egonet_label = graph.node_attributes[node_id][self.egonet_feature_target] if self.egonet_feature_target else None
 
                 egonet = self._build_egonet(
                     graph=graph,
@@ -211,10 +219,9 @@ class EgonetCollection(GraphCollection):
                     egonet_id=egonet_id,
                     egonet_label=egonet_label,
                 )
-                egonet.initialize_graph()
                 self.graphs.append(egonet)
-                # Update graph_id_node_array with this graph's nodes
-                self.graph_id_node_array.extend([node_id] * len(egonet.nodes))
+                # Update graph_id_node_array with this egonet's id
+                self.graph_id_node_array.extend([egonet_id] * len(egonet.nodes))
 
                 self.egonet_to_graph_node_mapping[egonet_id] = (graph.graph_id, node_id)
                 egonet_id += 1
@@ -244,7 +251,7 @@ class EgonetCollection(GraphCollection):
         for graph in graph_collection.graphs:
             for node_id, features in graph.node_attributes.items():
                 for feature, value in features.items():
-                    if feature in self.skip_features + [self.egonet_feature_target]:
+                    if feature in self.skip_features + ([self.egonet_feature_target] if self.egonet_feature_target else []):
                         continue
                     raw_features[graph.graph_id, node_id][feature] = value
 
@@ -263,7 +270,7 @@ class EgonetCollection(GraphCollection):
         )
         return Embeddings(egonet_node_features_df, "egonet_node_features", [col for col in egonet_node_features_df.columns if col != "graph_id"])
 
-    def compute_egonet_positionaL_features(
+    def compute_egonet_positional_features(
         self,
         strategy: Literal["distance", "inv_distance", 'inv_exp_distance'],
         one_hot_encode: bool = False,
@@ -272,16 +279,21 @@ class EgonetCollection(GraphCollection):
         Compute egonet positional features that can be used to encode central node
         position in the egonet. The positional features have to be added independently
         to features before embedding if you want to include it.
-        """        
+        """
 
         df_position = []
         for egonet in self.graphs:
             _, central_node = self.egonet_to_graph_node_mapping[egonet.graph_id]
+            mapped_central = egonet.node_mapping[central_node]
 
             d = pd.DataFrame()
             d['node_id'] = egonet.nodes
             d['graph_id'] = egonet.graph_id
-            d['egonet_position'] = egonet.G.distances(egonet.node_mapping[central_node])[0]
+            if egonet.graph_type == "igraph":
+                d['egonet_position'] = egonet.G.distances(mapped_central)[0]
+            else:
+                lengths = nx.single_source_shortest_path_length(egonet.G, mapped_central)
+                d['egonet_position'] = [lengths.get(n, float('inf')) for n in egonet.nodes]
             if strategy == 'inv_distance':
                 d['egonet_position'] = 1 / (d['egonet_position'] + 1)
             elif strategy == 'inv_exp_distance':

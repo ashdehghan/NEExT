@@ -206,3 +206,6 @@ manuscript/
 
 # Paper experiments (separate private repo)
 paper_experiments/
+
+# Sandbox directory for validation scripts
+sandbox/

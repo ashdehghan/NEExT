@@ -76,9 +76,13 @@ class Graph(BaseModel):
             for node, attrs in self.node_attributes.items():
                 for k, v in attrs.items():
                     self.G.vs[node][k] = v
-            for edge, attrs in self.edge_attributes.items():
+            for (src, dst), attrs in self.edge_attributes.items():
+                try:
+                    eid = self.G.get_eid(src, dst)
+                except ig.InternalError:
+                    continue
                 for k, v in attrs.items():
-                    self.G.es[edge][k] = v
+                    self.G.es[eid][k] = v
 
     def reindex_nodes(self) -> 'Graph':
         """Reindex nodes to be consecutive integers starting from 0."""

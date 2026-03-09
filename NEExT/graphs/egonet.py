@@ -8,7 +8,7 @@ from NEExT.graphs import Graph
 class Egonet(Graph):
     """
     Attributes:
-        node_mapping Optional[Dict[int, int]]: Napping from internal nodes_id of an egonet to original graph nodes_id
+        node_mapping Optional[Dict[int, int]]: Mapping from original graph node IDs to internal egonet node IDs
     """
     original_graph_id: int = Field(default=None)
     original_node_id: int = Field(default=None)
