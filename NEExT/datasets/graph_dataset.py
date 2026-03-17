@@ -41,7 +41,7 @@ class GraphDataset:
 
         self.labeled_graphs = self._embeddings_df.query(f"label != {self.unlabeled_marker}")["graph_id"].to_list()
         self.unlabeled_graphs = self._embeddings_df.query(f"label == {self.unlabeled_marker}")["graph_id"].to_list()
-        
+
         if self.standardize:
             self.scaler = StandardScaler().fit(self._embeddings_df[self.embeddings.embedding_columns])
 
@@ -61,6 +61,7 @@ class GraphDataset:
         self.y_labeled = self._embeddings_df.query(f"label != {self.unlabeled_marker}")["label"].values
 
         if self.standardize:
+            self.X = pd.DataFrame(self.scaler.transform(self.X), columns=self.X.columns, index=self.X.index)
             self.X_labeled = self.scaler.transform(self.X_labeled)
             self.X_unlabeled = self.scaler.transform(self.X_unlabeled)
 

@@ -6,10 +6,9 @@ from sklearn.metrics import make_scorer, roc_auc_score
 from sklearn.model_selection import StratifiedKFold, cross_val_score
 from sklearn.neighbors import KNeighborsClassifier
 
-
+from NEExT.datasets import GraphDataset
 from NEExT.outliers import CosineOutlierDetector, LGBMOutlier
 from NEExT.outliers.benchmark_utils.models import score_unlabeled_gt
-from NEExT.datasets import GraphDataset
 
 
 def objective(trial: optuna.Trial, model: str, dataset: GraphDataset):
@@ -27,8 +26,8 @@ def objective(trial: optuna.Trial, model: str, dataset: GraphDataset):
             "max_depth": trial.suggest_int("max_depth", 1, 100),
             "class_weight": trial.suggest_categorical("class_weight", [None, "balanced"]),
             "learning_rate": trial.suggest_float("learning_rate", 1e-5, 1e1, log=True),
-            "reg_alpha": trial.suggest_float("learning_rate", 1e-5, 1e1, log=True),
-            "reg_lambda": trial.suggest_float("learning_rate", 1e-5, 1e1, log=True),
+            "reg_alpha": trial.suggest_float("reg_alpha", 1e-5, 1e1, log=True),
+            "reg_lambda": trial.suggest_float("reg_lambda", 1e-5, 1e1, log=True),
             "colsample_bytree": trial.suggest_float("colsample_bytree", 0.2, 1),
         }
         detector = LGBMOutlier(**params)

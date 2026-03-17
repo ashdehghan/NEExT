@@ -1,4 +1,5 @@
 from typing import Optional
+
 import numpy as np
 import pandas as pd
 from sklearn.base import BaseEstimator
@@ -12,7 +13,7 @@ class CosineOutlierDetector(BaseEstimator):
         self._labels = None
 
     def fit(self, X: np.ndarray, y: np.ndarray):
-        self._vectors = X.values
+        self._vectors = X.values if isinstance(X, pd.DataFrame) else X
         self._labels = y
         return self
 
@@ -25,7 +26,7 @@ class CosineOutlierDetector(BaseEstimator):
             vector = X[unlabeled_id, :]
             prob = self._vector_sim_label_prob(vector)
             probs.append(prob)
-        
+
         probs = np.array(probs)
         out_probs = np.ones((len(probs), 2))
         out_probs[:, 0] = 1 - probs

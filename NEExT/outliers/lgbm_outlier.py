@@ -35,17 +35,17 @@ class LGBMOutlier(ClassifierMixin, BaseEstimator):
             "objective": "binary",
             "metric": "auc",
             "random_state": 42,
-        } | {
             "n_estimators": self.n_estimators,
             "min_data_in_leaf": self.min_data_in_leaf,
             "num_leaves": self.num_leaves,
             "max_depth": self.max_depth,
-            "class_weight": self.class_weight,
             "learning_rate": self.learning_rate,
             "reg_alpha": self.reg_alpha,
             "reg_lambda": self.reg_lambda,
             "colsample_bytree": self.colsample_bytree,
         }
+        if self.class_weight == "balanced":
+            self.hyperparameters["is_unbalance"] = True
 
     def fit(self, X, y):
         X_train, X_val, y_train, y_val = train_test_split(X, y, test_size=0.25, random_state=42, stratify=y)

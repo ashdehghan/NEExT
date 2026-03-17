@@ -1,7 +1,8 @@
-import pandas as pd
 import numpy as np
+import pandas as pd
 from sklearn.base import BaseEstimator
 from sklearn.metrics import roc_auc_score
+
 from NEExT.datasets import GraphDataset
 
 
@@ -13,10 +14,10 @@ def score_unlabeled_gt(
     if ground_truth_df is not None:
         ground_truth_df = ground_truth_df.sort_values("graph_id")
         out = predict_full_df(detector, dataset.graph_ids, dataset.X)
-        bl_acc = roc_auc_score(ground_truth_df["is_outlier"], out["pred"])
+        bl_acc = roc_auc_score(ground_truth_df["is_outlier"], out["prob"])
     else:
         out = predict_full_df(detector, dataset.labeled_graphs, dataset.X_labeled)
-        bl_acc = roc_auc_score(dataset.y_labeled, out["pred"])
+        bl_acc = roc_auc_score(dataset.y_labeled, out["prob"])
     return out, bl_acc
 
 

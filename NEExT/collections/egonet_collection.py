@@ -2,7 +2,6 @@ from collections import defaultdict
 from typing import Callable, Dict, List, Literal, Optional, Set, Tuple, Union, get_args
 
 import networkx as nx
-from NEExT.helper_functions import get_nodes_x_hops_away
 import numpy as np
 import pandas as pd
 from pydantic import BaseModel, Field
@@ -12,6 +11,7 @@ from NEExT.collections.graph_collection import GraphCollection
 from NEExT.embeddings.embeddings import Embeddings
 from NEExT.features import Features
 from NEExT.graphs import Egonet, Graph
+from NEExT.helper_functions import get_nodes_x_hops_away
 
 
 class EgonetCollection(GraphCollection):
@@ -34,6 +34,7 @@ class EgonetCollection(GraphCollection):
         egonet_node_features (Embeddings): An Embeddings object containing the
             features of a central node of each egonet. Defaults to None.
     """
+
     egonet_feature_target: Optional[str] = Field(default=None)
     skip_features: List[str] = Field(default_factory=list)
     egonet_to_graph_node_mapping: Dict[int, Tuple[int, int]] = Field(default_factory=dict)
@@ -66,7 +67,7 @@ class EgonetCollection(GraphCollection):
 
         # Sort nodes for deterministic ordering
         egonet_nodes_sorted = sorted(set(egonet_nodes))  # Remove duplicates and sort for determinism
-        
+
         # build internal egonet node mapping and extract the features
         # Use sorted nodes for deterministic mapping
         node_mapping = {n: i for i, n in enumerate(egonet_nodes_sorted)}
@@ -78,10 +79,7 @@ class EgonetCollection(GraphCollection):
         }
         egonet_nodes_set = set(egonet_nodes_sorted)
         egonet_edge_attributes = {
-            (node_mapping[src], node_mapping[dst]): {
-                key: value for key, value in attrs.items()
-                if key not in skip_keys
-            }
+            (node_mapping[src], node_mapping[dst]): {key: value for key, value in attrs.items() if key not in skip_keys}
             for (src, dst), attrs in graph.edge_attributes.items()
             if src in egonet_nodes_set and dst in egonet_nodes_set
         }
@@ -90,7 +88,7 @@ class EgonetCollection(GraphCollection):
             G_egonet = graph.G.subgraph(egonet_nodes_sorted)
             nodes = list(range(G_egonet.number_of_nodes()))
             edges = [(node_mapping[u], node_mapping[v]) for u, v in G_egonet.edges()]
-            
+
         else:
             G_egonet = graph.G.subgraph(egonet_nodes_sorted)
             nodes = list(range(G_egonet.vcount()))
@@ -117,7 +115,7 @@ class EgonetCollection(GraphCollection):
         k_hop: int = 1,
         nodes_to_sample: Optional[Dict[int, List[int]]] = None,
         sample_fraction: Optional[float] = 1.0,
-        random_seed:int = 13
+        random_seed: int = 13,
     ):
         """
         Computes egonets based on k-hop neighborhood.
@@ -133,7 +131,7 @@ class EgonetCollection(GraphCollection):
                 to include in the egonet. Defaults to 1.
 
         """
-        np.random.seed(random_seed)
+        rng = np.random.RandomState(random_seed)
         if nodes_to_sample is None:
             nodes_to_sample = {}
 
@@ -145,20 +143,20 @@ class EgonetCollection(GraphCollection):
         # draw nodes to sample from for each graph
         for graph in graph_collection.graphs:
             nodes = graph.nodes
-            random_nodes = np.random.choice(nodes, int(len(nodes)* sample_fraction), replace=False).tolist()
+            random_nodes = rng.choice(nodes, int(len(nodes) * sample_fraction), replace=False).tolist()
             forced_nodes = nodes_to_sample.get(graph.graph_id, [])
             valid_nodes[graph.graph_id] = list(set(random_nodes + forced_nodes))
 
         for graph in graph_collection.graphs:
             for node_id in valid_nodes[graph.graph_id]:
-                if k_hop > 0: 
+                if k_hop > 0:
                     egonet_nodes_dict = get_nodes_x_hops_away(graph.G, node_id, k_hop)
-                    egonet_nodes = [node_id] 
+                    egonet_nodes = [node_id]
                     for v in egonet_nodes_dict.values():
                         egonet_nodes.extend(list(v))
-                else: 
+                else:
                     egonet_nodes = [node_id]
-                # egonet_nodes = sorted(graph.G.neighborhood(node_id, order=k_hop)) 
+                # egonet_nodes = sorted(graph.G.neighborhood(node_id, order=k_hop))
                 egonet_label = graph.node_attributes[node_id][self.egonet_feature_target] if self.egonet_feature_target else None
 
                 egonet = self._build_egonet(
@@ -272,7 +270,7 @@ class EgonetCollection(GraphCollection):
 
     def compute_egonet_positional_features(
         self,
-        strategy: Literal["distance", "inv_distance", 'inv_exp_distance'],
+        strategy: Literal["distance", "inv_distance", "inv_exp_distance"],
         one_hot_encode: bool = False,
     ):
         """
@@ -287,25 +285,25 @@ class EgonetCollection(GraphCollection):
             mapped_central = egonet.node_mapping[central_node]
 
             d = pd.DataFrame()
-            d['node_id'] = egonet.nodes
-            d['graph_id'] = egonet.graph_id
+            d["node_id"] = egonet.nodes
+            d["graph_id"] = egonet.graph_id
             if egonet.graph_type == "igraph":
-                d['egonet_position'] = egonet.G.distances(mapped_central)[0]
+                d["egonet_position"] = egonet.G.distances(mapped_central)[0]
             else:
                 lengths = nx.single_source_shortest_path_length(egonet.G, mapped_central)
-                d['egonet_position'] = [lengths.get(n, float('inf')) for n in egonet.nodes]
-            if strategy == 'inv_distance':
-                d['egonet_position'] = 1 / (d['egonet_position'] + 1)
-            elif strategy == 'inv_exp_distance':
-                d['egonet_position'] = 1 / np.exp(d['egonet_position'] + 1)
+                d["egonet_position"] = [lengths.get(n, float("inf")) for n in egonet.nodes]
+            if strategy == "inv_distance":
+                d["egonet_position"] = 1 / (d["egonet_position"] + 1)
+            elif strategy == "inv_exp_distance":
+                d["egonet_position"] = 1 / np.exp(d["egonet_position"] + 1)
             df_position.append(d)
-            
+
         df_position = pd.concat(df_position, axis=0, ignore_index=True)
 
-        if one_hot_encode and strategy == 'distance':
-            df_position = pd.get_dummies(df_position, columns=['egonet_position'], dtype=np.int8)
-        elif not one_hot_encode and strategy == 'distance':
-            df_position['egonet_position'] = MinMaxScaler().fit_transform(df_position[['egonet_position']])
+        if one_hot_encode and strategy == "distance":
+            df_position = pd.get_dummies(df_position, columns=["egonet_position"], dtype=np.int8)
+        elif not one_hot_encode and strategy == "distance":
+            df_position["egonet_position"] = MinMaxScaler().fit_transform(df_position[["egonet_position"]])
 
-        positional_features = Features(df_position, [i for i in df_position.columns if i not in ['node_id', 'graph_id']])
+        positional_features = Features(df_position, [i for i in df_position.columns if i not in ["node_id", "graph_id"]])
         return positional_features

@@ -12,7 +12,7 @@ from NEExT.graphs import Graph
 class GraphCollection(BaseModel):
     """
     A collection class that manages multiple Graph instances.
-    
+
     This class provides functionality to store and manage multiple graphs,
     supporting both NetworkX and iGraph backends.
 
@@ -35,17 +35,17 @@ class GraphCollection(BaseModel):
     def sample_nodes(self, random_seed: Optional[int] = None) -> None:
         """
         Sample nodes from all graphs based on the node_sample_rate.
-        
+
         Args:
             random_seed (Optional[int]): Random seed for reproducibility
         """
         if random_seed is not None:
             random.seed(random_seed)
-            
+
         # Sample nodes for each graph
         for graph in self.graphs:
             graph.sample_nodes(self.node_sample_rate, random_seed=random.randint(0, 1000000))
-            
+
         # Update graph_id_node_array to only include sampled nodes
         if self.node_sample_rate < 1.0:
             self.graph_id_node_array = []
@@ -56,42 +56,42 @@ class GraphCollection(BaseModel):
     def _networkx_to_dict(self, nx_graph: nx.Graph, graph_id: int) -> Dict:
         """
         Convert a NetworkX graph to the dictionary format expected by add_graphs.
-        
+
         Args:
             nx_graph (nx.Graph): NetworkX graph to convert
             graph_id (int): Unique identifier to assign to this graph
-            
+
         Returns:
             Dict: Dictionary containing graph data in expected format
         """
         # Extract basic graph structure
         nodes = list(nx_graph.nodes())
         edges = list(nx_graph.edges())
-        
+
         # Extract node attributes
         node_attributes = {}
         for node in nodes:
             attrs = nx_graph.nodes[node]
             if attrs:  # Only add if there are attributes
                 node_attributes[node] = dict(attrs)
-        
+
         # Extract edge attributes
         edge_attributes = {}
         for edge in edges:
             attrs = nx_graph.edges[edge]
             if attrs:  # Only add if there are attributes
                 edge_attributes[edge] = dict(attrs)
-        
+
         # Extract graph-level attributes as graph_label if 'label' exists
-        graph_label = nx_graph.graph.get('label', None)
-        
+        graph_label = nx_graph.graph.get("label", None)
+
         return {
             "graph_id": graph_id,
             "graph_label": graph_label,
             "nodes": nodes,
             "edges": edges,
             "node_attributes": node_attributes,
-            "edge_attributes": edge_attributes
+            "edge_attributes": edge_attributes,
         }
 
     def add_graphs(
@@ -100,7 +100,7 @@ class GraphCollection(BaseModel):
         graph_type: Optional[Literal["networkx", "igraph"]] = None,
         reindex_nodes: bool = True,
         filter_largest_component: bool = True,
-        node_sample_rate: Optional[float] = None
+        node_sample_rate: Optional[float] = None,
     ) -> None:
         """
         Creates Graph instances from a list of dictionaries or NetworkX graphs.
@@ -118,7 +118,7 @@ class GraphCollection(BaseModel):
             graph_type (str, optional): Backend to use ("networkx" or "igraph").
                                       If None, uses the collection's default.
             reindex_nodes (bool): Whether to reindex nodes to start from 0 (default: True)
-            filter_largest_component (bool): Whether to keep only the largest connected 
+            filter_largest_component (bool): Whether to keep only the largest connected
                                            component of each graph (default: True)
             node_sample_rate (float, optional): Rate at which to sample nodes from each graph.
                                               If None, uses the collection's default.
@@ -126,13 +126,14 @@ class GraphCollection(BaseModel):
         """
         # Use instance graph_type if none provided
         graph_type = graph_type or self.graph_type
-        
+
         # Use instance node_sample_rate if none provided
         if node_sample_rate is not None:
             self.node_sample_rate = node_sample_rate
-        
-        # Clear existing graph_id_node_array
-        self.graph_id_node_array = []
+
+        # Initialize graph_id_node_array if not already set
+        if self.graph_id_node_array is None:
+            self.graph_id_node_array = []
 
         # Convert NetworkX graphs to dictionary format
         processed_graph_data = []
@@ -165,12 +166,12 @@ class GraphCollection(BaseModel):
                 edges=edges,
                 node_attributes=node_attributes,
                 edge_attributes=edge_attributes,
-                graph_type=graph_type
+                graph_type=graph_type,
             )
-            
+
             # Initialize the graph backend
             graph.initialize_graph()
-            
+
             # Apply processing steps if requested
             if filter_largest_component:
                 graph = graph.filter_largest_component()
@@ -182,7 +183,7 @@ class GraphCollection(BaseModel):
                 graph.initialize_graph()
 
             self.graphs.append(graph)
-            
+
             # Update graph_id_node_array with this graph's nodes
             self.graph_id_node_array.extend([graph_id] * len(graph.nodes))
 
@@ -203,16 +204,16 @@ class GraphCollection(BaseModel):
             if graph.graph_id == graph_id:
                 return graph
         return None
-    
+
     def get_total_node_count(self) -> int:
         """
         Get the total number of nodes across all graphs in the collection.
-        
+
         Returns:
             int: Total number of nodes
         """
         return len(self.graph_id_node_array) if self.graph_id_node_array else sum(len(g.nodes) for g in self.graphs)
-    
+
     def rebuild_graph_id_node_array(self) -> None:
         """
         Rebuild the graph_id_node_array from the current graphs.
@@ -225,40 +226,33 @@ class GraphCollection(BaseModel):
     def describe(self) -> dict:
         """
         Get basic information about the graph collection.
-        
+
         Returns:
             dict: Dictionary containing collection information
                 - num_graphs: Number of graphs in collection
                 - graph_type: Backend being used
                 - has_labels: Whether graphs have labels
         """
-        info = {
-            "num_graphs": len(self.graphs),
-            "graph_type": self.graph_type,
-            "has_labels": any(g.graph_label is not None for g in self.graphs)
-        }
+        info = {"num_graphs": len(self.graphs), "graph_type": self.graph_type, "has_labels": any(g.graph_label is not None for g in self.graphs)}
         return info
 
     def get_labels(self) -> pd.DataFrame:
         """
         Get a DataFrame with graph IDs and their labels.
-        
+
         Returns:
             pd.DataFrame: DataFrame with graph_id and label columns
         """
         graph_ids = []
         graph_labels = []
-        
+
         for graph in self.graphs:
             if graph.graph_label is not None:
                 graph_ids.append(graph.graph_id)
                 graph_labels.append(graph.graph_label)
-        
-        return pd.DataFrame({
-            "graph_id": graph_ids,
-            "label": graph_labels
-        })
-        
+
+        return pd.DataFrame({"graph_id": graph_ids, "label": graph_labels})
+
     def add_node_features(self, features_df: pd.DataFrame) -> None:
         """
         Add node features to graphs in the collection from an external pd.DataFrame.
@@ -270,23 +264,18 @@ class GraphCollection(BaseModel):
                 - node_id: ID of the node
                 - feature columns: Columns containing the feature values
         """
-        
+
         for graph in self.graphs:
-            graph_features_df = (
-                features_df
-                .query(f'graph_id=={graph.graph_id}')
-                .set_index('node_id')
-                .drop(columns=['graph_id'])
-            )
-            
+            graph_features_df = features_df.query(f"graph_id=={graph.graph_id}").set_index("node_id").drop(columns=["graph_id"])
+
             for feature, values in graph_features_df.to_dict().items():
                 for node_id, value in values.items():
                     if node_id not in graph.nodes:
-                        raise(f'Unexpected node_id: {node_id} found in graph {graph.graph_id} when adding node features')
-                    
+                        raise ValueError(f"Unexpected node_id: {node_id} found in graph {graph.graph_id} when adding node features")
+
                     graph.node_attributes[node_id][feature] = value
-                    
+
                     if graph.graph_type == "networkx":
-                        nx.set_node_attributes(graph.G, {node_id: {feature:value}})
+                        nx.set_node_attributes(graph.G, {node_id: {feature: value}})
                     else:
                         graph.G.vs[node_id][feature] = value

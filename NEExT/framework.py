@@ -8,10 +8,8 @@ from sklearn.preprocessing import StandardScaler
 
 from NEExT.collections import GraphCollection
 from NEExT.collections.egonet_collection import EgonetCollection
-from NEExT.embeddings import Embeddings
-from NEExT.embeddings import GraphEmbeddings
-from NEExT.features import Features
-from NEExT.features import StructuralNodeFeatures
+from NEExT.embeddings import Embeddings, GraphEmbeddings
+from NEExT.features import Features, StructuralNodeFeatures
 from NEExT.ml_models import FeatureImportance
 
 from .io import GraphIO
@@ -20,34 +18,35 @@ from .io import GraphIO
 class NEExT:
     """
     Main interface class for the NEExT framework.
-    
+
     This class maintains the state of various components and provides
     a unified interface for users to interact with the framework.
-    
+
     Attributes:
         logger: Logger instance for the framework
     """
-    
+
     def __init__(self, log_level: str = "INFO"):
         """
         Initialize the NEExT framework.
-        
+
         Args:
             log_level: Initial logging level (default: "INFO")
         """
         # Initialize logger
         self.logger = logging.getLogger("NEExT")
-        self.logger.setLevel(logging.INFO)
-        
+        level_map = {"DEBUG": logging.DEBUG, "INFO": logging.INFO, "WARNING": logging.WARNING, "ERROR": logging.ERROR, "CRITICAL": logging.CRITICAL}
+        self.logger.setLevel(level_map.get(log_level.upper(), logging.INFO))
+
         # Create console handler with formatting
         console_handler = logging.StreamHandler()
-        formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+        formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
         console_handler.setFormatter(formatter)
         self.logger.addHandler(console_handler)
-        
+
         # Initialize components
         self.graph_io = GraphIO(logger=self.logger)
-        
+
         self.logger.info("NEExT framework initialized")
 
     def set_log_level(self, level: str) -> None:
@@ -57,18 +56,12 @@ class NEExT:
         Args:
             level: Logging level ("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL")
         """
-        level_map = {
-            "DEBUG": logging.DEBUG,
-            "INFO": logging.INFO,
-            "WARNING": logging.WARNING,
-            "ERROR": logging.ERROR,
-            "CRITICAL": logging.CRITICAL
-        }
-        
+        level_map = {"DEBUG": logging.DEBUG, "INFO": logging.INFO, "WARNING": logging.WARNING, "ERROR": logging.ERROR, "CRITICAL": logging.CRITICAL}
+
         if level.upper() not in level_map:
             self.logger.error(f"Invalid log level: {level}")
             raise ValueError(f"Invalid log level. Choose from: {', '.join(level_map.keys())}")
-        
+
         log_level = level_map[level.upper()]
         self.logger.setLevel(log_level)
         self.logger.info(f"Log level set to: {level}")
@@ -83,7 +76,7 @@ class NEExT:
         graph_type: str = "networkx",
         reindex_nodes: bool = True,
         filter_largest_component: bool = True,
-        node_sample_rate: float = 1.0
+        node_sample_rate: float = 1.0,
     ) -> GraphCollection:
         """
         Read graph data from CSV files and return a graph collection.
@@ -96,11 +89,11 @@ class NEExT:
             edge_features_path: Optional path to edge features CSV file
             graph_type: Backend to use ("networkx" or "igraph"). Defaults to "networkx"
             reindex_nodes: Whether to reindex nodes to start from 0 (default: True)
-            filter_largest_component: Whether to keep only the largest connected 
+            filter_largest_component: Whether to keep only the largest connected
                                     component of each graph (default: True)
             node_sample_rate: Rate at which to sample nodes from each graph (default: 1.0).
                             Must be between 0 and 1.
-                                    
+
         Returns:
             GraphCollection: Collection of graphs loaded from CSV files
         """
@@ -110,7 +103,7 @@ class NEExT:
         self.logger.debug(f"Reindex nodes: {reindex_nodes}")
         self.logger.debug(f"Filter largest component: {filter_largest_component}")
         self.logger.debug(f"Node sample rate: {node_sample_rate}")
-        
+
         try:
             graph_collection = self.graph_io.read_from_csv(
                 edges_path=edges_path,
@@ -121,7 +114,7 @@ class NEExT:
                 graph_type=graph_type,
                 reindex_nodes=reindex_nodes,
                 filter_largest_component=filter_largest_component,
-                node_sample_rate=node_sample_rate
+                node_sample_rate=node_sample_rate,
             )
             self.logger.info("Successfully loaded graph collection")
             self.logger.debug(f"Loaded {len(graph_collection.graphs)} graphs")
@@ -136,20 +129,20 @@ class NEExT:
         graph_type: str = "networkx",
         reindex_nodes: bool = True,
         filter_largest_component: bool = True,
-        node_sample_rate: float = 1.0
+        node_sample_rate: float = 1.0,
     ) -> GraphCollection:
         """
         Create a GraphCollection from a list of NetworkX graphs.
-        
+
         Args:
             nx_graphs (List): List of NetworkX graph objects
             graph_type (str): Backend to use ("networkx" or "igraph"). Defaults to "networkx"
             reindex_nodes (bool): Whether to reindex nodes to start from 0 (default: True)
-            filter_largest_component (bool): Whether to keep only the largest connected 
+            filter_largest_component (bool): Whether to keep only the largest connected
                                            component of each graph (default: True)
             node_sample_rate (float): Rate at which to sample nodes from each graph (default: 1.0).
                                     Must be between 0 and 1.
-        
+
         Returns:
             GraphCollection: Collection of graphs created from the NetworkX graphs
         """
@@ -158,14 +151,14 @@ class NEExT:
         self.logger.debug(f"Reindex nodes: {reindex_nodes}")
         self.logger.debug(f"Filter largest component: {filter_largest_component}")
         self.logger.debug(f"Node sample rate: {node_sample_rate}")
-        
+
         try:
             graph_collection = self.graph_io.load_from_networkx(
                 nx_graphs=nx_graphs,
                 graph_type=graph_type,
                 reindex_nodes=reindex_nodes,
                 filter_largest_component=filter_largest_component,
-                node_sample_rate=node_sample_rate
+                node_sample_rate=node_sample_rate,
             )
             self.logger.info("Successfully loaded NetworkX graphs into collection")
             self.logger.debug(f"Loaded {len(graph_collection.graphs)} graphs")
@@ -177,12 +170,12 @@ class NEExT:
     def get_collection_info(self, graph_collection: GraphCollection) -> dict:
         """
         Get basic information about a graph collection.
-        
+
         This method is deprecated. Use graph_collection.describe() instead.
-        
+
         Args:
             graph_collection: The graph collection to get information about
-            
+
         Returns:
             dict: Dictionary containing collection information
         """
@@ -198,7 +191,7 @@ class NEExT:
         feature_vector_length: int = 3,
         normalize_features: bool = True,
         show_progress: bool = True,
-        n_jobs:int = -1,
+        n_jobs: int = -1,
         my_feature_methods: list = None,
     ) -> pd.DataFrame:
         """
@@ -215,23 +208,23 @@ class NEExT:
             pd.DataFrame: DataFrame containing computed features for all nodes
         """
         self.logger.info(f"Computing node features: {feature_list}")
-        
+
         node_features = StructuralNodeFeatures(
             graph_collection=graph_collection,
             feature_list=feature_list,
             feature_vector_length=feature_vector_length,
             normalize_features=normalize_features,
             show_progress=show_progress,
-            n_jobs=n_jobs
+            n_jobs=n_jobs,
         )
-        
+
         if my_feature_methods:
             for entry in my_feature_methods:
                 node_features.register_metric(entry["feature_name"], entry["feature_function"])
-        
+
         features = node_features.compute()
         self.logger.info(f"Computed features for {len(features.features_df)} nodes")
-        
+
         return features
 
     def compute_graph_embeddings(
@@ -242,11 +235,11 @@ class NEExT:
         embedding_dimension: int,
         feature_columns: Optional[List[str]] = None,
         random_state: int = 42,
-        memory_size: str = "4G"
+        memory_size: str = "4G",
     ) -> Embeddings:
         """
         Compute graph embeddings based on node features.
-        
+
         Args:
             graph_collection: Collection of graphs to compute embeddings for
             features: Features object containing node features
@@ -255,12 +248,12 @@ class NEExT:
             feature_columns: Specific feature columns to use (default: all)
             random_state: Random seed for reproducibility
             memory_size: Memory limit for algorithms that support it
-            
+
         Returns:
             Embeddings: Embeddings object containing computed embeddings
         """
         self.logger.info(f"Computing graph embeddings using {embedding_algorithm}")
-        
+
         graph_embeddings = GraphEmbeddings(
             graph_collection=graph_collection,
             features=features,
@@ -268,12 +261,12 @@ class NEExT:
             embedding_dimension=embedding_dimension,
             feature_columns=feature_columns,
             random_state=random_state,
-            memory_size=memory_size
+            memory_size=memory_size,
         )
-        
+
         embeddings = graph_embeddings.compute()
         self.logger.info(f"Computed embeddings for {len(embeddings.embeddings_df)} graphs")
-        
+
         return embeddings
 
     def train_ml_model(
@@ -284,11 +277,11 @@ class NEExT:
         balance_dataset: bool = False,
         sample_size: int = 5,
         n_jobs: int = -1,
-        parallel_backend: str = "process"
+        parallel_backend: str = "process",
     ) -> Dict:
         """
         Train and evaluate a machine learning model using graph embeddings.
-        
+
         Args:
             graph_collection: Collection of graphs with labels
             embeddings: Embeddings object containing graph embeddings
@@ -297,14 +290,14 @@ class NEExT:
             sample_size: Number of training/testing iterations (default: 5)
             n_jobs: Number of parallel jobs (-1 for all CPUs)
             parallel_backend: Parallelization backend ("process" or "thread")
-            
+
         Returns:
             Dict: Dictionary containing model information and evaluation metrics
         """
         self.logger.info(f"Training {model_type} model on graph embeddings")
-        
+
         from .ml_models import MLModels
-        
+
         ml_models = MLModels(
             graph_collection=graph_collection,
             embeddings=embeddings,
@@ -312,16 +305,16 @@ class NEExT:
             balance_dataset=balance_dataset,
             sample_size=sample_size,
             n_jobs=n_jobs,
-            parallel_backend=parallel_backend
+            parallel_backend=parallel_backend,
         )
-        
+
         results = ml_models.compute()
-        
+
         if model_type == "classifier":
             self.logger.info(f"Model trained with average accuracy: {np.mean(results['accuracy']):.4f}")
         else:
             self.logger.info(f"Model trained with average RMSE: {np.mean(results['rmse']):.4f}")
-        
+
         return results
 
     def compute_k_hop_egonets(
@@ -411,11 +404,11 @@ class NEExT:
         feature_importance_algorithm: str,
         embedding_algorithm: str = "approx_wasserstein",
         random_state: int = 42,
-        n_iterations: int = 5
+        n_iterations: int = 5,
     ) -> pd.DataFrame:
         """
         Compute feature importance for graph embeddings.
-        
+
         Args:
             graph_collection: Collection of graphs to analyze
             features: Features object containing node features
@@ -424,26 +417,26 @@ class NEExT:
             embedding_algorithm: Algorithm to use for embedding computation
             random_state: Random seed for reproducibility
             n_iterations: Number of iterations for computing average performance
-            
+
         Returns:
             pd.DataFrame: DataFrame containing feature importance results
         """
         self.logger.info(f"Computing feature importance using {feature_importance_algorithm}")
-        
+
         feature_importance = FeatureImportance(
             graph_collection=graph_collection,
             features=features,
             algorithm=feature_importance_algorithm,
             embedding_algorithm=embedding_algorithm,
             random_state=random_state,
-            n_iterations=n_iterations
+            n_iterations=n_iterations,
         )
-        
+
         results_df = feature_importance.compute()
         self.logger.info("Feature importance analysis completed")
-        
+
         return results_df
-    
+
     def compute_gnn_embeddings(
         self,
         graph_collection: GraphCollection,
@@ -455,15 +448,15 @@ class NEExT:
         learning_rate: float = 0.01,
         device: str = "cpu",
         pooling_method: str = "mean",
-        **kwargs
+        **kwargs,
     ) -> Embeddings:
         """
         Compute GNN-based graph embeddings using DGL.
-        
+
         This method uses Graph Neural Networks to learn embeddings from the graph
         structure and node features. Multiple architectures are supported including
         GCN, GAT, GraphSAGE, and GIN.
-        
+
         Args:
             graph_collection: Collection of graphs
             features: Node features computed using compute_node_features
@@ -481,14 +474,14 @@ class NEExT:
                 - gat_num_heads: Number of attention heads for GAT (default: 4)
                 - graphsage_aggregator: Aggregator for GraphSAGE (default: "mean")
                 - gin_eps: Initial epsilon for GIN (default: 0.0)
-                
+
         Returns:
             Embeddings: GNN-based graph embeddings
-            
+
         Raises:
             ImportError: If DGL is not installed
             ValueError: If invalid architecture is specified
-            
+
         Example:
             >>> nxt = NEExT()
             >>> graphs = nxt.read_from_csv(edges, mapping, labels)
@@ -502,82 +495,63 @@ class NEExT:
             ... )
         """
         try:
-            from NEExT.embeddings.dgl_embeddings import (
-                GNNEmbeddings,
-                GNNEmbeddingConfig,
-                GNNArchitectureConfig,
-                GNNTrainingConfig
-            )
             from NEExT.converters.dgl_converter import DGLConverterConfig
+            from NEExT.embeddings.dgl_embeddings import GNNArchitectureConfig, GNNEmbeddingConfig, GNNEmbeddings, GNNTrainingConfig
         except ImportError:
             self.logger.error("DGL is not installed. Install with: pip install 'NEExT[dgl]'")
             raise ImportError("DGL is required for GNN embeddings. Install with: pip install 'NEExT[dgl]'")
-        
+
         self.logger.info(f"Computing GNN embeddings using {architecture}")
-        
+
         # Set default hidden dimensions if not provided
         if hidden_dims is None:
             hidden_dims = [64, 32]
-        
+
         # Build architecture configuration
         arch_config_params = {
-            'architecture': architecture,
-            'hidden_dims': hidden_dims,
-            'output_dim': output_dim,
-            'dropout': kwargs.get('dropout', 0.0),
-            'activation': kwargs.get('activation', 'relu')
+            "architecture": architecture,
+            "hidden_dims": hidden_dims,
+            "output_dim": output_dim,
+            "dropout": kwargs.get("dropout", 0.0),
+            "activation": kwargs.get("activation", "relu"),
         }
-        
+
         # Add architecture-specific parameters
         if architecture == "GAT":
-            arch_config_params['gat_num_heads'] = kwargs.get('gat_num_heads', 4)
-            arch_config_params['gat_attn_dropout'] = kwargs.get('gat_attn_dropout', 0.0)
+            arch_config_params["gat_num_heads"] = kwargs.get("gat_num_heads", 4)
+            arch_config_params["gat_attn_dropout"] = kwargs.get("gat_attn_dropout", 0.0)
         elif architecture == "GraphSAGE":
-            arch_config_params['graphsage_aggregator'] = kwargs.get('graphsage_aggregator', 'mean')
+            arch_config_params["graphsage_aggregator"] = kwargs.get("graphsage_aggregator", "mean")
         elif architecture == "GIN":
-            arch_config_params['gin_eps'] = kwargs.get('gin_eps', 0.0)
-        
+            arch_config_params["gin_eps"] = kwargs.get("gin_eps", 0.0)
+
         arch_config = GNNArchitectureConfig(**arch_config_params)
-        
+
         # Build training configuration
         train_config = GNNTrainingConfig(
             epochs=epochs,
             learning_rate=learning_rate,
-            weight_decay=kwargs.get('weight_decay', 5e-4),
-            early_stopping_patience=kwargs.get('early_stopping_patience', 10),
-            train_ratio=kwargs.get('train_ratio', 0.8),
-            val_ratio=kwargs.get('val_ratio', 0.1),
-            random_state=kwargs.get('random_state', 42),
-            verbose=kwargs.get('verbose', True)
+            weight_decay=kwargs.get("weight_decay", 5e-4),
+            early_stopping_patience=kwargs.get("early_stopping_patience", 10),
+            train_ratio=kwargs.get("train_ratio", 0.8),
+            val_ratio=kwargs.get("val_ratio", 0.1),
+            random_state=kwargs.get("random_state", 42),
+            verbose=kwargs.get("verbose", True),
         )
-        
+
         # Build main configuration
         gnn_config = GNNEmbeddingConfig(
-            architecture=arch_config,
-            training=train_config,
-            device=device,
-            task_type="graph_embedding",
-            pooling_method=pooling_method
+            architecture=arch_config, training=train_config, device=device, task_type="graph_embedding", pooling_method=pooling_method
         )
-        
+
         # Build converter configuration
-        converter_config = DGLConverterConfig(
-            device=device,
-            dtype=kwargs.get('dtype', 'float32')
-        )
-        
+        converter_config = DGLConverterConfig(device=device, dtype=kwargs.get("dtype", "float32"))
+
         # Compute embeddings
-        gnn_embeddings = GNNEmbeddings(
-            graph_collection=graph_collection,
-            features=features,
-            config=gnn_config,
-            converter_config=converter_config
-        )
-        
+        gnn_embeddings = GNNEmbeddings(graph_collection=graph_collection, features=features, config=gnn_config, converter_config=converter_config)
+
         embeddings = gnn_embeddings.compute()
-        
-        self.logger.info(
-            f"Computed GNN embeddings using {architecture} with output dimension {output_dim}"
-        )
-        
+
+        self.logger.info(f"Computed GNN embeddings using {architecture} with output dimension {output_dim}")
+
         return embeddings

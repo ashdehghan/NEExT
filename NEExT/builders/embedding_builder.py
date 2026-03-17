@@ -30,10 +30,10 @@ class EmbeddingBuilder:
 
         if structural_features is not None:
             self.structural_embeddings_dimension = min(len(self.structural_features.feature_columns), embeddings_dimension)
-        
+
         if features is not None:
             self.feature_embeddings_dimension = min(len(self.features.feature_columns), embeddings_dimension)
-        
+
         if structural_features is not None and features is not None:
             self.combined_embeddings_dimension = self.structural_embeddings_dimension + self.feature_embeddings_dimension
 
@@ -72,7 +72,7 @@ class EmbeddingBuilder:
             random_state=self.random_state,
             memory_size=self.memory_size,
             suffix="struct",
-        )   
+        )
 
     def _get_node_feature_config(self):
         return dict(
@@ -116,18 +116,21 @@ class EmbeddingBuilder:
         return embeddings
 
     def _separate_embeddings(self):
-        structural_config = self._get_structural_config()
-        features_config = self._get_node_feature_config()
+        embeddings = None
 
-        graph_structural_embeddings = GraphEmbeddings(**structural_config)
-        graph_feature_embeddings = GraphEmbeddings(**features_config)
+        if self.structural_features is not None:
+            structural_config = self._get_structural_config()
+            graph_structural_embeddings = GraphEmbeddings(**structural_config)
+            embeddings = graph_structural_embeddings.compute()
 
-        embeddings = graph_structural_embeddings.compute()
-
-        # compute feature embedding and combine them only if node features are specified
-        if self.features.feature_columns is not None:
+        if self.features is not None:
+            features_config = self._get_node_feature_config()
+            graph_feature_embeddings = GraphEmbeddings(**features_config)
             feature_embeddings = graph_feature_embeddings.compute()
-            embeddings = embeddings + feature_embeddings
+            if embeddings is not None:
+                embeddings = embeddings + feature_embeddings
+            else:
+                embeddings = feature_embeddings
 
         return embeddings
 
@@ -154,7 +157,7 @@ class EmbeddingBuilder:
         embeddings = graph_structural_embeddings.compute()
         embeddings = embeddings + self.graph_collection.egonet_node_features
         return embeddings
-    
+
     def _feature_with_node_features(self):
         if not isinstance(self.graph_collection, EgonetCollection):
             raise Exception("Graph collection is not an EgonetCollection!")

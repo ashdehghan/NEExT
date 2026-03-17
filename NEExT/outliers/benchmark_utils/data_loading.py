@@ -1,7 +1,8 @@
+from typing import Dict
+
+import igraph as ig
 import numpy as np
 import pandas as pd
-from typing import Dict
-import igraph as ig
 
 
 def semi_supervised_set(
@@ -91,6 +92,8 @@ def load_airports_data(
     elif "usa" in name:
         edge_list_url = "https://raw.githubusercontent.com/node-embedding/ffstruc2vec/refs/heads/main/graph/usa-airports.edgelist"
         label_url = "https://raw.githubusercontent.com/node-embedding/ffstruc2vec/refs/heads/main/graph/labels-usa-airports.txt"
+    else:
+        raise ValueError(f"Unknown airport dataset: '{name}'. Must contain 'brazil', 'europe', or 'usa'.")
 
     edges_df = pd.read_csv(edge_list_url, delimiter=" ", header=None)
     edges_df.columns = ["src_node_id", "dest_node_id"]
