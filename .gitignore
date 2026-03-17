@@ -209,3 +209,7 @@ paper_experiments/
 
 # Sandbox directory for validation scripts
 sandbox/
+
+# Personal experiments and research notes (kept locally)
+ash_experiments/
+notes/
