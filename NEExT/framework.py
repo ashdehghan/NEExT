@@ -437,6 +437,53 @@ class NEExT:
 
         return results_df
 
+    def generate_synthetic_graphs(
+        self,
+        preset: Optional[str] = None,
+        specs: Optional[List] = None,
+        seed: int = 42,
+        **kwargs,
+    ) -> GraphCollection:
+        """Generate synthetic graphs and return a GraphCollection.
+
+        Can use either a named preset or custom GeneratorSpec list.
+
+        Args:
+            preset: Name of a preset experiment (e.g., "er_vs_ba", "multiclass_topology",
+                "community_gradient", "scalability", "variable_size", "anomaly_detection").
+            specs: List of (GeneratorSpec, count) tuples for custom generation.
+            seed: Random seed for reproducibility.
+            **kwargs: Additional arguments passed to the preset function.
+
+        Returns:
+            GraphCollection ready for feature computation and embedding.
+        """
+        from NEExT.generators import GraphGenerator, SyntheticPresets
+
+        self.logger.info("Generating synthetic graphs")
+
+        if preset is not None:
+            presets = SyntheticPresets(seed=seed)
+            preset_methods = {
+                "er_vs_ba": presets.binary_classification_er_vs_ba,
+                "multiclass_topology": presets.multiclass_topology,
+                "community_gradient": presets.community_strength_gradient,
+                "scalability": presets.scalability_test,
+                "variable_size": presets.variable_size_classification,
+                "anomaly_detection": presets.egonet_anomaly_detection,
+            }
+            if preset not in preset_methods:
+                raise ValueError(f"Unknown preset '{preset}'. Available: {list(preset_methods.keys())}")
+            graphs = preset_methods[preset](**kwargs)
+        elif specs is not None:
+            gen = GraphGenerator(seed=seed)
+            graphs = gen.generate_collection(specs, shuffle=kwargs.get("shuffle", True))
+        else:
+            raise ValueError("Either 'preset' or 'specs' must be provided")
+
+        self.logger.info(f"Generated {len(graphs)} synthetic graphs")
+        return self.load_from_networkx(graphs)
+
     def compute_gnn_embeddings(
         self,
         graph_collection: GraphCollection,

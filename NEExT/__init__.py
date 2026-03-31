@@ -6,6 +6,7 @@ __version__ = "0.2.10"
 
 # Make the class directly available when someone does NEExT()
 from .framework import NEExT
+from .generators import GraphBuilder, GraphGenerator, SyntheticPresets
 
 # This allows "from NEExT import *"
-__all__ = ['NEExT']
+__all__ = ['NEExT', 'GraphGenerator', 'GraphBuilder', 'SyntheticPresets']
