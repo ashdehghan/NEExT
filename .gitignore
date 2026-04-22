@@ -38,6 +38,10 @@ env/
 .env/
 .venv/
 
+# Local secrets (PyPI token, etc.)
+.env
+.env.local
+
 # IDE specific files
 .idea/
 .vscode/
