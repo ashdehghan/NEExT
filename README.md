@@ -58,8 +58,9 @@ Here's how you can define a simple custom feature function and use it:
 import pandas as pd
 
 # 1. Define your custom feature function
-# This function must be defined at the top level of your script/module
-# if you plan to use multiprocessing (n_jobs != 1).
+# Works from scripts, modules, and Jupyter notebook cells — the function is
+# shipped to workers via cloudpickle, so top-level notebook definitions are fine.
+# Avoid closing over unpicklable objects (open file handles, live DB connections, etc.).
 def my_node_degree_squared(graph):
     nodes = list(graph.nodes) # or range(graph.G.vcount()) for igraph if nodes are 0-indexed
     graph_id = graph.graph_id

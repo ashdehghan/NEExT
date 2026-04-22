@@ -1,13 +1,13 @@
 import logging
 import random
 from collections import defaultdict
-from multiprocessing import Pool
 from typing import Dict, List, Literal, Optional, Union
 
 import igraph as ig
 import networkx as nx
 import numpy as np
 import pandas as pd
+from joblib import Parallel, delayed
 from pydantic import BaseModel, Field
 from sklearn.preprocessing import StandardScaler
 from tqdm.auto import tqdm
@@ -661,13 +661,9 @@ class StructuralNodeFeatures:
             if self.config.n_jobs == 1:
                 feature_dfs = [self._compute_graph_node_features(graph, resolved_feature_list) for graph in graphs]
             else:
-                with Pool() as pool:
-                    # We need a way to pass resolved_feature_list to the mapped function
-                    # Using functools.partial or a lambda wrapper
-                    from functools import partial
-
-                    compute_func = partial(self._compute_graph_node_features, resolved_feature_list=resolved_feature_list)
-                    feature_dfs = pool.map(compute_func, graphs)
+                feature_dfs = Parallel(n_jobs=self.config.n_jobs, backend="loky")(
+                    delayed(self._compute_graph_node_features)(graph, resolved_feature_list) for graph in graphs
+                )
 
             if not feature_dfs:
                 raise ValueError("No features were computed. Check if the feature list is empty or if there are no graphs.")
