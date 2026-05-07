@@ -94,11 +94,11 @@ Do not assume `uv`, `pytest`, `ruff`, or other development tools are installed i
 
 ## Repo-Specific Cautions
 
-- `pyproject.toml` currently declares project version `0.2.11`, while `NEExT/__init__.py` exports `__version__ = "0.2.10"`. Flag this before release-related work; do not silently modify it in unrelated tasks.
+- Package version is sourced from `NEExT/__init__.py` via Hatch dynamic versioning. Update `__version__` there for release work; do not add a static `version = ...` field back to `pyproject.toml`.
 - `CLAUDE.md` is useful context, but it underemphasizes the current `generators` and `outliers` packages. Inspect those modules directly for related work.
 - `pyproject.toml` defines `dev`, `docs`, `experiments`, `advanced`, `dgl`, `all`, and `all-dl` extras. Do not assume a separate `test` extra exists.
 - The root `Makefile` includes documentation and deploy targets only. Quality commands are configured in `pyproject.toml`, not as Makefile targets.
-- The GitHub workflow `.github/workflows/python-publish.yml` publishes on GitHub release publication; local `make deploy` has its own release path. Treat release automation carefully and only on explicit request.
+- PyPI publication is direct/local only. Use `make release-check` and `make deploy`; do not publish packages, create release tags, or push to remotes unless explicitly requested.
 
 ## Custom Feature Contract
 

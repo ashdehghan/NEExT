@@ -1,37 +1,42 @@
-import os
+import re
 import sys
-sys.path.insert(0, os.path.abspath('../..'))
+from pathlib import Path
 
-project = 'NEExT'
-copyright = '2024, NEExT'
-author = 'Ash Dehghan'
-release = '0.1.0'
+ROOT_DIR = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT_DIR))
+
+project = "NEExT"
+copyright = "2024, NEExT"
+author = "Ash Dehghan"
+
+version_file = ROOT_DIR / "NEExT" / "__init__.py"
+release = re.search(r'__version__ = "([^"]+)"', version_file.read_text(encoding="utf-8")).group(1)
 
 extensions = [
-    'sphinx.ext.autodoc',
-    'sphinx.ext.napoleon',
-    'sphinx.ext.viewcode',
-    'sphinx.ext.githubpages',
-    'sphinx_autodoc_typehints',
-    'sphinx_rtd_theme',
-    'myst_parser',
-    'nbsphinx',
-    'sphinx_copybutton',
+    "sphinx.ext.autodoc",
+    "sphinx.ext.napoleon",
+    "sphinx.ext.viewcode",
+    "sphinx.ext.githubpages",
+    "sphinx_autodoc_typehints",
+    "sphinx_rtd_theme",
+    "myst_parser",
+    "nbsphinx",
+    "sphinx_copybutton",
 ]
 
-templates_path = ['_templates']
+templates_path = ["_templates"]
 exclude_patterns = []
 
-html_theme = 'sphinx_rtd_theme'
-html_static_path = ['_static']
+html_theme = "sphinx_rtd_theme"
+html_static_path = ["_static"]
 
 # AutoDoc settings
-autodoc_member_order = 'bysource'
-autodoc_typehints = 'description'
-autoclass_content = 'both'
+autodoc_member_order = "bysource"
+autodoc_typehints = "description"
+autoclass_content = "both"
 
 # Napoleon settings
 napoleon_google_docstring = True
 napoleon_numpy_docstring = True
 napoleon_include_init_with_doc = True
-napoleon_include_private_with_doc = True 
+napoleon_include_private_with_doc = True

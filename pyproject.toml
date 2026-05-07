@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "NEExT"
-version = "0.2.11"
+dynamic = ["version"]
 description = "Network Embedding Experimentation Toolkit - A powerful framework for graph analysis, embedding computation, and machine learning on graph-structured data"
 readme = "README.md"
 requires-python = ">=3.9,<3.13"

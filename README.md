@@ -290,6 +290,28 @@ flake8 .
 mypy .
 ```
 
+### Publishing to PyPI
+
+NEExT uses direct local publication through the root `Makefile`. GitHub Releases
+do not publish the package.
+
+Before publishing:
+
+1. Update `__version__` in `NEExT/__init__.py`. `pyproject.toml` and the docs
+   derive the package version from that file.
+2. Commit all release changes on `main`.
+3. Create `.env` with `PYPI_API_TOKEN=pypi-...`.
+4. Run the validation and publish flow:
+
+```bash
+make release-check
+make deploy
+```
+
+`make deploy` verifies the working tree and token, builds with `uv build`, pushes
+`main`, creates and pushes the `release_v_<version>` tag, and publishes with
+`uv publish`.
+
 ## 🤝 Contributing
 
 1. Fork the repository
