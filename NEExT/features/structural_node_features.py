@@ -87,10 +87,10 @@ class StructuralNodeFeatures:
         normalize_features: bool = True,
         show_progress: bool = True,
         n_jobs: int = -1,
+        suffix: str = "",
         parallel_backend: Literal["loky", "threading"] = "loky",
         profile_features: bool = False,
         joblib_kwargs: Optional[dict[str, Any]] = None,
-        suffix: str = "",
     ):
         """Initialize the NodeFeatures processor."""
         self.graph_collection = graph_collection

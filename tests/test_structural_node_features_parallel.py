@@ -65,6 +65,53 @@ def test_parallel_backends_match_sequential_for_builtin_and_local_custom_feature
     assert sequential.feature_columns == loky.feature_columns == threading.feature_columns
 
 
+def test_compute_node_features_preserves_positional_custom_methods_argument():
+    nxt, collection = _make_collection()
+
+    def positional_custom_feature(graph):
+        nodes = list(graph.sampled_nodes if graph.sampled_nodes is not None else graph.nodes)
+        df = pd.DataFrame(
+            {
+                "node_id": nodes,
+                "graph_id": graph.graph_id,
+                "positional_custom_0": [float(node) for node in nodes],
+            }
+        )
+        return df[["node_id", "graph_id", "positional_custom_0"]]
+
+    custom_methods = [{"feature_name": "positional_custom", "feature_function": positional_custom_feature}]
+
+    features = nxt.compute_node_features(
+        collection,
+        ["positional_custom"],
+        2,
+        False,
+        False,
+        1,
+        custom_methods,
+    )
+
+    assert features.feature_columns == ["positional_custom_0"]
+    assert "positional_custom_0" in features.features_df.columns
+
+
+def test_structural_node_features_preserves_positional_suffix_argument():
+    _, collection = _make_collection()
+
+    node_features = StructuralNodeFeatures(
+        collection,
+        ["degree_centrality"],
+        2,
+        False,
+        False,
+        1,
+        "legacy",
+    )
+    features = node_features.compute()
+
+    assert features.feature_columns == ["degree_centrality_0_legacy", "degree_centrality_1_legacy"]
+
+
 def test_invalid_parallel_backend_raises_validation_error():
     _, collection = _make_collection()
 
