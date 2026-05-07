@@ -1,23 +1,26 @@
 import logging
 import random
+import time
 from collections import defaultdict
-from typing import Dict, List, Literal, Optional, Union
+from typing import Any, List, Literal, Optional
 
 import igraph as ig
 import networkx as nx
 import numpy as np
 import pandas as pd
 from joblib import Parallel, delayed
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from sklearn.preprocessing import StandardScaler
 from tqdm.auto import tqdm
 
 from NEExT.collections import GraphCollection
 from NEExT.features import Features
-from NEExT.helper_functions import get_all_neighborhoods_ig, get_all_neighborhoods_nx, get_nodes_x_hops_away
+from NEExT.helper_functions import get_all_neighborhoods_ig, get_all_neighborhoods_nx
 
 # Set up logger
 logger = logging.getLogger(__name__)
+
+_NEEXT_OWNED_JOBLIB_KWARGS = {"n_jobs", "backend", "return_as"}
 
 
 class StructuralNodeFeatureConfig(BaseModel):
@@ -28,7 +31,25 @@ class StructuralNodeFeatureConfig(BaseModel):
     normalize_features: bool = True
     show_progress: bool = Field(default=True)
     n_jobs: int = -1
+    parallel_backend: Literal["loky", "threading"] = "loky"
+    profile_features: bool = False
+    joblib_kwargs: Optional[dict[str, Any]] = None
     suffix: str = ""
+
+    @field_validator("joblib_kwargs")
+    @classmethod
+    def validate_joblib_kwargs(cls, value: Optional[dict[str, Any]]) -> Optional[dict[str, Any]]:
+        if value is None:
+            return None
+
+        owned_keys = sorted(_NEEXT_OWNED_JOBLIB_KWARGS.intersection(value))
+        if owned_keys:
+            raise ValueError(
+                "joblib_kwargs cannot include NEExT-owned joblib arguments: "
+                f"{', '.join(owned_keys)}. Use StructuralNodeFeatures arguments for these controls."
+            )
+
+        return dict(value)
 
 
 class StructuralNodeFeatures:
@@ -66,6 +87,9 @@ class StructuralNodeFeatures:
         normalize_features: bool = True,
         show_progress: bool = True,
         n_jobs: int = -1,
+        parallel_backend: Literal["loky", "threading"] = "loky",
+        profile_features: bool = False,
+        joblib_kwargs: Optional[dict[str, Any]] = None,
         suffix: str = "",
     ):
         """Initialize the NodeFeatures processor."""
@@ -93,6 +117,9 @@ class StructuralNodeFeatures:
             normalize_features=normalize_features,
             show_progress=show_progress,
             n_jobs=n_jobs,
+            parallel_backend=parallel_backend,
+            profile_features=profile_features,
+            joblib_kwargs=joblib_kwargs,
             suffix=suffix,
         )
         self.features_df = None
@@ -624,6 +651,7 @@ class StructuralNodeFeatures:
 
     def compute(self) -> Features:
         feature_dfs = []
+        profile_records = []
 
         # Resolve and validate feature list here, after custom metrics might be registered
         resolved_feature_list = []
@@ -659,11 +687,20 @@ class StructuralNodeFeatures:
             feature_columns = []
         else:
             if self.config.n_jobs == 1:
-                feature_dfs = [self._compute_graph_node_features(graph, resolved_feature_list) for graph in graphs]
+                results = [self._compute_graph_node_features(graph, resolved_feature_list) for graph in graphs]
             else:
-                feature_dfs = Parallel(n_jobs=self.config.n_jobs, backend="loky")(
+                joblib_kwargs = self.config.joblib_kwargs or {}
+                results = Parallel(n_jobs=self.config.n_jobs, backend=self.config.parallel_backend, **joblib_kwargs)(
                     delayed(self._compute_graph_node_features)(graph, resolved_feature_list) for graph in graphs
                 )
+
+            if self.config.profile_features:
+                for graph_df, graph_profile_records in results:
+                    feature_dfs.append(graph_df)
+                    profile_records.extend(graph_profile_records)
+                self._log_feature_profile_records(profile_records)
+            else:
+                feature_dfs = results
 
             if not feature_dfs:
                 raise ValueError("No features were computed. Check if the feature list is empty or if there are no graphs.")
@@ -689,17 +726,29 @@ class StructuralNodeFeatures:
                 self._neighborhood_cache[graph.graph_id] = current_cache
 
         graph_features = []
+        profile_records = []
         for feature_name in resolved_feature_list:  # Use the resolved list
             # This check is now redundant due to validation in compute(), but kept for safety
             if feature_name not in self.available_features:
                 raise ValueError(f"Unknown feature: {feature_name}")
 
+            start = time.perf_counter()
             feature_df = self.available_features[feature_name](graph)
+            duration_s = time.perf_counter() - start
             graph_features.append(feature_df)
+            if self.config.profile_features:
+                profile_records.append(
+                    self._build_feature_profile_record(
+                        graph=graph,
+                        feature_name=feature_name,
+                        feature_df=feature_df,
+                        duration_s=duration_s,
+                    )
+                )
 
         if not graph_features:  # Handle case where no features were computed for this graph
             graph_df = pd.DataFrame({"node_id": graph.nodes, "graph_id": graph.graph_id})
-            return graph_df
+            return (graph_df, profile_records) if self.config.profile_features else graph_df
 
         graph_df = graph_features[0]
         for df in graph_features[1:]:
@@ -707,7 +756,41 @@ class StructuralNodeFeatures:
         if self.config.suffix:
             graph_df.columns = [f"{col}_{self.config.suffix}" if col not in ["node_id", "graph_id"] else col for col in graph_df.columns]
 
-        return graph_df
+        return (graph_df, profile_records) if self.config.profile_features else graph_df
+
+    def _build_feature_profile_record(self, graph, feature_name: str, feature_df: pd.DataFrame, duration_s: float) -> dict[str, Any]:
+        sampled_nodes = graph.sampled_nodes if graph.sampled_nodes is not None else graph.nodes
+        backend = "sequential" if self.config.n_jobs == 1 else self.config.parallel_backend
+        return {
+            "graph_id": graph.graph_id,
+            "feature": feature_name,
+            "node_count": len(graph.nodes),
+            "edge_count": len(graph.edges),
+            "sampled_node_count": len(sampled_nodes),
+            "backend": backend,
+            "n_jobs": self.config.n_jobs,
+            "duration_s": duration_s,
+            "output_rows": len(feature_df),
+            "output_columns": len(feature_df.columns),
+        }
+
+    def _log_feature_profile_records(self, profile_records: list[dict[str, Any]]) -> None:
+        for record in profile_records:
+            logger.info(
+                "node_feature_profile graph_id=%s feature=%s node_count=%s edge_count=%s sampled_node_count=%s backend=%s "
+                "n_jobs=%s duration_s=%.6f output_rows=%s output_columns=%s",
+                record["graph_id"],
+                record["feature"],
+                record["node_count"],
+                record["edge_count"],
+                record["sampled_node_count"],
+                record["backend"],
+                record["n_jobs"],
+                record["duration_s"],
+                record["output_rows"],
+                record["output_columns"],
+                extra={"node_feature_profile": record},
+            )
 
     def register_metric(self, name: str, func):
         """

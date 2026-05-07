@@ -1,10 +1,9 @@
 import logging
 from pathlib import Path
-from typing import Dict, List, Literal, Optional, Union
+from typing import Any, Dict, List, Literal, Optional, Union
 
 import numpy as np
 import pandas as pd
-from sklearn.preprocessing import StandardScaler
 
 from NEExT.collections import GraphCollection
 from NEExT.collections.egonet_collection import EgonetCollection
@@ -192,8 +191,11 @@ class NEExT:
         normalize_features: bool = True,
         show_progress: bool = True,
         n_jobs: int = -1,
+        parallel_backend: Literal["loky", "threading"] = "loky",
+        profile_features: bool = False,
+        joblib_kwargs: Optional[dict[str, Any]] = None,
         my_feature_methods: list = None,
-    ) -> pd.DataFrame:
+    ) -> Features:
         """
         Compute node features for all graphs in the collection.
 
@@ -203,9 +205,13 @@ class NEExT:
             feature_vector_length: Length of feature vector for each node (default: 3)
             normalize_features: Whether to normalize features across all nodes (default: True)
             show_progress: Whether to show progress bars during computation (default: True)
+            n_jobs: Number of parallel jobs to use. Use 1 for sequential execution (default: -1)
+            parallel_backend: Joblib backend for parallel execution, either "loky" or "threading" (default: "loky")
+            profile_features: Whether to log per graph-feature timing records at INFO level (default: False)
+            joblib_kwargs: Optional advanced keyword arguments passed to joblib.Parallel for parallel execution
 
         Returns:
-            pd.DataFrame: DataFrame containing computed features for all nodes
+            Features: Container with computed feature data for all nodes
         """
         self.logger.info(f"Computing node features: {feature_list}")
 
@@ -216,6 +222,9 @@ class NEExT:
             normalize_features=normalize_features,
             show_progress=show_progress,
             n_jobs=n_jobs,
+            parallel_backend=parallel_backend,
+            profile_features=profile_features,
+            joblib_kwargs=joblib_kwargs,
         )
 
         if my_feature_methods:

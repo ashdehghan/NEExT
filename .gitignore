@@ -195,7 +195,11 @@ test.ipynb
 #.idea/
 
 # Experiments directory (research experiments, kept locally)
-experiments/
+/experiments/*
+!/experiments/perf/
+!/experiments/perf/*.py
+!/experiments/perf/*.md
+/experiments/perf/results/
 local
 mlruns
 mlartifacts

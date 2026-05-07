@@ -55,6 +55,7 @@ Your custom feature function must adhere to the following structure:
 Here's how you can define a simple custom feature function and use it:
 
 ```python
+import networkx as nx
 import pandas as pd
 
 # 1. Define your custom feature function
@@ -104,6 +105,14 @@ print(features.features_df.head())
 ```
 
 When you include `"my_degree_squared"` in the `feature_list` and provide `my_feature_methods`, NEExT will automatically register and compute your custom function. If `"all"` is in `feature_list`, your custom registered function will also be included in the computation.
+
+**Parallel execution controls:**
+
+By default, `compute_node_features()` uses `n_jobs=-1` and `parallel_backend="loky"` for parallel execution. The `loky` process backend is the safer default for custom functions defined in Jupyter notebooks because joblib can serialize them with cloudpickle, but it may spend substantial time serializing large graph objects and feature functions.
+
+For serialization-heavy workloads, try `parallel_backend="threading"`. Threads avoid sending graph objects to worker processes, which can be faster when pickling dominates runtime, but GIL-bound Python code may still scale poorly. Benchmark expensive custom features with `n_jobs=1`, `2`, `4`, and `-1` before choosing production settings.
+
+Advanced joblib options can be passed through with `joblib_kwargs`, for example `joblib_kwargs={"idle_worker_timeout": 120}` for the loky backend or `joblib_kwargs={"timeout": 300}`. These are tuning controls for scheduling and worker behavior, not guaranteed fixes for memory pressure.
 
 ## 📦 Installation
 

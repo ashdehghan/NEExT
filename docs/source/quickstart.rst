@@ -48,11 +48,18 @@ Basic Example
         #   * Page rank: Measures node importance based on neighbor importance
         #   * Clustering coefficient: Measures local clustering around node
         # - feature_vector_length=3: Aggregates features from 3-hop neighborhoods
+        # - n_jobs=-1: Uses all available workers for graph-level parallelism
+        # - parallel_backend="loky": Default notebook-safe process backend
+        #   (try "threading" when process serialization dominates custom features)
+        # - profile_features=False: Set True to log per graph-feature timings
         features = nxt.compute_node_features(
             graph_collection=graph_collection,
             feature_list=["all"],
             feature_vector_length=3,
-            show_progress=True
+            show_progress=True,
+            n_jobs=-1,
+            parallel_backend="loky",
+            profile_features=False
         )
 
         # Normalize features using StandardScaler
@@ -149,4 +156,4 @@ The code above will produce several outputs:
 
 This example demonstrates the complete workflow from loading graph data to analyzing
 feature importance, using NEExT's high-level interface while maintaining flexibility
-and configurability at each step. 
+and configurability at each step.

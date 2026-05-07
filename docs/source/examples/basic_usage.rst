@@ -48,8 +48,16 @@ and global structural properties of the nodes.
         graph_collection=graph_collection,
         feature_list=["all"],  # Compute all available features
         feature_vector_length=3,  # Number of hops for neighborhood aggregation
-        show_progress=True
+        show_progress=True,
+        n_jobs=-1,  # Use all available workers for graph-level parallelism
+        parallel_backend="loky",  # Default notebook-safe process backend
+        profile_features=False  # Set True to log per graph-feature timings
     )
+
+    # For expensive custom features, benchmark n_jobs=1, 2, 4, and -1.
+    # If process serialization dominates runtime, try parallel_backend="threading".
+    # Advanced joblib tuning can be passed with joblib_kwargs, such as
+    # joblib_kwargs={"idle_worker_timeout": 120} or joblib_kwargs={"timeout": 300}.
 
     # Normalize features for better model performance
     features.normalize(type="StandardScaler")
@@ -114,4 +122,4 @@ We'll use the fast supervised method which is more efficient than the greedy app
 
 The feature importance results show which node features contribute most to the model's
 performance, ranked from most to least important. This can help in feature selection
-and understanding which structural properties are most relevant for the task. 
+and understanding which structural properties are most relevant for the task.
