@@ -30,7 +30,7 @@ class StructuralNodeFeatureConfig(BaseModel):
     feature_vector_length: int
     normalize_features: bool = True
     show_progress: bool = Field(default=True)
-    n_jobs: int = -1
+    n_jobs: int = 1
     parallel_backend: Literal["loky", "threading"] = "loky"
     profile_features: bool = False
     joblib_kwargs: Optional[dict[str, Any]] = None
@@ -74,7 +74,7 @@ class StructuralNodeFeatures:
         ...     graph_collection=collection,
         ...     feature_list=["page_rank", "degree_centrality"],
         ...     feature_vector_length=3,
-        ...     n_jobs=-1
+        ...     n_jobs=1
         ... )
         >>> features_df = node_features.compute()
     """
@@ -86,7 +86,7 @@ class StructuralNodeFeatures:
         feature_vector_length: int = 3,
         normalize_features: bool = True,
         show_progress: bool = True,
-        n_jobs: int = -1,
+        n_jobs: int = 1,
         suffix: str = "",
         parallel_backend: Literal["loky", "threading"] = "loky",
         profile_features: bool = False,

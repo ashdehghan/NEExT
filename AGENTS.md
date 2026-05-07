@@ -97,8 +97,8 @@ Do not assume `uv`, `pytest`, `ruff`, or other development tools are installed i
 - Package version is sourced from `NEExT/__init__.py` via Hatch dynamic versioning. Update `__version__` there for release work; do not add a static `version = ...` field back to `pyproject.toml`.
 - `CLAUDE.md` is useful context, but it underemphasizes the current `generators` and `outliers` packages. Inspect those modules directly for related work.
 - `pyproject.toml` defines `dev`, `docs`, `experiments`, `advanced`, `dgl`, `all`, and `all-dl` extras. Do not assume a separate `test` extra exists.
-- The root `Makefile` includes documentation and deploy targets only. Quality commands are configured in `pyproject.toml`, not as Makefile targets.
-- PyPI publication is direct/local only. Use `make release-check` and `make deploy`; do not publish packages, create release tags, or push to remotes unless explicitly requested.
+- The root `Makefile` includes documentation and direct PyPI release targets. Quality commands are configured in `pyproject.toml`, not as Makefile targets.
+- PyPI publication is direct/local only. Use `make release-check` plus `make deploy` for the full push/tag/publish flow, or `make publish-only` after `main` has already been pushed. Do not publish packages, create release tags, or push to remotes unless explicitly requested.
 
 ## Custom Feature Contract
 

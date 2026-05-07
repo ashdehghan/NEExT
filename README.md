@@ -108,7 +108,7 @@ When you include `"my_degree_squared"` in the `feature_list` and provide `my_fea
 
 **Parallel execution controls:**
 
-By default, `compute_node_features()` uses `n_jobs=-1` and `parallel_backend="loky"` for parallel execution. The `loky` process backend is the safer default for custom functions defined in Jupyter notebooks because joblib can serialize them with cloudpickle, but it may spend substantial time serializing large graph objects and feature functions.
+By default, `compute_node_features()` uses `n_jobs=1`, so feature computation runs sequentially on a single CPU. To opt into graph-level parallel execution, pass `n_jobs=2`, `4`, or `-1`. When parallel execution is enabled, `parallel_backend="loky"` remains the default process backend. It is notebook-safe for custom functions because joblib can serialize them with cloudpickle, but it may spend substantial time serializing large graph objects and feature functions.
 
 For serialization-heavy workloads, try `parallel_backend="threading"`. Threads avoid sending graph objects to worker processes, which can be faster when pickling dominates runtime, but GIL-bound Python code may still scale poorly. Benchmark expensive custom features with `n_jobs=1`, `2`, `4`, and `-1` before choosing production settings.
 
@@ -301,7 +301,8 @@ Before publishing:
    derive the package version from that file.
 2. Commit all release changes on `main`.
 3. Create `.env` with `PYPI_API_TOKEN=pypi-...`.
-4. Run the validation and publish flow:
+4. Run the validation and publish flow. For a one-command release that pushes
+   `main`, pushes the tag, and publishes:
 
 ```bash
 make release-check
@@ -311,6 +312,16 @@ make deploy
 `make deploy` verifies the working tree and token, builds with `uv build`, pushes
 `main`, creates and pushes the `release_v_<version>` tag, and publishes with
 `uv publish`.
+
+If `main` has already been pushed separately, use:
+
+```bash
+make publish-only
+```
+
+`make publish-only` requires local `main` to match `origin/main`, builds and
+publishes the package, and creates the local `release_v_<version>` tag without
+pushing commits or tags.
 
 ## 🤝 Contributing
 

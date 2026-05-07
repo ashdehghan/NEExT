@@ -1,4 +1,4 @@
-.PHONY: docs clean release-check deploy
+.PHONY: docs clean release-check deploy publish-only
 
 docs:
 	cd docs && make html
@@ -58,3 +58,38 @@ deploy: release-check
 	@set -a; . ./.env; set +a; uv publish --token "$$PYPI_API_TOKEN"
 	@echo ""
 	@echo "DONE. Verify: https://pypi.org/project/NEExT/$(VERSION)/"
+
+publish-only: release-check
+	@LOCAL=$$(git rev-parse HEAD); REMOTE=$$(git rev-parse origin/main); \
+	if [ "$$LOCAL" != "$$REMOTE" ]; then \
+		echo "ERROR: local main does not match origin/main. Push main first, then rerun make publish-only."; \
+		exit 1; \
+	fi
+	@echo ""
+	@echo "========================================"
+	@echo "  NEExT Publish Only: $(VERSION)"
+	@echo "  Tag:                $(TAG)"
+	@echo "========================================"
+	@echo ""
+	@echo "This will:"
+	@echo "  1. uv build  (clean dist/ first)"
+	@echo "  2. uv publish  (to PyPI, using token from .env)"
+	@echo "  3. git tag -a $(TAG) -m 'v$(VERSION)'  (local tag only)"
+	@echo ""
+	@echo "It will not push main or tags."
+	@echo ""
+	@read -p "Proceed? [y/N] " ans; \
+	case "$$ans" in \
+		  y|Y|yes|YES) : ;; \
+		  *) echo "Aborted."; exit 1;; \
+	esac
+	@echo ">>> Building..."
+	rm -rf dist/
+	uv build
+	@echo ">>> Publishing to PyPI..."
+	@set -a; . ./.env; set +a; uv publish --token "$$PYPI_API_TOKEN"
+	@echo ">>> Tagging $(TAG) locally..."
+	git tag -a $(TAG) -m "v$(VERSION)"
+	@echo ""
+	@echo "DONE. Verify: https://pypi.org/project/NEExT/$(VERSION)/"
+	@echo "Push the release tag when ready: git push origin $(TAG)"

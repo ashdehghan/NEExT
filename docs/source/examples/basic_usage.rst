@@ -49,8 +49,8 @@ and global structural properties of the nodes.
         feature_list=["all"],  # Compute all available features
         feature_vector_length=3,  # Number of hops for neighborhood aggregation
         show_progress=True,
-        n_jobs=-1,  # Use all available workers for graph-level parallelism
-        parallel_backend="loky",  # Default notebook-safe process backend
+        n_jobs=1,  # Default: run sequentially on one CPU
+        parallel_backend="loky",  # Default process backend when n_jobs != 1
         profile_features=False  # Set True to log per graph-feature timings
     )
 

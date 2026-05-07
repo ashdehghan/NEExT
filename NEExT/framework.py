@@ -190,7 +190,7 @@ class NEExT:
         feature_vector_length: int = 3,
         normalize_features: bool = True,
         show_progress: bool = True,
-        n_jobs: int = -1,
+        n_jobs: int = 1,
         my_feature_methods: list = None,
         parallel_backend: Literal["loky", "threading"] = "loky",
         profile_features: bool = False,
@@ -205,7 +205,7 @@ class NEExT:
             feature_vector_length: Length of feature vector for each node (default: 3)
             normalize_features: Whether to normalize features across all nodes (default: True)
             show_progress: Whether to show progress bars during computation (default: True)
-            n_jobs: Number of parallel jobs to use. Use 1 for sequential execution (default: -1)
+            n_jobs: Number of parallel jobs to use. Defaults to 1 for sequential execution.
             my_feature_methods: Optional list of custom feature method definitions
             parallel_backend: Joblib backend for parallel execution, either "loky" or "threading" (default: "loky")
             profile_features: Whether to log per graph-feature timing records at INFO level (default: False)

@@ -48,8 +48,8 @@ Basic Example
         #   * Page rank: Measures node importance based on neighbor importance
         #   * Clustering coefficient: Measures local clustering around node
         # - feature_vector_length=3: Aggregates features from 3-hop neighborhoods
-        # - n_jobs=-1: Uses all available workers for graph-level parallelism
-        # - parallel_backend="loky": Default notebook-safe process backend
+        # - n_jobs=1: Default sequential execution on one CPU
+        # - parallel_backend="loky": Default process backend when n_jobs != 1
         #   (try "threading" when process serialization dominates custom features)
         # - profile_features=False: Set True to log per graph-feature timings
         features = nxt.compute_node_features(
@@ -57,7 +57,7 @@ Basic Example
             feature_list=["all"],
             feature_vector_length=3,
             show_progress=True,
-            n_jobs=-1,
+            n_jobs=1,
             parallel_backend="loky",
             profile_features=False
         )

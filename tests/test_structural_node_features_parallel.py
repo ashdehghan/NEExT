@@ -65,6 +65,26 @@ def test_parallel_backends_match_sequential_for_builtin_and_local_custom_feature
     assert sequential.feature_columns == loky.feature_columns == threading.feature_columns
 
 
+def test_default_compute_node_features_is_sequential(monkeypatch):
+    nxt, collection = _make_collection()
+
+    def fail_parallel(*args, **kwargs):
+        raise AssertionError("Parallel should not be used for default n_jobs=1")
+
+    monkeypatch.setattr(structural_module, "Parallel", fail_parallel)
+
+    features = nxt.compute_node_features(
+        graph_collection=collection,
+        feature_list=["degree_centrality"],
+        feature_vector_length=2,
+        normalize_features=False,
+        show_progress=False,
+    )
+
+    assert not features.features_df.empty
+    assert features.feature_columns == ["degree_centrality_0", "degree_centrality_1"]
+
+
 def test_compute_node_features_preserves_positional_custom_methods_argument():
     nxt, collection = _make_collection()
 
