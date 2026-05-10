@@ -134,7 +134,10 @@ pip install -e ".[dev]"
 ### Additional Components
 ```bash
 # For running tests
-pip install -e ".[test]"
+pip install -e ".[dev]"
+
+# For the optional local web workbench
+pip install -e ".[web]"
 
 # For building documentation
 pip install -e ".[docs]"
@@ -143,8 +146,21 @@ pip install -e ".[docs]"
 pip install -e ".[experiments]"
 
 # Install all components
-pip install -e ".[dev,test,docs,experiments]"
+pip install -e ".[all]"
 ```
+
+### Local Web Workbench
+
+The web UI is optional so the core Python library stays lightweight:
+
+```bash
+pip install "NEExT[web]"
+neext web
+```
+
+This starts a local browser workbench backed by NEExT. It stores project state
+in a local folder with artifacts for datasets, features, embeddings, model runs,
+and exports.
 
 ## 🚀 Quick Start
 

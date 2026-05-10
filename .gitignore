@@ -42,6 +42,12 @@ env/
 .env
 .env.local
 
+# Frontend dependencies
+web/frontend/node_modules/
+
+# Local NEExT web project folders
+.neext-web*/
+
 # IDE specific files
 .idea/
 .vscode/
@@ -215,8 +221,10 @@ manuscript/
 # Paper experiments (separate private repo)
 paper_experiments/
 
-# Sandbox directory for validation scripts
-sandbox/
+# Sandbox directory for validation scripts, except checked-in UI mockups.
+sandbox/*
+!sandbox/ui-mockups/
+!sandbox/ui-mockups/**
 
 # Personal experiments and research notes (kept locally)
 ash_experiments/

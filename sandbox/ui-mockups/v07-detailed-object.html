@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>NEExT Mockup - v07 Detailed Object</title>
+    <link rel="stylesheet" href="mockup.css" />
+  </head>
+  <body class="variant-detailed-object">
+    <div class="desktop">
+      <header class="windowbar">
+        <div class="quick-access">
+          <span class="qa-button undo"></span><span class="qa-button redo"></span><span class="qa-button save"></span>
+          <span class="window-title">NEExT Workbench - /Users/ash/graphs/bzr_project</span>
+        </div>
+        <div class="quick-access"><input class="search-box" value="Search Documentation" /><span class="qa-button help"></span><span class="qa-button options"></span></div>
+      </header>
+      <nav class="tabstrip">
+        <div class="main-tab active">HOME</div><div class="main-tab">PLOTS</div><div class="main-tab">APPS</div><div class="main-tab">FEATURES</div><div class="main-tab">EMBEDDINGS</div><div class="main-tab">MODELS</div>
+      </nav>
+      <section class="toolstrip">
+        <div class="toolgroup"><div class="tools">
+          <div class="tool wide"><span class="pic-icon icon-new"><span class="page"></span><span class="page-fold"></span><span class="plus-badge"></span></span><span class="tool-label">New<br />Project</span></div>
+          <div class="tool"><span class="pic-icon icon-open"><span class="folder-sheet"></span><span class="folder"></span></span><span class="tool-label">Open</span></div>
+        </div><div class="group-label">File</div></div>
+        <div class="toolgroup"><div class="tools">
+          <div class="tool wide"><span class="pic-icon icon-import"><span class="table-window"></span><span class="csv-chip">CSV</span></span><span class="tool-label">Import<br />CSV</span></div>
+          <div class="tool wide"><span class="pic-icon icon-url"><span class="globe"><span class="lat"></span><span class="lon"></span></span><span class="chain"></span></span><span class="tool-label">URL<br />Data</span></div>
+          <div class="tool wide"><span class="pic-icon icon-graph"><span class="graph-edge"></span><span class="graph-edge edge-2"></span><span class="graph-node n1"></span><span class="graph-node n2"></span><span class="graph-node n3"></span></span><span class="tool-label">Preset<br />Graph</span></div>
+        </div><div class="group-label">Data</div></div>
+        <div class="toolgroup"><div class="tools">
+          <div class="tool"><span class="pic-icon icon-run"><span class="play-triangle"></span></span><span class="tool-label">Run</span></div>
+          <div class="tool"><span class="pic-icon icon-stop"><span class="stop-block"></span></span><span class="tool-label">Stop</span></div>
+          <div class="tool wide"><span class="pic-icon icon-section"><span class="run-lines"></span><span class="mini-play"></span></span><span class="tool-label">Run<br />Section</span></div>
+        </div><div class="group-label">Run</div></div>
+        <div class="toolgroup"><div class="tools">
+          <div class="tool wide"><span class="pic-icon icon-features"><span class="toolbox"></span><span class="gear-face"></span></span><span class="tool-label">Feature<br />Set</span></div>
+          <div class="tool wide"><span class="pic-icon icon-embed"><span class="axes-mini"></span><span class="dot d1"></span><span class="dot d2"></span><span class="dot d3"></span></span><span class="tool-label">Graph<br />Embed</span></div>
+          <div class="tool wide"><span class="pic-icon icon-variable"><span class="table-window"></span></span><span class="tool-label">Variable<br />Editor</span></div>
+        </div><div class="group-label">Analysis</div></div>
+        <div class="toolgroup"><div class="tools">
+          <div class="tool"><span class="pic-icon icon-layout"><span class="panel-window"></span></span><span class="tool-label">Layout</span></div>
+          <div class="tool"><span class="pic-icon icon-panels"><span class="stack-pane p1"></span><span class="stack-pane p2"></span><span class="stack-pane p3"></span></span><span class="tool-label">Panels</span></div>
+        </div><div class="group-label">Environment</div></div>
+      </section>
+      <main class="workspace-layout">
+        <aside class="dock-stack">
+          <section class="panel"><div class="panel-title"><span>Current Folder</span><span class="panel-actions">v [] x</span></div><div class="panel-body">
+            <div class="folderbar"><span class="path-glyph"></span><input class="path-input" value="/graphs/bzr_project" /></div>
+            <div class="tree"><div class="tree-row active"><span>&gt;</span><span>manifest.json</span><span class="muted">2 KB</span></div><div class="tree-row"><span>v</span><span>data</span><span class="muted">folder</span></div><div class="tree-row"><span></span><span>edges.csv</span><span class="muted">1.3 MB</span></div><div class="tree-row"><span></span><span>node_graph_mapping.csv</span><span class="muted">420 KB</span></div><div class="tree-row"><span>v</span><span>artifacts</span><span class="muted">folder</span></div><div class="tree-row"><span></span><span>features_all/table.csv</span><span class="muted">8.1 MB</span></div><div class="tree-row"><span></span><span>embeddings_3d/table.csv</span><span class="muted">18 KB</span></div></div>
+          </div></section>
+          <section class="panel"><div class="panel-title"><span>Workspace</span><span class="panel-actions">v [] x</span></div><div class="panel-body workspace-table">
+            <table class="table"><thead><tr><th>Name</th><th>Value</th><th>Class</th></tr></thead><tbody><tr><td>graphs</td><td>405x1 GraphCollection</td><td>NEExT</td></tr><tr><td>features_all</td><td>53872x35 table</td><td>Features</td></tr><tr><td>embeddings_3d</td><td>405x4 table</td><td>Embeddings</td></tr><tr><td>model_run_02</td><td>accuracy 0.873</td><td>dict</td></tr></tbody></table>
+          </div></section>
+        </aside>
+        <section class="document-area">
+          <div class="document-tabs"><div class="doc-tab active">workflow.mlx</div><div class="doc-tab">Figure 1: Graph</div><div class="doc-tab">features_all</div></div>
+          <div class="doc-vertical"><div class="doc-split">
+            <section class="editor"><div class="code-line"><span class="line-no">1</span><span class="code-text"><span class="code-keyword">nxt</span> = NEExT(log_level=<span class="code-string">'INFO'</span>)</span></div><div class="code-line"><span class="line-no">2</span><span class="code-text">graphs = nxt.read_from_csv(edges, node_map, labels)</span></div><div class="code-line"><span class="line-no">3</span><span class="code-text">features = nxt.compute_node_features(graphs, [<span class="code-string">'all'</span>])</span></div><div class="code-line"><span class="line-no">4</span><span class="code-text">emb = nxt.compute_graph_embeddings(graphs, features, <span class="code-string">'approx_wasserstein'</span>, 3)</span></div><div class="code-line"><span class="line-no">5</span><span class="code-text">plot_embedding(emb, color=graphs.labels)</span></div></section>
+            <section class="figure"><div class="figure-title">Figure 1 - Approximate Wasserstein Embedding</div><div class="axes"><span class="point" style="left:18%;top:64%"></span><span class="point" style="left:26%;top:48%"></span><span class="point" style="left:34%;top:54%"></span><span class="point orange" style="left:65%;top:38%"></span><span class="point orange" style="left:72%;top:42%"></span><span class="point orange" style="left:80%;top:31%"></span></div></section>
+          </div><section class="command-window"><div class="panel-title"><span>Command Window</span><span class="panel-actions">v [] x</span></div><div class="console"><span class="prompt">&gt;&gt;</span> graphs.describe()<br /><span class="command-output">num_graphs: 405 &nbsp; graph_type: networkx &nbsp; has_labels: True</span><br /><span class="prompt">&gt;&gt;</span> compute features_all<br /><span class="command-output">Job completed: 53,872 nodes, 35 feature columns</span><br /><span class="prompt">&gt;&gt;</span></div></section></div>
+        </section>
+      </main>
+      <footer class="statusbar"><span><span class="pill">v07 Detailed Object</span><span class="pill">networkx</span><span class="pill">local project</span></span><span>Ready | 405 graphs | 53,872 nodes</span></footer>
+    </div>
+  </body>
+</html>

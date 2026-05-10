@@ -7,6 +7,7 @@ Welcome to NEExT's documentation!
 
    installation
    quickstart
+   web_workbench
    api/modules
    examples/index
 
@@ -15,4 +16,4 @@ Indices and tables
 
 * :ref:`genindex`
 * :ref:`modindex`
-* :ref:`search` 
+* :ref:`search`
