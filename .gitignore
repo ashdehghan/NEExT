@@ -42,6 +42,10 @@ env/
 .env
 .env.local
 
+# JavaScript/frontend dependencies and local workbench state
+node_modules/
+.neext-web*/
+
 # IDE specific files
 .idea/
 .vscode/
@@ -53,9 +57,11 @@ env/
 
 # Testing
 .coverage
+.coverage.*
 htmlcov/
 .tox/
 .pytest_cache/
+.ruff_cache/
 coverage.xml
 *.cover
 
