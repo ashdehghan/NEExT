@@ -45,6 +45,8 @@ env/
 # JavaScript/frontend dependencies and local workbench state
 node_modules/
 .neext-web*/
+test-results/
+playwright-report/
 
 # IDE specific files
 .idea/
@@ -221,8 +223,10 @@ manuscript/
 # Paper experiments (separate private repo)
 paper_experiments/
 
-# Sandbox directory for validation scripts
-sandbox/
+# Sandbox directory: local scratch artifacts, except shareable Workbench mockups.
+sandbox/*
+!sandbox/workbench-mockups/
+!sandbox/workbench-mockups/**
 
 # Personal experiments and research notes (kept locally)
 ash_experiments/

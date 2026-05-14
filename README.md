@@ -133,18 +133,29 @@ pip install -e ".[dev]"
 
 ### Additional Components
 ```bash
-# For running tests
-pip install -e ".[test]"
-
 # For building documentation
 pip install -e ".[docs]"
 
 # For running experiments
 pip install -e ".[experiments]"
 
+# For the local web workbench
+pip install -e ".[workbench]"
+
 # Install all components
-pip install -e ".[dev,test,docs,experiments]"
+pip install -e ".[all]"
 ```
+
+### Local Workbench
+```bash
+# From an installed package
+neext-workbench
+
+# From a development checkout
+make neext-workbench
+```
+
+The workbench starts a localhost-only FastAPI server and serves the browser UI from the same process. Projects and artifacts are stored under `~/NEExT-Workbench` by default; override the location with `NEEXT_WORKBENCH_HOME` or `neext-workbench --workspace <path>`.
 
 ## 🚀 Quick Start
 

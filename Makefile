@@ -1,10 +1,15 @@
-.PHONY: docs clean release-check deploy publish-only
+.PHONY: docs clean neext-workbench release-check deploy publish-only
 
 docs:
 	cd docs && make html
 
 clean:
 	cd docs && make clean
+
+neext-workbench:
+	npm --prefix workbench-ui install
+	npm --prefix workbench-ui run build
+	python3 -m NEExT.workbench.cli
 
 VERSION := $(shell grep -m1 '^__version__ = ' NEExT/__init__.py | sed -E 's/__version__ = "([^"]+)"/\1/')
 TAG     := release_v_$(subst .,_,$(VERSION))

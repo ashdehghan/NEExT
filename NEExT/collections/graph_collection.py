@@ -167,6 +167,10 @@ class GraphCollection(BaseModel):
                 node_attributes=node_attributes,
                 edge_attributes=edge_attributes,
                 graph_type=graph_type,
+                source_graph_id=graph_data.get("source_graph_id", graph_id),
+                source_to_internal_node_id=graph_data.get("source_to_internal_node_id", {}),
+                dropped_source_node_ids=graph_data.get("dropped_source_node_ids", []),
+                drop_reasons_by_source_node_id=graph_data.get("drop_reasons_by_source_node_id", {}),
             )
 
             # Initialize the graph backend
@@ -185,12 +189,12 @@ class GraphCollection(BaseModel):
             self.graphs.append(graph)
 
             # Update graph_id_node_array with this graph's nodes
-            self.graph_id_node_array.extend([graph_id] * len(graph.nodes))
+            self.graph_id_node_array.extend([graph.graph_id] * len(graph.nodes))
 
         # Sample nodes after all graphs are added
         self.sample_nodes()
 
-    def get_graph_by_id(self, graph_id: int) -> Optional[Graph]:
+    def get_graph_by_id(self, graph_id: Union[int, str]) -> Optional[Graph]:
         """
         Retrieves a graph from the collection by its ID.
 
@@ -252,6 +256,77 @@ class GraphCollection(BaseModel):
                 graph_labels.append(graph.graph_label)
 
         return pd.DataFrame({"graph_id": graph_ids, "label": graph_labels})
+
+    def export_node_mapping_records(self) -> pd.DataFrame:
+        """
+        Export source-to-internal node provenance records for all graphs.
+
+        Returns:
+            pd.DataFrame: DataFrame with source graph/node IDs, internal graph/node
+            IDs, inclusion status, and optional drop reason.
+        """
+        records = []
+        for graph in self.graphs:
+            source_graph_id = graph.source_graph_id if graph.source_graph_id is not None else graph.graph_id
+            source_to_internal = graph.source_to_internal_node_id or {node: node for node in graph.nodes}
+            dropped_source_nodes = set(graph.dropped_source_node_ids)
+            all_source_nodes = set(source_to_internal) | dropped_source_nodes | set(graph.drop_reasons_by_source_node_id)
+            for source_node_id in sorted(all_source_nodes, key=lambda value: (type(value).__name__, repr(value))):
+                included = source_node_id in source_to_internal and source_node_id not in dropped_source_nodes
+                records.append(
+                    {
+                        "source_graph_id": source_graph_id,
+                        "source_node_id": source_node_id,
+                        "internal_graph_id": graph.graph_id if included else None,
+                        "internal_node_id": source_to_internal.get(source_node_id) if included else None,
+                        "included": bool(included),
+                        "drop_reason": graph.drop_reasons_by_source_node_id.get(source_node_id),
+                    }
+                )
+        mapping_df = pd.DataFrame(
+            records,
+            columns=[
+                "source_graph_id",
+                "source_node_id",
+                "internal_graph_id",
+                "internal_node_id",
+                "included",
+                "drop_reason",
+            ],
+        )
+        if not mapping_df.empty:
+            try:
+                mapping_df["internal_node_id"] = pd.array(mapping_df["internal_node_id"], dtype="Int64")
+            except (TypeError, ValueError):
+                pass
+        return mapping_df
+
+    def export_graph_mapping_records(self) -> pd.DataFrame:
+        """
+        Export graph-level source-to-internal provenance summary records.
+        """
+        records = []
+        for graph in self.graphs:
+            source_to_internal = graph.source_to_internal_node_id or {node: node for node in graph.nodes}
+            records.append(
+                {
+                    "source_graph_id": graph.source_graph_id if graph.source_graph_id is not None else graph.graph_id,
+                    "internal_graph_id": graph.graph_id,
+                    "source_node_count": len(source_to_internal) + len(graph.dropped_source_node_ids),
+                    "internal_node_count": len(graph.nodes),
+                    "dropped_node_count": len(graph.dropped_source_node_ids),
+                }
+            )
+        return pd.DataFrame(
+            records,
+            columns=[
+                "source_graph_id",
+                "internal_graph_id",
+                "source_node_count",
+                "internal_node_count",
+                "dropped_node_count",
+            ],
+        )
 
     def add_node_features(self, features_df: pd.DataFrame) -> None:
         """

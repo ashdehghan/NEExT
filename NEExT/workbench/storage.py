@@ -1,0 +1,1079 @@
+"""Filesystem persistence for the local NEExT Workbench."""
+
+from __future__ import annotations
+
+import json
+import queue
+import shutil
+import threading
+import uuid
+from datetime import datetime, timezone
+from pathlib import Path, PurePosixPath
+from typing import Any, Callable
+
+from pydantic import ValidationError
+
+from .dataset_library import get_catalog_dataset, list_catalog_entries
+from .feature_library import get_feature_catalog_item, get_operation_definition, list_feature_catalog_entries
+from .schemas import (
+    ArtifactError,
+    ArtifactInputRef,
+    DatasetCatalogEntry,
+    DatasetCreateRequest,
+    DatasetDataFiles,
+    DatasetManifest,
+    DatasetMappingFiles,
+    DatasetStats,
+    FeatureCatalogEntry,
+    FeatureCreateParams,
+    FeatureCreateRequest,
+    FeatureExpectedOutput,
+    FeatureManifest,
+    FeatureOutputFiles,
+    FeatureOutputStats,
+    FeatureRunBatchRequest,
+    JobArtifactRef,
+    JobEvent,
+    JobManifest,
+    OperationSpec,
+    ProjectCreate,
+    ProjectDeletionSummary,
+    ProjectManifest,
+    TabularPreview,
+)
+
+SCHEMA_VERSION = "1"
+WORKSPACE_MANIFEST_TYPE = "workspace"
+PROJECT_MANIFEST_TYPE = "project"
+DATASET_MANIFEST_TYPE = "dataset"
+FEATURE_MANIFEST_TYPE = "feature"
+JOB_MANIFEST_TYPE = "job"
+ARTIFACT_KINDS = ("datasets", "features", "embeddings", "models")
+DATASET_PREP_OPERATION_ID = "neext.prepare_graph_collection"
+DATASET_PREP_OPERATION_VERSION = "1"
+
+
+def utc_now() -> str:
+    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+class WorkbenchStore:
+    """Small filesystem-backed store for Workbench projects."""
+
+    def __init__(self, workspace_path: Path):
+        self.workspace_path = Path(workspace_path)
+        self.projects_path = self.workspace_path / "projects"
+        self.trash_projects_path = self.workspace_path / "trash" / "projects"
+        self.workspace_file = self.workspace_path / "workspace.json"
+        self._job_queue: queue.Queue[tuple[str, str, Callable[[], None]]] = queue.Queue()
+        self._job_lock = threading.Lock()
+        self._job_worker = threading.Thread(target=self._job_worker_loop, daemon=True)
+        self._job_worker.start()
+        self.ensure_workspace()
+
+    def ensure_workspace(self) -> None:
+        self.projects_path.mkdir(parents=True, exist_ok=True)
+        now = utc_now()
+        if self.workspace_file.exists():
+            try:
+                existing = self._read_json(self.workspace_file)
+            except json.JSONDecodeError:
+                existing = {}
+        else:
+            existing = {}
+
+        workspace_manifest = {
+            "schema_version": SCHEMA_VERSION,
+            "manifest_type": WORKSPACE_MANIFEST_TYPE,
+            "created_at": str(existing.get("created_at") or now),
+            "updated_at": str(existing.get("updated_at") or now),
+        }
+        if existing != workspace_manifest:
+            self._write_json(self.workspace_file, workspace_manifest)
+
+    def _write_json(self, path: Path, payload: dict[str, Any]) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp_path = path.with_suffix(path.suffix + ".tmp")
+        tmp_path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
+        tmp_path.replace(path)
+
+    def _read_json(self, path: Path) -> dict[str, Any]:
+        return json.loads(path.read_text(encoding="utf-8"))
+
+    def _new_project_id(self) -> str:
+        while True:
+            project_id = str(uuid.uuid4())
+            if not (self.projects_path / project_id).exists():
+                return project_id
+
+    def _new_dataset_id(self, project_id: str) -> str:
+        datasets_path = self.project_path(project_id) / "artifacts" / "datasets"
+        while True:
+            dataset_id = str(uuid.uuid4())
+            if not (datasets_path / dataset_id).exists():
+                return dataset_id
+
+    def _new_feature_id(self, project_id: str) -> str:
+        features_path = self.project_path(project_id) / "artifacts" / "features"
+        while True:
+            feature_id = str(uuid.uuid4())
+            if not (features_path / feature_id).exists():
+                return feature_id
+
+    def _new_job_id(self, project_id: str) -> str:
+        jobs_path = self.project_path(project_id) / "jobs"
+        while True:
+            job_id = str(uuid.uuid4())
+            if not (jobs_path / job_id).exists():
+                return job_id
+
+    def _trash_folder_name(self, project_id: str) -> str:
+        timestamp = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S%f")
+        return f"{project_id}-{timestamp}"
+
+    def _normalize_project_id(self, project_id: str) -> str:
+        return str(uuid.UUID(project_id))
+
+    def _normalize_artifact_id(self, artifact_id: str) -> str:
+        parsed = uuid.UUID(artifact_id)
+        if parsed.version != 4:
+            raise ValueError("Artifact ID must be a UUIDv4 value")
+        return str(parsed)
+
+    def project_path(self, project_id: str) -> Path:
+        root = self.projects_path.resolve()
+        path = (self.projects_path / self._normalize_project_id(project_id)).resolve()
+        if root not in path.parents and path != root:
+            raise ValueError("Project path escaped the workspace")
+        return path
+
+    def dataset_path(self, project_id: str, dataset_id: str) -> Path:
+        datasets_root = (self.project_path(project_id) / "artifacts" / "datasets").resolve()
+        path = (datasets_root / self._normalize_artifact_id(dataset_id)).resolve()
+        if datasets_root not in path.parents and path != datasets_root:
+            raise ValueError("Dataset path escaped the project")
+        return path
+
+    def feature_path(self, project_id: str, feature_id: str) -> Path:
+        features_root = (self.project_path(project_id) / "artifacts" / "features").resolve()
+        path = (features_root / self._normalize_artifact_id(feature_id)).resolve()
+        if features_root not in path.parents and path != features_root:
+            raise ValueError("Feature path escaped the project")
+        return path
+
+    def job_path(self, project_id: str, job_id: str) -> Path:
+        jobs_root = (self.project_path(project_id) / "jobs").resolve()
+        path = (jobs_root / self._normalize_artifact_id(job_id)).resolve()
+        if jobs_root not in path.parents and path != jobs_root:
+            raise ValueError("Job path escaped the project")
+        return path
+
+    def _create_project_artifact_dirs(self, project_path: Path) -> None:
+        for artifact_kind in ARTIFACT_KINDS:
+            (project_path / "artifacts" / artifact_kind).mkdir(parents=True, exist_ok=True)
+
+    def _read_project_manifest(self, project_file: Path) -> ProjectManifest:
+        payload = self._read_json(project_file)
+        if payload.get("schema_version") != SCHEMA_VERSION or payload.get("manifest_type") != PROJECT_MANIFEST_TYPE:
+            raise ValueError("Unsupported project manifest")
+        project = ProjectManifest.model_validate(payload)
+        if project.id != project_file.parent.name:
+            raise ValueError("Project manifest ID does not match its folder")
+        self._normalize_project_id(project.id)
+        return project
+
+    def _read_dataset_manifest(self, artifact_file: Path, project_id: str) -> DatasetManifest:
+        payload = self._read_json(artifact_file)
+        if payload.get("schema_version") != SCHEMA_VERSION or payload.get("manifest_type") != DATASET_MANIFEST_TYPE:
+            raise ValueError("Unsupported dataset manifest")
+        dataset = DatasetManifest.model_validate(payload)
+        if dataset.id != artifact_file.parent.name:
+            raise ValueError("Dataset manifest ID does not match its folder")
+        if dataset.project_id != project_id:
+            raise ValueError("Dataset manifest project ID does not match its project")
+        self._normalize_artifact_id(dataset.id)
+        self._validate_dataset_data_files(dataset)
+        return dataset
+
+    def _read_feature_manifest(self, artifact_file: Path, project_id: str) -> FeatureManifest:
+        payload = self._read_json(artifact_file)
+        if payload.get("schema_version") != SCHEMA_VERSION or payload.get("manifest_type") != FEATURE_MANIFEST_TYPE:
+            raise ValueError("Unsupported feature manifest")
+        feature = FeatureManifest.model_validate(payload)
+        if feature.id != artifact_file.parent.name:
+            raise ValueError("Feature manifest ID does not match its folder")
+        if feature.project_id != project_id:
+            raise ValueError("Feature manifest project ID does not match its project")
+        self._normalize_artifact_id(feature.id)
+        self._validate_feature_manifest(feature)
+        return feature
+
+    def _read_job_manifest(self, job_file: Path, project_id: str) -> JobManifest:
+        payload = self._read_json(job_file)
+        if payload.get("schema_version") != SCHEMA_VERSION or payload.get("manifest_type") != JOB_MANIFEST_TYPE:
+            raise ValueError("Unsupported job manifest")
+        job = JobManifest.model_validate(payload)
+        if job.id != job_file.parent.name:
+            raise ValueError("Job manifest ID does not match its folder")
+        if job.project_id != project_id:
+            raise ValueError("Job manifest project ID does not match its project")
+        self._normalize_artifact_id(job.id)
+        return job
+
+    def create_project(self, request: ProjectCreate) -> ProjectManifest:
+        now = utc_now()
+        project = ProjectManifest(
+            id=self._new_project_id(),
+            name=request.name.strip(),
+            description=request.description.strip(),
+            created_at=now,
+            updated_at=now,
+        )
+        project_path = self.project_path(project.id)
+        project_path.mkdir(parents=True, exist_ok=False)
+        self._create_project_artifact_dirs(project_path)
+        self._write_json(project_path / "project.json", project.model_dump())
+        return project
+
+    def list_projects(self) -> list[ProjectManifest]:
+        projects = []
+        for project_file in sorted(self.projects_path.glob("*/project.json")):
+            try:
+                projects.append(self._read_project_manifest(project_file))
+            except (ValueError, json.JSONDecodeError, ValidationError):
+                continue
+        return sorted(projects, key=lambda item: item.updated_at, reverse=True)
+
+    def read_project(self, project_id: str) -> ProjectManifest:
+        try:
+            path = self.project_path(project_id) / "project.json"
+        except ValueError as exc:
+            raise FileNotFoundError(f"Project not found: {project_id}") from exc
+        if not path.exists():
+            raise FileNotFoundError(f"Project not found: {project_id}")
+        try:
+            return self._read_project_manifest(path)
+        except (ValueError, json.JSONDecodeError, ValidationError) as exc:
+            raise FileNotFoundError(f"Project not found: {project_id}") from exc
+
+    def read_workspace_meta(self) -> dict[str, Any]:
+        return self._read_json(self.workspace_file)
+
+    def list_dataset_catalog(self) -> list[DatasetCatalogEntry]:
+        return list_catalog_entries()
+
+    def list_feature_catalog(self) -> list[FeatureCatalogEntry]:
+        return list_feature_catalog_entries()
+
+    def list_datasets(self, project_id: str) -> list[DatasetManifest]:
+        project = self.read_project(project_id)
+        datasets_path = self.project_path(project.id) / "artifacts" / "datasets"
+        datasets = []
+        for artifact_file in sorted(datasets_path.glob("*/artifact.json")):
+            try:
+                datasets.append(self._read_dataset_manifest(artifact_file, project.id))
+            except (ValueError, json.JSONDecodeError, ValidationError):
+                continue
+        return sorted(datasets, key=lambda item: item.updated_at, reverse=True)
+
+    def read_dataset(self, project_id: str, dataset_id: str) -> DatasetManifest:
+        project = self.read_project(project_id)
+        try:
+            path = self.dataset_path(project.id, dataset_id) / "artifact.json"
+        except ValueError as exc:
+            raise FileNotFoundError(f"Dataset not found: {dataset_id}") from exc
+        if not path.exists():
+            raise FileNotFoundError(f"Dataset not found: {dataset_id}")
+        try:
+            return self._read_dataset_manifest(path, project.id)
+        except (ValueError, json.JSONDecodeError, ValidationError) as exc:
+            raise FileNotFoundError(f"Dataset not found: {dataset_id}") from exc
+
+    def list_features(self, project_id: str) -> list[FeatureManifest]:
+        project = self.read_project(project_id)
+        features_path = self.project_path(project.id) / "artifacts" / "features"
+        features = []
+        for artifact_file in sorted(features_path.glob("*/artifact.json")):
+            try:
+                features.append(self._read_feature_manifest(artifact_file, project.id))
+            except (ValueError, json.JSONDecodeError, ValidationError):
+                continue
+        return sorted(features, key=lambda item: item.updated_at, reverse=True)
+
+    def read_feature(self, project_id: str, feature_id: str) -> FeatureManifest:
+        project = self.read_project(project_id)
+        try:
+            path = self.feature_path(project.id, feature_id) / "artifact.json"
+        except ValueError as exc:
+            raise FileNotFoundError(f"Feature not found: {feature_id}") from exc
+        if not path.exists():
+            raise FileNotFoundError(f"Feature not found: {feature_id}")
+        try:
+            return self._read_feature_manifest(path, project.id)
+        except (ValueError, json.JSONDecodeError, ValidationError) as exc:
+            raise FileNotFoundError(f"Feature not found: {feature_id}") from exc
+
+    def list_jobs(self, project_id: str) -> list[JobManifest]:
+        project = self.read_project(project_id)
+        jobs_path = self.project_path(project.id) / "jobs"
+        jobs = []
+        for job_file in sorted(jobs_path.glob("*/job.json")):
+            try:
+                jobs.append(self._read_job_manifest(job_file, project.id))
+            except (ValueError, json.JSONDecodeError, ValidationError):
+                continue
+        return sorted(jobs, key=lambda item: item.updated_at, reverse=True)
+
+    def read_job(self, project_id: str, job_id: str) -> JobManifest:
+        project = self.read_project(project_id)
+        try:
+            path = self.job_path(project.id, job_id) / "job.json"
+        except ValueError as exc:
+            raise FileNotFoundError(f"Job not found: {job_id}") from exc
+        if not path.exists():
+            raise FileNotFoundError(f"Job not found: {job_id}")
+        try:
+            return self._read_job_manifest(path, project.id)
+        except (ValueError, json.JSONDecodeError, ValidationError) as exc:
+            raise FileNotFoundError(f"Job not found: {job_id}") from exc
+
+    def create_feature(self, project_id: str, request: FeatureCreateRequest) -> FeatureManifest:
+        project = self.read_project(project_id)
+        dataset = self.read_dataset(project.id, request.source_dataset_id)
+        catalog = get_feature_catalog_item(request.source_feature_id)
+        if catalog is None:
+            raise FileNotFoundError(f"Feature catalog entry not found: {request.source_feature_id}")
+
+        operation = get_operation_definition(catalog.operation_id, catalog.operation_version)
+        if operation is None:
+            raise ValueError(f"Unsupported feature operation: {catalog.operation_id}@{catalog.operation_version}")
+
+        feature_id = self._new_feature_id(project.id)
+        artifact_path = self.feature_path(project.id, feature_id)
+        artifact_path.mkdir(parents=True, exist_ok=False)
+
+        try:
+            params = request.params.model_dump()
+            operation_params = {
+                "feature_list": [catalog.id],
+                "feature_vector_length": params["feature_vector_length"],
+                "normalize_features": params["normalize_features"],
+                "n_jobs": params["n_jobs"],
+                "parallel_backend": params["parallel_backend"],
+            }
+            columns = [f"{catalog.id}_{index}" for index in range(params["feature_vector_length"])]
+            now = utc_now()
+            manifest = FeatureManifest(
+                id=feature_id,
+                project_id=project.id,
+                name=f"{dataset.name} - {catalog.name}",
+                description="",
+                status="planned",
+                created_at=now,
+                updated_at=now,
+                inputs=[
+                    ArtifactInputRef(
+                        role="source_dataset",
+                        artifact_kind="dataset",
+                        artifact_id=dataset.id,
+                    )
+                ],
+                source_feature_id=catalog.id,
+                operation=OperationSpec(
+                    operation_id=operation.operation_id,
+                    operation_version=operation.operation_version,
+                    params=operation_params,
+                ),
+                expected_output=FeatureExpectedOutput(columns=columns),
+            )
+            self._validate_feature_manifest(manifest)
+            self._write_json(artifact_path / "artifact.json", manifest.model_dump())
+            return manifest
+        except Exception:
+            shutil.rmtree(artifact_path, ignore_errors=True)
+            raise
+
+    def create_dataset_from_library(self, project_id: str, request: DatasetCreateRequest) -> DatasetManifest:
+        project = self.read_project(project_id)
+        catalog = get_catalog_dataset(request.catalog_id)
+        if catalog is None:
+            raise FileNotFoundError(f"Dataset catalog entry not found: {request.catalog_id}")
+
+        dataset_id = self._new_dataset_id(project.id)
+        artifact_path = self.dataset_path(project.id, dataset_id)
+        artifact_path.mkdir(parents=True, exist_ok=False)
+
+        try:
+            now = utc_now()
+            manifest = DatasetManifest(
+                id=dataset_id,
+                project_id=project.id,
+                name=catalog.name,
+                description=catalog.description,
+                status="planned",
+                created_at=now,
+                updated_at=now,
+                source_catalog_id=catalog.id,
+                source_name=catalog.name,
+                source=catalog.source,
+                source_domain=catalog.domain,
+                operation=OperationSpec(
+                    operation_id=DATASET_PREP_OPERATION_ID,
+                    operation_version=DATASET_PREP_OPERATION_VERSION,
+                    params={
+                        "graph_type": request.params.graph_type,
+                        "reindex_nodes": True,
+                        "filter_largest_component": request.params.filter_largest_component,
+                    },
+                ),
+                source_stats=DatasetStats(
+                    graph_count=catalog.graph_count,
+                    node_count=catalog.node_count,
+                    edge_count=catalog.edge_count,
+                    has_graph_labels="graph_labels" in catalog.files,
+                    has_node_features="node_features" in catalog.files,
+                    has_edge_features="edge_features" in catalog.files,
+                ),
+            )
+            self._write_json(artifact_path / "artifact.json", manifest.model_dump())
+            return manifest
+        except Exception:
+            shutil.rmtree(artifact_path, ignore_errors=True)
+            raise
+
+    def run_dataset_preparation(self, project_id: str, dataset_id: str) -> JobManifest:
+        project = self.read_project(project_id)
+        dataset = self.read_dataset(project.id, dataset_id)
+        if dataset.status not in {"planned", "failed"}:
+            raise ValueError("Only planned or failed datasets can be run")
+        job = self._create_job(
+            project.id,
+            operation=dataset.operation,
+            target_artifacts=[JobArtifactRef(artifact_kind="dataset", artifact_id=dataset.id)],
+        )
+        self._enqueue_job(project.id, job.id, lambda: self._prepare_dataset_artifact(project.id, dataset.id, job.id))
+        return job
+
+    def run_feature(self, project_id: str, feature_id: str) -> JobManifest:
+        return self.run_feature_batch(project_id, FeatureRunBatchRequest(feature_ids=[feature_id]))
+
+    def run_feature_batch(self, project_id: str, request: FeatureRunBatchRequest) -> JobManifest:
+        project = self.read_project(project_id)
+        feature_ids = [self._normalize_artifact_id(feature_id) for feature_id in request.feature_ids]
+        features = [self.read_feature(project.id, feature_id) for feature_id in feature_ids]
+        if any(feature.status not in {"planned", "failed"} for feature in features):
+            raise ValueError("Only planned or failed features can be run")
+
+        dataset_ids = {self._feature_dataset_id(feature) for feature in features}
+        if len(dataset_ids) != 1:
+            raise ValueError("Selected features must reference the same dataset")
+
+        operation_params = {"feature_ids": feature_ids, "source_dataset_id": next(iter(dataset_ids))}
+        job = self._create_job(
+            project.id,
+            operation=OperationSpec(
+                operation_id="neext.compute_node_features",
+                operation_version="1",
+                params=operation_params,
+            ),
+            target_artifacts=[JobArtifactRef(artifact_kind="feature", artifact_id=feature.id) for feature in features],
+        )
+        self._enqueue_job(project.id, job.id, lambda: self._compute_feature_artifacts(project.id, feature_ids, job.id))
+        return job
+
+    def _create_job(self, project_id: str, operation: OperationSpec, target_artifacts: list[JobArtifactRef]) -> JobManifest:
+        job_id = self._new_job_id(project_id)
+        job_path = self.job_path(project_id, job_id)
+        job_path.mkdir(parents=True, exist_ok=False)
+        now = utc_now()
+        job = JobManifest(
+            id=job_id,
+            project_id=project_id,
+            status="queued",
+            operation=operation,
+            target_artifacts=target_artifacts,
+            created_at=now,
+            updated_at=now,
+            events=[JobEvent(timestamp=now, message="Job queued")],
+            log=["Job queued"],
+        )
+        self._write_json(job_path / "job.json", job.model_dump())
+        return job
+
+    def _enqueue_job(self, project_id: str, job_id: str, callback: Callable[[], None]) -> None:
+        self._job_queue.put((project_id, job_id, callback))
+
+    def _job_worker_loop(self) -> None:
+        while True:
+            project_id, job_id, callback = self._job_queue.get()
+            try:
+                self._mark_job_running(project_id, job_id)
+                callback()
+                self._mark_job_completed(project_id, job_id)
+            except Exception as exc:
+                self._mark_job_failed(project_id, job_id, str(exc))
+            finally:
+                self._job_queue.task_done()
+
+    def _write_job_manifest(self, job: JobManifest) -> None:
+        self._write_json(self.job_path(job.project_id, job.id) / "job.json", job.model_dump())
+
+    def _update_job(self, project_id: str, job_id: str, *, status: str | None = None, message: str | None = None, error: str | None = None) -> None:
+        with self._job_lock:
+            job = self.read_job(project_id, job_id)
+            now = utc_now()
+            if status is not None:
+                job.status = status
+                if status == "running" and job.started_at is None:
+                    job.started_at = now
+                if status in {"completed", "failed"}:
+                    job.completed_at = now
+            if message is not None:
+                level = "error" if status == "failed" else "info"
+                job.events.append(JobEvent(timestamp=now, level=level, message=message))
+                job.log.append(message)
+            if error is not None:
+                job.error = error
+            job.updated_at = now
+            self._write_job_manifest(job)
+
+    def _mark_job_running(self, project_id: str, job_id: str) -> None:
+        self._update_job(project_id, job_id, status="running", message="Job started")
+
+    def _mark_job_completed(self, project_id: str, job_id: str) -> None:
+        self._update_job(project_id, job_id, status="completed", message="Job completed")
+
+    def _mark_job_failed(self, project_id: str, job_id: str, error: str) -> None:
+        self._update_job(project_id, job_id, status="failed", message=f"Job failed: {error}", error=error)
+
+    def _log_job(self, project_id: str, job_id: str, message: str) -> None:
+        self._update_job(project_id, job_id, message=message)
+
+    def _prepare_dataset_artifact(self, project_id: str, dataset_id: str, job_id: str) -> DatasetManifest:
+        dataset = self.read_dataset(project_id, dataset_id)
+        artifact_path = self.dataset_path(project_id, dataset.id)
+        tmp_path = artifact_path / "_tmp" / job_id
+        shutil.rmtree(tmp_path, ignore_errors=True)
+        tmp_path.mkdir(parents=True, exist_ok=False)
+        self._set_dataset_status(project_id, dataset.id, "running", error=None)
+
+        try:
+            import pyarrow  # noqa: F401
+
+            catalog = get_catalog_dataset(dataset.source_catalog_id)
+            if catalog is None:
+                raise FileNotFoundError(f"Dataset catalog entry not found: {dataset.source_catalog_id}")
+
+            self._log_job(project_id, job_id, f"Preparing dataset {dataset.name}")
+            frames = self._read_catalog_frames(catalog.files)
+            nodes_df, edges_df = self._normalized_nodes_and_edges(frames["node_graph_mapping"], frames["edges"])
+            graph_labels_df = frames.get("graph_labels")
+            node_features_df = frames.get("node_features")
+            edge_features_df = frames.get("edge_features")
+
+            if graph_labels_df is not None:
+                self._validate_graph_labels(graph_labels_df, nodes_df)
+            if node_features_df is not None:
+                self._validate_node_features(node_features_df, nodes_df)
+            if edge_features_df is not None:
+                self._validate_edge_features(edge_features_df, nodes_df)
+
+            raw_files = self._write_raw_dataset_snapshot(
+                tmp_path / "raw",
+                nodes_df,
+                edges_df,
+                graph_labels_df,
+                node_features_df,
+                edge_features_df,
+            )
+
+            collection = self._build_graph_collection_for_dataset(
+                nodes_df=nodes_df,
+                edges_df=edges_df,
+                graph_labels_df=graph_labels_df,
+                node_features_df=node_features_df,
+                edge_features_df=edge_features_df,
+                graph_type=str(dataset.operation.params["graph_type"]),
+                filter_largest_component=bool(dataset.operation.params["filter_largest_component"]),
+            )
+            prepared_files, mapping_files, prepared_stats = self._write_prepared_dataset_outputs(tmp_path, collection)
+
+            self._promote_directory(tmp_path / "raw", artifact_path / "raw")
+            self._promote_directory(tmp_path / "prepared", artifact_path / "prepared")
+            self._promote_directory(tmp_path / "mappings", artifact_path / "mappings")
+
+            source_stats = DatasetStats(
+                graph_count=int(nodes_df["graph_id"].nunique(dropna=False)),
+                node_count=int(len(nodes_df)),
+                edge_count=int(len(edges_df)),
+                has_graph_labels=graph_labels_df is not None,
+                has_node_features=node_features_df is not None,
+                has_edge_features=edge_features_df is not None,
+            )
+            dataset = self.read_dataset(project_id, dataset.id)
+            dataset.status = "completed"
+            dataset.source_stats = source_stats
+            dataset.prepared_stats = prepared_stats
+            dataset.raw_data_files = raw_files
+            dataset.prepared_data_files = prepared_files
+            dataset.mapping_files = mapping_files
+            dataset.data_files = prepared_files
+            dataset.stats = prepared_stats
+            dataset.error = None
+            dataset.updated_at = utc_now()
+            self._validate_dataset_data_files(dataset)
+            self._write_json(artifact_path / "artifact.json", dataset.model_dump())
+            self._log_job(project_id, job_id, f"Dataset {dataset.name} completed")
+            return dataset
+        except Exception as exc:
+            shutil.rmtree(tmp_path, ignore_errors=True)
+            self._set_dataset_status(project_id, dataset.id, "failed", error=ArtifactError(message=str(exc), job_id=job_id))
+            self._log_job(project_id, job_id, f"Dataset {dataset.name} failed: {exc}")
+            raise
+        finally:
+            shutil.rmtree(tmp_path, ignore_errors=True)
+
+    def _set_dataset_status(self, project_id: str, dataset_id: str, status: str, error: ArtifactError | None) -> None:
+        dataset = self.read_dataset(project_id, dataset_id)
+        dataset.status = status
+        dataset.error = error
+        dataset.updated_at = utc_now()
+        self._write_json(self.dataset_path(project_id, dataset.id) / "artifact.json", dataset.model_dump())
+
+    def _write_raw_dataset_snapshot(
+        self,
+        raw_dir: Path,
+        nodes_df,
+        edges_df,
+        graph_labels_df,
+        node_features_df,
+        edge_features_df,
+    ) -> DatasetDataFiles:
+        raw_dir.mkdir(parents=True, exist_ok=True)
+        nodes_df.to_parquet(raw_dir / "nodes.parquet", index=False)
+        edges_df.to_parquet(raw_dir / "edges.parquet", index=False)
+        files = DatasetDataFiles(nodes="raw/nodes.parquet", edges="raw/edges.parquet")
+        if graph_labels_df is not None:
+            graph_labels_df.to_parquet(raw_dir / "graph_labels.parquet", index=False)
+            files.graph_labels = "raw/graph_labels.parquet"
+        if node_features_df is not None:
+            node_features_df.to_parquet(raw_dir / "node_features.parquet", index=False)
+            files.node_features = "raw/node_features.parquet"
+        if edge_features_df is not None:
+            edge_features_df.to_parquet(raw_dir / "edge_features.parquet", index=False)
+            files.edge_features = "raw/edge_features.parquet"
+        return files
+
+    def _build_graph_collection_for_dataset(
+        self,
+        *,
+        nodes_df,
+        edges_df,
+        graph_labels_df,
+        node_features_df,
+        edge_features_df,
+        graph_type: str,
+        filter_largest_component: bool,
+    ):
+        from NEExT.io import GraphIO
+
+        io = GraphIO()
+        return io.load_from_dfs(
+            edges_df=edges_df.loc[:, ["src_node_id", "dest_node_id"]],
+            node_graph_df=nodes_df.loc[:, ["node_id", "graph_id"]],
+            graph_labels_df=graph_labels_df,
+            node_features_df=node_features_df,
+            edge_features_df=edge_features_df,
+            graph_type=graph_type,
+            reindex_nodes=True,
+            filter_largest_component=filter_largest_component,
+            node_sample_rate=1.0,
+        )
+
+    def _write_prepared_dataset_outputs(self, tmp_path: Path, collection) -> tuple[DatasetDataFiles, DatasetMappingFiles, DatasetStats]:
+        import pandas as pd
+
+        prepared_dir = tmp_path / "prepared"
+        mapping_dir = tmp_path / "mappings"
+        prepared_dir.mkdir(parents=True, exist_ok=True)
+        mapping_dir.mkdir(parents=True, exist_ok=True)
+
+        nodes_records = []
+        edges_records = []
+        graph_label_records = []
+        node_feature_records = []
+        edge_feature_records = []
+
+        for graph in collection.graphs:
+            for node_id in graph.nodes:
+                nodes_records.append({"graph_id": graph.graph_id, "node_id": node_id})
+                node_attrs = graph.node_attributes.get(node_id, {})
+                if node_attrs:
+                    node_feature_records.append({"graph_id": graph.graph_id, "node_id": node_id, **node_attrs})
+            for src_node_id, dest_node_id in graph.edges:
+                edges_records.append({"graph_id": graph.graph_id, "src_node_id": src_node_id, "dest_node_id": dest_node_id})
+                edge_attrs = graph.edge_attributes.get((src_node_id, dest_node_id), {})
+                if edge_attrs:
+                    edge_feature_records.append(
+                        {
+                            "graph_id": graph.graph_id,
+                            "src_node_id": src_node_id,
+                            "dest_node_id": dest_node_id,
+                            **edge_attrs,
+                        }
+                    )
+            if graph.graph_label is not None:
+                graph_label_records.append({"graph_id": graph.graph_id, "graph_label": graph.graph_label})
+
+        nodes_out = pd.DataFrame(nodes_records, columns=["graph_id", "node_id"])
+        edges_out = pd.DataFrame(edges_records, columns=["graph_id", "src_node_id", "dest_node_id"])
+        nodes_out.to_parquet(prepared_dir / "nodes.parquet", index=False)
+        edges_out.to_parquet(prepared_dir / "edges.parquet", index=False)
+        prepared_files = DatasetDataFiles(nodes="prepared/nodes.parquet", edges="prepared/edges.parquet")
+
+        if graph_label_records:
+            pd.DataFrame(graph_label_records).to_parquet(prepared_dir / "graph_labels.parquet", index=False)
+            prepared_files.graph_labels = "prepared/graph_labels.parquet"
+        if node_feature_records:
+            pd.DataFrame(node_feature_records).to_parquet(prepared_dir / "node_features.parquet", index=False)
+            prepared_files.node_features = "prepared/node_features.parquet"
+        if edge_feature_records:
+            pd.DataFrame(edge_feature_records).to_parquet(prepared_dir / "edge_features.parquet", index=False)
+            prepared_files.edge_features = "prepared/edge_features.parquet"
+
+        node_mapping = collection.export_node_mapping_records()
+        graph_mapping = collection.export_graph_mapping_records()
+        node_mapping.to_parquet(mapping_dir / "node_mapping.parquet", index=False)
+        graph_mapping.to_parquet(mapping_dir / "graph_mapping.parquet", index=False)
+        mapping_files = DatasetMappingFiles(node_mapping="mappings/node_mapping.parquet", graph_mapping="mappings/graph_mapping.parquet")
+
+        stats = DatasetStats(
+            graph_count=len(collection.graphs),
+            node_count=int(len(nodes_out)),
+            edge_count=int(len(edges_out)),
+            has_graph_labels=bool(graph_label_records),
+            has_node_features=bool(node_feature_records),
+            has_edge_features=bool(edge_feature_records),
+        )
+        return prepared_files, mapping_files, stats
+
+    def _promote_directory(self, source: Path, target: Path) -> None:
+        if target.exists():
+            shutil.rmtree(target)
+        source.replace(target)
+
+    def _compute_feature_artifacts(self, project_id: str, feature_ids: list[str], job_id: str) -> None:
+        features = [self.read_feature(project_id, feature_id) for feature_id in feature_ids]
+        dataset_id = self._feature_dataset_id(features[0])
+        dataset = self.read_dataset(project_id, dataset_id)
+
+        try:
+            if dataset.status != "completed":
+                self._log_job(project_id, job_id, f"Preparing upstream dataset {dataset.name}")
+                dataset = self._prepare_dataset_artifact(project_id, dataset.id, job_id)
+
+            for feature in features:
+                self._set_feature_status(project_id, feature.id, "running", error=None)
+
+            collection = self._load_prepared_collection(project_id, dataset.id)
+            grouped_features: dict[tuple[Any, ...], list[FeatureManifest]] = {}
+            for feature in features:
+                params = feature.operation.params
+                key = (
+                    params["feature_vector_length"],
+                    params["normalize_features"],
+                    params["n_jobs"],
+                    params["parallel_backend"],
+                )
+                grouped_features.setdefault(key, []).append(feature)
+
+            for group in grouped_features.values():
+                params = group[0].operation.params
+                feature_names = [feature.source_feature_id for feature in group]
+                self._log_job(project_id, job_id, f"Computing features: {', '.join(feature_names)}")
+                computed_df = self._compute_node_features(collection, feature_names, params).features_df
+                for feature in group:
+                    expected_columns = list(feature.expected_output.columns)
+                    output_df = computed_df.loc[:, ["node_id", "graph_id"] + expected_columns].copy()
+                    self._write_feature_output(project_id, feature.id, output_df)
+                    feature = self.read_feature(project_id, feature.id)
+                    feature.status = "completed"
+                    feature.output_files = FeatureOutputFiles(features="output/features.parquet")
+                    feature.output_stats = FeatureOutputStats(row_count=int(len(output_df)), column_count=int(len(output_df.columns)))
+                    feature.error = None
+                    feature.updated_at = utc_now()
+                    self._write_json(self.feature_path(project_id, feature.id) / "artifact.json", feature.model_dump())
+                    self._log_job(project_id, job_id, f"Feature {feature.name} completed")
+        except Exception as exc:
+            for feature in features:
+                self._clean_feature_output(project_id, feature.id)
+                self._set_feature_status(project_id, feature.id, "failed", error=ArtifactError(message=str(exc), job_id=job_id))
+            self._log_job(project_id, job_id, f"Feature job failed: {exc}")
+            raise
+
+    def _compute_node_features(self, collection, feature_names: list[str], params: dict[str, Any]):
+        from NEExT.features import StructuralNodeFeatures
+
+        return StructuralNodeFeatures(
+            graph_collection=collection,
+            feature_list=feature_names,
+            feature_vector_length=params["feature_vector_length"],
+            normalize_features=params["normalize_features"],
+            show_progress=False,
+            n_jobs=params["n_jobs"],
+            parallel_backend=params["parallel_backend"],
+        ).compute()
+
+    def _load_prepared_collection(self, project_id: str, dataset_id: str):
+        import pandas as pd
+
+        from NEExT.io import GraphIO
+
+        dataset = self.read_dataset(project_id, dataset_id)
+        if dataset.prepared_data_files is None:
+            raise ValueError("Dataset has no prepared graph data")
+        artifact_path = self.dataset_path(project_id, dataset.id)
+        files = dataset.prepared_data_files
+
+        nodes_df = pd.read_parquet(artifact_path / files.nodes)
+        edges_df = pd.read_parquet(artifact_path / files.edges)
+        graph_labels_df = pd.read_parquet(artifact_path / files.graph_labels) if files.graph_labels else None
+        node_features_df = pd.read_parquet(artifact_path / files.node_features) if files.node_features else None
+        edge_features_df = pd.read_parquet(artifact_path / files.edge_features) if files.edge_features else None
+
+        return GraphIO().load_from_dfs(
+            edges_df=edges_df.loc[:, ["src_node_id", "dest_node_id"]],
+            node_graph_df=nodes_df.loc[:, ["node_id", "graph_id"]],
+            graph_labels_df=graph_labels_df,
+            node_features_df=node_features_df,
+            edge_features_df=edge_features_df,
+            graph_type=str(dataset.operation.params["graph_type"]),
+            reindex_nodes=False,
+            filter_largest_component=False,
+            node_sample_rate=1.0,
+        )
+
+    def _write_feature_output(self, project_id: str, feature_id: str, output_df) -> None:
+        artifact_path = self.feature_path(project_id, feature_id)
+        tmp_path = artifact_path / "_tmp" / "output"
+        shutil.rmtree(tmp_path.parent, ignore_errors=True)
+        tmp_path.mkdir(parents=True, exist_ok=False)
+        output_df.to_parquet(tmp_path / "features.parquet", index=False)
+        self._promote_directory(tmp_path, artifact_path / "output")
+        shutil.rmtree(artifact_path / "_tmp", ignore_errors=True)
+
+    def _clean_feature_output(self, project_id: str, feature_id: str) -> None:
+        artifact_path = self.feature_path(project_id, feature_id)
+        shutil.rmtree(artifact_path / "_tmp", ignore_errors=True)
+        if not self.read_feature(project_id, feature_id).output_files:
+            shutil.rmtree(artifact_path / "output", ignore_errors=True)
+
+    def _set_feature_status(self, project_id: str, feature_id: str, status: str, error: ArtifactError | None) -> None:
+        feature = self.read_feature(project_id, feature_id)
+        feature.status = status
+        feature.error = error
+        feature.updated_at = utc_now()
+        self._write_json(self.feature_path(project_id, feature.id) / "artifact.json", feature.model_dump())
+
+    def _feature_dataset_id(self, feature: FeatureManifest) -> str:
+        for input_ref in feature.inputs:
+            if input_ref.role == "source_dataset" and input_ref.artifact_kind == "dataset":
+                return input_ref.artifact_id
+        raise ValueError("Feature has no source dataset input")
+
+    def preview_dataset(self, project_id: str, dataset_id: str, table: str, *, limit: int = 20, offset: int = 0) -> TabularPreview:
+        dataset = self.read_dataset(project_id, dataset_id)
+        if dataset.status != "completed":
+            raise ValueError("Dataset preview is available only after preparation completes")
+        if table == "nodes":
+            if dataset.prepared_data_files is None:
+                raise ValueError("Dataset has no prepared node data")
+            path = self.dataset_path(project_id, dataset.id) / dataset.prepared_data_files.nodes
+        elif table == "edges":
+            if dataset.prepared_data_files is None:
+                raise ValueError("Dataset has no prepared edge data")
+            path = self.dataset_path(project_id, dataset.id) / dataset.prepared_data_files.edges
+        elif table == "mapping":
+            if dataset.mapping_files is None:
+                raise ValueError("Dataset has no node mapping data")
+            path = self.dataset_path(project_id, dataset.id) / dataset.mapping_files.node_mapping
+        else:
+            raise ValueError("Unsupported dataset preview table")
+        return self._preview_parquet(path, limit=limit, offset=offset)
+
+    def preview_feature(self, project_id: str, feature_id: str, *, limit: int = 20, offset: int = 0) -> TabularPreview:
+        feature = self.read_feature(project_id, feature_id)
+        if feature.status != "completed" or feature.output_files is None:
+            raise ValueError("Feature preview is available only after computation completes")
+        return self._preview_parquet(self.feature_path(project_id, feature.id) / feature.output_files.features, limit=limit, offset=offset)
+
+    def _preview_parquet(self, path: Path, *, limit: int, offset: int) -> TabularPreview:
+        import pandas as pd
+        import pyarrow.parquet as pq
+
+        if limit < 1 or limit > 200:
+            raise ValueError("Preview limit must be between 1 and 200")
+        if offset < 0:
+            raise ValueError("Preview offset must be non-negative")
+        parquet_file = pq.ParquetFile(path)
+        total_rows = parquet_file.metadata.num_rows
+        rows_remaining_to_skip = offset
+        rows_remaining_to_take = limit
+        chunks = []
+        for batch in parquet_file.iter_batches(batch_size=max(limit, 1024)):
+            batch_rows = batch.num_rows
+            if rows_remaining_to_skip >= batch_rows:
+                rows_remaining_to_skip -= batch_rows
+                continue
+            table = batch.slice(rows_remaining_to_skip, rows_remaining_to_take)
+            chunks.append(table.to_pandas())
+            rows_remaining_to_take -= table.num_rows
+            rows_remaining_to_skip = 0
+            if rows_remaining_to_take <= 0:
+                break
+        if chunks:
+            frame = pd.concat(chunks, ignore_index=True)
+        else:
+            frame = pd.DataFrame(columns=parquet_file.schema.names)
+        frame = frame.astype(object).where(pd.notnull(frame), None)
+        return TabularPreview(
+            columns=list(frame.columns),
+            rows=frame.to_dict(orient="records"),
+            offset=offset,
+            limit=limit,
+            total_rows=total_rows,
+        )
+
+    def _read_catalog_frames(self, files: dict[str, str]):
+        import pandas as pd
+
+        required_files = {"edges", "node_graph_mapping"}
+        missing = sorted(required_files - set(files))
+        if missing:
+            raise ValueError(f"Dataset catalog source is missing required file declarations: {', '.join(missing)}")
+
+        frames = {}
+        for key, source_path in files.items():
+            try:
+                frames[key] = pd.read_csv(source_path)
+            except Exception as exc:
+                raise ValueError(f"Could not read dataset source file: {key}") from exc
+
+        self._require_columns(frames["edges"], {"src_node_id", "dest_node_id"}, "edges.csv")
+        self._require_columns(frames["node_graph_mapping"], {"node_id", "graph_id"}, "node_graph_mapping.csv")
+        if "graph_labels" in frames:
+            self._require_columns(frames["graph_labels"], {"graph_id", "graph_label"}, "graph_labels.csv")
+        if "node_features" in frames:
+            self._require_columns(frames["node_features"], {"node_id"}, "node_features.csv")
+        if "edge_features" in frames:
+            self._require_columns(frames["edge_features"], {"src_node_id", "dest_node_id"}, "edge_features.csv")
+        return frames
+
+    def _require_columns(self, frame, columns: set[str], file_name: str) -> None:
+        missing = sorted(columns - set(frame.columns))
+        if missing:
+            raise ValueError(f"{file_name} is missing required columns: {', '.join(missing)}")
+
+    def _normalized_nodes_and_edges(self, node_graph_df, edges_df):
+        import pandas as pd
+
+        nodes_df = node_graph_df.loc[:, ["node_id", "graph_id"]].copy()
+        if nodes_df.empty:
+            raise ValueError("node_graph_mapping.csv must contain at least one node")
+        if nodes_df["node_id"].duplicated().any():
+            raise ValueError("node_graph_mapping.csv must contain unique node_id values")
+
+        node_graph_by_id = nodes_df.set_index("node_id")["graph_id"]
+        src_graph = edges_df["src_node_id"].map(node_graph_by_id)
+        dest_graph = edges_df["dest_node_id"].map(node_graph_by_id)
+        if src_graph.isna().any() or dest_graph.isna().any():
+            raise ValueError("edges.csv contains endpoints that are not present in node_graph_mapping.csv")
+        if (src_graph != dest_graph).any():
+            raise ValueError("edges.csv contains endpoints from different graphs")
+
+        edges_out = pd.DataFrame(
+            {
+                "graph_id": src_graph.to_numpy(),
+                "src_node_id": edges_df["src_node_id"].to_numpy(),
+                "dest_node_id": edges_df["dest_node_id"].to_numpy(),
+            }
+        )
+        return nodes_df, edges_out
+
+    def _validate_graph_labels(self, graph_labels_df, nodes_df) -> None:
+        unknown_graphs = set(graph_labels_df["graph_id"]) - set(nodes_df["graph_id"])
+        if unknown_graphs:
+            raise ValueError("graph_labels.csv contains graph_id values that are not present in node_graph_mapping.csv")
+
+    def _validate_node_features(self, node_features_df, nodes_df) -> None:
+        unknown_nodes = set(node_features_df["node_id"]) - set(nodes_df["node_id"])
+        if unknown_nodes:
+            raise ValueError("node_features.csv contains node_id values that are not present in node_graph_mapping.csv")
+
+    def _validate_edge_features(self, edge_features_df, nodes_df) -> None:
+        node_graph_by_id = nodes_df.set_index("node_id")["graph_id"]
+        src_graph = edge_features_df["src_node_id"].map(node_graph_by_id)
+        dest_graph = edge_features_df["dest_node_id"].map(node_graph_by_id)
+        if src_graph.isna().any() or dest_graph.isna().any():
+            raise ValueError("edge_features.csv contains endpoints that are not present in node_graph_mapping.csv")
+        if (src_graph != dest_graph).any():
+            raise ValueError("edge_features.csv contains endpoints from different graphs")
+
+    def _validate_dataset_data_files(self, manifest: DatasetManifest) -> None:
+        file_groups = [
+            manifest.data_files,
+            manifest.raw_data_files,
+            manifest.prepared_data_files,
+            manifest.mapping_files,
+        ]
+        for file_group in file_groups:
+            if file_group is None:
+                continue
+            for data_file in file_group.model_dump(exclude_none=True).values():
+                self._validate_relative_file_ref(data_file)
+
+    def _validate_relative_file_ref(self, data_file: str) -> None:
+        path = PurePosixPath(data_file)
+        if path.is_absolute() or ".." in path.parts:
+            raise ValueError("Manifest file paths must be relative")
+
+    def _validate_feature_manifest(self, manifest: FeatureManifest) -> None:
+        if len(manifest.inputs) != 1:
+            raise ValueError("Feature manifests must reference exactly one dataset input")
+        input_ref = manifest.inputs[0]
+        if input_ref.role != "source_dataset" or input_ref.artifact_kind != "dataset":
+            raise ValueError("Feature manifests must reference a source dataset input")
+        self._normalize_artifact_id(input_ref.artifact_id)
+        if get_feature_catalog_item(manifest.source_feature_id) is None:
+            raise ValueError("Feature manifest references an unknown feature catalog entry")
+        if get_operation_definition(manifest.operation.operation_id, manifest.operation.operation_version) is None:
+            raise ValueError("Feature manifest references an unsupported operation")
+        FeatureCreateParams.model_validate(
+            {
+                "feature_vector_length": manifest.operation.params.get("feature_vector_length"),
+                "normalize_features": manifest.operation.params.get("normalize_features"),
+                "n_jobs": manifest.operation.params.get("n_jobs"),
+                "parallel_backend": manifest.operation.params.get("parallel_backend"),
+            }
+        )
+        if manifest.operation.params.get("feature_list") != [manifest.source_feature_id]:
+            raise ValueError("Feature manifest operation must target exactly one source feature")
+        if manifest.output_files is not None:
+            for data_file in manifest.output_files.model_dump(exclude_none=True).values():
+                self._validate_relative_file_ref(data_file)
+
+    def delete_project(self, project_id: str) -> ProjectDeletionSummary:
+        project = self.read_project(project_id)
+        project_path = self.project_path(project.id)
+
+        self.trash_projects_path.mkdir(parents=True, exist_ok=True)
+        trash_path = self.trash_projects_path / project.id
+        if trash_path.exists():
+            trash_path = self.trash_projects_path / self._trash_folder_name(project.id)
+
+        shutil.move(str(project_path), str(trash_path))
+        return ProjectDeletionSummary(
+            id=project.id,
+            name=project.name,
+            trashed_path=trash_path.relative_to(self.workspace_path).as_posix(),
+        )
