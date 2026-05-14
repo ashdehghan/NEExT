@@ -19,6 +19,10 @@ from .embedding_library import (
     get_operation_definition as get_embedding_operation_definition,
 )
 from .feature_library import get_feature_catalog_item, get_operation_definition, list_feature_catalog_entries
+from .model_library import get_model_catalog_item, list_model_catalog_entries
+from .model_library import (
+    get_operation_definition as get_model_operation_definition,
+)
 from .schemas import (
     ArtifactError,
     ArtifactInputRef,
@@ -47,6 +51,15 @@ from .schemas import (
     JobArtifactRef,
     JobEvent,
     JobManifest,
+    ModelCatalogEntry,
+    ModelCreateParams,
+    ModelCreateRequest,
+    ModelExpectedOutput,
+    ModelManifest,
+    ModelOutputFiles,
+    ModelOutputStats,
+    ModelPreview,
+    ModelRunBatchRequest,
     OperationSpec,
     ProjectCreate,
     ProjectDeletionSummary,
@@ -60,6 +73,7 @@ PROJECT_MANIFEST_TYPE = "project"
 DATASET_MANIFEST_TYPE = "dataset"
 FEATURE_MANIFEST_TYPE = "feature"
 EMBEDDING_MANIFEST_TYPE = "embedding"
+MODEL_MANIFEST_TYPE = "model"
 JOB_MANIFEST_TYPE = "job"
 ARTIFACT_KINDS = ("datasets", "features", "embeddings", "models")
 DATASET_PREP_OPERATION_ID = "neext.prepare_graph_collection"
@@ -140,6 +154,13 @@ class WorkbenchStore:
             if not (embeddings_path / embedding_id).exists():
                 return embedding_id
 
+    def _new_model_id(self, project_id: str) -> str:
+        models_path = self.project_path(project_id) / "artifacts" / "models"
+        while True:
+            model_id = str(uuid.uuid4())
+            if not (models_path / model_id).exists():
+                return model_id
+
     def _new_job_id(self, project_id: str) -> str:
         jobs_path = self.project_path(project_id) / "jobs"
         while True:
@@ -186,6 +207,13 @@ class WorkbenchStore:
         path = (embeddings_root / self._normalize_artifact_id(embedding_id)).resolve()
         if embeddings_root not in path.parents and path != embeddings_root:
             raise ValueError("Embedding path escaped the project")
+        return path
+
+    def model_path(self, project_id: str, model_id: str) -> Path:
+        models_root = (self.project_path(project_id) / "artifacts" / "models").resolve()
+        path = (models_root / self._normalize_artifact_id(model_id)).resolve()
+        if models_root not in path.parents and path != models_root:
+            raise ValueError("Model path escaped the project")
         return path
 
     def job_path(self, project_id: str, job_id: str) -> Path:
@@ -248,6 +276,19 @@ class WorkbenchStore:
         self._validate_embedding_manifest(embedding)
         return embedding
 
+    def _read_model_manifest(self, artifact_file: Path, project_id: str) -> ModelManifest:
+        payload = self._read_json(artifact_file)
+        if payload.get("schema_version") != SCHEMA_VERSION or payload.get("manifest_type") != MODEL_MANIFEST_TYPE:
+            raise ValueError("Unsupported model manifest")
+        model = ModelManifest.model_validate(payload)
+        if model.id != artifact_file.parent.name:
+            raise ValueError("Model manifest ID does not match its folder")
+        if model.project_id != project_id:
+            raise ValueError("Model manifest project ID does not match its project")
+        self._normalize_artifact_id(model.id)
+        self._validate_model_manifest(model)
+        return model
+
     def _read_job_manifest(self, job_file: Path, project_id: str) -> JobManifest:
         payload = self._read_json(job_file)
         if payload.get("schema_version") != SCHEMA_VERSION or payload.get("manifest_type") != JOB_MANIFEST_TYPE:
@@ -307,6 +348,9 @@ class WorkbenchStore:
 
     def list_embedding_catalog(self) -> list[EmbeddingCatalogEntry]:
         return list_embedding_catalog_entries()
+
+    def list_model_catalog(self) -> list[ModelCatalogEntry]:
+        return list_model_catalog_entries()
 
     def list_datasets(self, project_id: str) -> list[DatasetManifest]:
         project = self.read_project(project_id)
@@ -379,6 +423,30 @@ class WorkbenchStore:
             return self._read_embedding_manifest(path, project.id)
         except (ValueError, json.JSONDecodeError, ValidationError) as exc:
             raise FileNotFoundError(f"Embedding not found: {embedding_id}") from exc
+
+    def list_models(self, project_id: str) -> list[ModelManifest]:
+        project = self.read_project(project_id)
+        models_path = self.project_path(project.id) / "artifacts" / "models"
+        models = []
+        for artifact_file in sorted(models_path.glob("*/artifact.json")):
+            try:
+                models.append(self._read_model_manifest(artifact_file, project.id))
+            except (ValueError, json.JSONDecodeError, ValidationError):
+                continue
+        return sorted(models, key=lambda item: item.updated_at, reverse=True)
+
+    def read_model(self, project_id: str, model_id: str) -> ModelManifest:
+        project = self.read_project(project_id)
+        try:
+            path = self.model_path(project.id, model_id) / "artifact.json"
+        except ValueError as exc:
+            raise FileNotFoundError(f"Model not found: {model_id}") from exc
+        if not path.exists():
+            raise FileNotFoundError(f"Model not found: {model_id}")
+        try:
+            return self._read_model_manifest(path, project.id)
+        except (ValueError, json.JSONDecodeError, ValidationError) as exc:
+            raise FileNotFoundError(f"Model not found: {model_id}") from exc
 
     def list_jobs(self, project_id: str) -> list[JobManifest]:
         project = self.read_project(project_id)
@@ -525,6 +593,76 @@ class WorkbenchStore:
             shutil.rmtree(artifact_path, ignore_errors=True)
             raise
 
+    def create_model(self, project_id: str, request: ModelCreateRequest) -> ModelManifest:
+        project = self.read_project(project_id)
+        catalog = get_model_catalog_item(request.source_model_id)
+        if catalog is None:
+            raise FileNotFoundError(f"Model catalog entry not found: {request.source_model_id}")
+
+        operation = get_model_operation_definition(catalog.operation_id, catalog.operation_version)
+        if operation is None:
+            raise ValueError(f"Unsupported model operation: {catalog.operation_id}@{catalog.operation_version}")
+
+        embedding_ids = [self._normalize_artifact_id(embedding_id) for embedding_id in request.source_embedding_ids]
+        if len(set(embedding_ids)) != len(embedding_ids):
+            raise ValueError("Model source embeddings must be unique")
+        embeddings = [self.read_embedding(project.id, embedding_id) for embedding_id in embedding_ids]
+        dataset_ids = {self._embedding_dataset_id(project.id, embedding) for embedding in embeddings}
+        if len(dataset_ids) != 1:
+            raise ValueError("Selected embeddings must reference the same dataset")
+        dataset = self.read_dataset(project.id, next(iter(dataset_ids)))
+
+        model_id = self._new_model_id(project.id)
+        artifact_path = self.model_path(project.id, model_id)
+        artifact_path.mkdir(parents=True, exist_ok=False)
+
+        try:
+            params = request.params.model_dump()
+            operation_params = {
+                "model_algorithm": catalog.id,
+                "task_type": params["task_type"],
+                "sample_size": params["sample_size"],
+                "test_size": params["test_size"],
+                "balance_dataset": params["balance_dataset"],
+                "random_state": 42,
+                "n_jobs": params["n_jobs"],
+                "parallel_backend": params["parallel_backend"],
+                "embedding_ids": embedding_ids,
+                "embedding_columns": "all",
+            }
+            metric_names = self._model_metric_names(params["task_type"])
+            now = utc_now()
+            manifest = ModelManifest(
+                id=model_id,
+                project_id=project.id,
+                name=f"{dataset.name} - {catalog.name} {params['task_type'].title()}",
+                description="",
+                status="planned",
+                created_at=now,
+                updated_at=now,
+                inputs=[
+                    ArtifactInputRef(
+                        role="source_embedding",
+                        artifact_kind="embedding",
+                        artifact_id=embedding.id,
+                    )
+                    for embedding in embeddings
+                ],
+                source_model_id=catalog.id,
+                operation=OperationSpec(
+                    operation_id=operation.operation_id,
+                    operation_version=operation.operation_version,
+                    params=operation_params,
+                ),
+                expected_output=ModelExpectedOutput(metrics=metric_names),
+            )
+            self._validate_model_manifest(manifest)
+            self._write_json(artifact_path / "artifact.json", manifest.model_dump())
+            return manifest
+        except Exception:
+            shutil.rmtree(artifact_path, ignore_errors=True)
+            raise
+
     def create_dataset_from_library(self, project_id: str, request: DatasetCreateRequest) -> DatasetManifest:
         project = self.read_project(project_id)
         catalog = get_catalog_dataset(request.catalog_id)
@@ -635,6 +773,30 @@ class WorkbenchStore:
             target_artifacts=[JobArtifactRef(artifact_kind="embedding", artifact_id=embedding.id) for embedding in embeddings],
         )
         self._enqueue_job(project.id, job.id, lambda: self._compute_embedding_artifacts(project.id, embedding_ids, job.id))
+        return job
+
+    def run_model(self, project_id: str, model_id: str) -> JobManifest:
+        return self.run_model_batch(project_id, ModelRunBatchRequest(model_ids=[model_id]))
+
+    def run_model_batch(self, project_id: str, request: ModelRunBatchRequest) -> JobManifest:
+        project = self.read_project(project_id)
+        model_ids = [self._normalize_artifact_id(model_id) for model_id in request.model_ids]
+        if len(set(model_ids)) != len(model_ids):
+            raise ValueError("Selected models must be unique")
+        models = [self.read_model(project.id, model_id) for model_id in model_ids]
+        if any(model.status not in {"planned", "failed"} for model in models):
+            raise ValueError("Only planned or failed models can be run")
+
+        job = self._create_job(
+            project.id,
+            operation=OperationSpec(
+                operation_id="neext.train_graph_model",
+                operation_version="1",
+                params={"model_ids": model_ids},
+            ),
+            target_artifacts=[JobArtifactRef(artifact_kind="model", artifact_id=model.id) for model in models],
+        )
+        self._enqueue_job(project.id, job.id, lambda: self._compute_model_artifacts(project.id, model_ids, job.id))
         return job
 
     def _create_job(self, project_id: str, operation: OperationSpec, target_artifacts: list[JobArtifactRef]) -> JobManifest:
@@ -1029,6 +1191,165 @@ class WorkbenchStore:
                 self._log_job(project_id, job_id, f"Embedding {embedding.name} failed: {exc}")
                 raise
 
+    def _compute_model_artifacts(self, project_id: str, model_ids: list[str], job_id: str) -> None:
+        for model_id in model_ids:
+            model = self.read_model(project_id, model_id)
+            self._set_model_status(project_id, model.id, "running", error=None)
+            try:
+                embedding_ids = self._model_embedding_ids(model)
+                embeddings = [self.read_embedding(project_id, embedding_id) for embedding_id in embedding_ids]
+                dataset_ids = {self._embedding_dataset_id(project_id, embedding) for embedding in embeddings}
+                if len(dataset_ids) != 1:
+                    raise ValueError("Selected embeddings must reference the same dataset")
+                dataset_id = next(iter(dataset_ids))
+
+                pending_embedding_ids = [embedding.id for embedding in embeddings if embedding.status in {"planned", "failed"}]
+                if pending_embedding_ids:
+                    self._log_job(project_id, job_id, f"Computing upstream embeddings for model {model.name}")
+                    self._compute_embedding_artifacts(project_id, pending_embedding_ids, job_id)
+
+                embeddings = [self.read_embedding(project_id, embedding_id) for embedding_id in embedding_ids]
+                incomplete_embeddings = [embedding.name for embedding in embeddings if embedding.status != "completed"]
+                if incomplete_embeddings:
+                    raise ValueError(f"Source embeddings must be completed before model training: {', '.join(incomplete_embeddings)}")
+
+                collection = self._load_prepared_collection(project_id, dataset_id)
+                self._validate_model_labels(collection, str(model.operation.params["task_type"]))
+                merged_df, feature_columns = self._load_model_embeddings(project_id, embeddings)
+                self._log_job(project_id, job_id, f"Training model {model.name} with {model.source_model_id}")
+                results = self._compute_graph_model(collection, merged_df, feature_columns, model)
+                metrics_payload, trained_model = self._model_metrics_payload(model, results, feature_columns)
+                self._write_model_output(project_id, model.id, metrics_payload, trained_model)
+
+                metric_names = self._model_metric_names(str(model.operation.params["task_type"]))
+                model = self.read_model(project_id, model.id)
+                model.status = "completed"
+                model.output_files = ModelOutputFiles(metrics="output/metrics.json", model="output/model.joblib")
+                model.output_stats = ModelOutputStats(
+                    metric_count=len(metric_names),
+                    sample_size=int(model.operation.params["sample_size"]),
+                    feature_count=len(feature_columns),
+                    graph_count=int(len(merged_df)),
+                )
+                model.error = None
+                model.updated_at = utc_now()
+                self._write_json(self.model_path(project_id, model.id) / "artifact.json", model.model_dump())
+
+                if model.operation.params["task_type"] == "classifier":
+                    accuracy_mean = metrics_payload["summary"].get("accuracy_mean", 0)
+                    self._log_job(project_id, job_id, f"Model {model.name} completed with accuracy mean {accuracy_mean:.4f}")
+                else:
+                    rmse_mean = metrics_payload["summary"].get("rmse_mean", 0)
+                    self._log_job(project_id, job_id, f"Model {model.name} completed with RMSE mean {rmse_mean:.4f}")
+            except Exception as exc:
+                self._clean_model_output(project_id, model.id)
+                self._set_model_status(project_id, model.id, "failed", error=ArtifactError(message=str(exc), job_id=job_id))
+                self._log_job(project_id, job_id, f"Model {model.name} failed: {exc}")
+                raise
+
+    def _validate_model_labels(self, collection, task_type: str) -> None:
+        labels = [graph.graph_label for graph in collection.graphs]
+        if any(label is None for label in labels):
+            raise ValueError("Model training requires graph labels for all graphs")
+        if task_type == "regressor":
+            converted_labels = []
+            for label in labels:
+                try:
+                    converted_labels.append(float(label))
+                except (TypeError, ValueError) as exc:
+                    raise ValueError("Regressor models require numeric graph labels") from exc
+            for graph, converted_label in zip(collection.graphs, converted_labels):
+                graph.graph_label = converted_label
+
+    def _load_model_embeddings(self, project_id: str, embeddings: list[EmbeddingManifest]):
+        import pandas as pd
+
+        merged_df = None
+        feature_columns: list[str] = []
+        for embedding in embeddings:
+            if embedding.output_files is None:
+                raise ValueError(f"Embedding {embedding.name} has no output file")
+            embedding_df = pd.read_parquet(self.embedding_path(project_id, embedding.id) / embedding.output_files.embeddings)
+            expected_columns = list(embedding.expected_output.columns)
+            missing_columns = sorted(set(["graph_id"] + expected_columns) - set(embedding_df.columns))
+            if missing_columns:
+                raise ValueError(f"Embedding {embedding.name} output is missing columns: {', '.join(missing_columns)}")
+            prefix = f"{embedding.id[:8]}__"
+            renamed_columns = {column: f"{prefix}{column}" for column in expected_columns}
+            prepared_df = embedding_df.loc[:, ["graph_id"] + expected_columns].rename(columns=renamed_columns)
+            feature_columns.extend(renamed_columns[column] for column in expected_columns)
+            merged_df = prepared_df if merged_df is None else pd.merge(merged_df, prepared_df, on="graph_id", how="outer")
+        if merged_df is None:
+            raise ValueError("Model requires at least one embedding input")
+        return merged_df, feature_columns
+
+    def _compute_graph_model(self, collection, merged_df, feature_columns: list[str], model: ModelManifest) -> dict[str, Any]:
+        from NEExT.embeddings import Embeddings
+        from NEExT.ml_models import MLModels
+
+        params = model.operation.params
+        embeddings_obj = Embeddings(merged_df.loc[:, ["graph_id"] + feature_columns].copy(), model.name or model.source_model_id, feature_columns)
+        return MLModels(
+            graph_collection=collection,
+            embeddings=embeddings_obj,
+            model_type=params["task_type"],
+            model_name=params["model_algorithm"],
+            balance_dataset=params["balance_dataset"] if params["task_type"] == "classifier" else False,
+            compute_feature_importance=False,
+            sample_size=params["sample_size"],
+            test_size=params["test_size"],
+            random_state=42,
+            n_jobs=params["n_jobs"],
+            parallel_backend=params["parallel_backend"],
+        ).compute()
+
+    def _model_metrics_payload(
+        self,
+        model: ModelManifest,
+        results: dict[str, Any],
+        feature_columns: list[str],
+    ) -> tuple[dict[str, Any], Any]:
+        task_type = str(model.operation.params["task_type"])
+        metric_names = self._model_metric_names(task_type)
+        summary = {
+            f"{metric_name}_mean": self._json_safe(results[f"{metric_name}_mean"])
+            for metric_name in metric_names
+        }
+        summary.update(
+            {
+                f"{metric_name}_std": self._json_safe(results[f"{metric_name}_std"])
+                for metric_name in metric_names
+            }
+        )
+        metric_rows = []
+        for iteration in range(int(model.operation.params["sample_size"])):
+            row = {"iteration": iteration}
+            for metric_name in metric_names:
+                row[metric_name] = self._json_safe(results[metric_name][iteration])
+            metric_rows.append(row)
+
+        payload = {
+            "model_type": task_type,
+            "model_name": model.source_model_id,
+            "sample_size": int(model.operation.params["sample_size"]),
+            "test_size": float(model.operation.params["test_size"]),
+            "random_state": 42,
+            "feature_columns": list(feature_columns),
+            "classes": [str(item) for item in results.get("classes", [])] if task_type == "classifier" else None,
+            "summary": summary,
+            "metrics": metric_rows,
+        }
+        return payload, results["model"]
+
+    def _json_safe(self, value):
+        import numpy as np
+
+        if isinstance(value, np.generic):
+            return value.item()
+        if isinstance(value, np.ndarray):
+            return value.tolist()
+        return value
+
     def _load_embedding_features(self, project_id: str, features: list[FeatureManifest]):
         import pandas as pd
 
@@ -1117,6 +1438,24 @@ class WorkbenchStore:
         if not self.read_embedding(project_id, embedding_id).output_files:
             shutil.rmtree(artifact_path / "output", ignore_errors=True)
 
+    def _write_model_output(self, project_id: str, model_id: str, metrics_payload: dict[str, Any], trained_model) -> None:
+        import joblib
+
+        artifact_path = self.model_path(project_id, model_id)
+        tmp_path = artifact_path / "_tmp" / "output"
+        shutil.rmtree(tmp_path.parent, ignore_errors=True)
+        tmp_path.mkdir(parents=True, exist_ok=False)
+        self._write_json(tmp_path / "metrics.json", metrics_payload)
+        joblib.dump(trained_model, tmp_path / "model.joblib")
+        self._promote_directory(tmp_path, artifact_path / "output")
+        shutil.rmtree(artifact_path / "_tmp", ignore_errors=True)
+
+    def _clean_model_output(self, project_id: str, model_id: str) -> None:
+        artifact_path = self.model_path(project_id, model_id)
+        shutil.rmtree(artifact_path / "_tmp", ignore_errors=True)
+        if not self.read_model(project_id, model_id).output_files:
+            shutil.rmtree(artifact_path / "output", ignore_errors=True)
+
     def _set_feature_status(self, project_id: str, feature_id: str, status: str, error: ArtifactError | None) -> None:
         feature = self.read_feature(project_id, feature_id)
         feature.status = status
@@ -1130,6 +1469,13 @@ class WorkbenchStore:
         embedding.error = error
         embedding.updated_at = utc_now()
         self._write_json(self.embedding_path(project_id, embedding.id) / "artifact.json", embedding.model_dump())
+
+    def _set_model_status(self, project_id: str, model_id: str, status: str, error: ArtifactError | None) -> None:
+        model = self.read_model(project_id, model_id)
+        model.status = status
+        model.error = error
+        model.updated_at = utc_now()
+        self._write_json(self.model_path(project_id, model.id) / "artifact.json", model.model_dump())
 
     def _feature_dataset_id(self, feature: FeatureManifest) -> str:
         for input_ref in feature.inputs:
@@ -1146,6 +1492,31 @@ class WorkbenchStore:
         if not feature_ids:
             raise ValueError("Embedding has no source feature inputs")
         return feature_ids
+
+    def _model_embedding_ids(self, model: ModelManifest) -> list[str]:
+        embedding_ids = [
+            input_ref.artifact_id
+            for input_ref in model.inputs
+            if input_ref.role == "source_embedding" and input_ref.artifact_kind == "embedding"
+        ]
+        if not embedding_ids:
+            raise ValueError("Model has no source embedding inputs")
+        return embedding_ids
+
+    def _embedding_dataset_id(self, project_id: str, embedding: EmbeddingManifest) -> str:
+        feature_ids = self._embedding_feature_ids(embedding)
+        features = [self.read_feature(project_id, feature_id) for feature_id in feature_ids]
+        dataset_ids = {self._feature_dataset_id(feature) for feature in features}
+        if len(dataset_ids) != 1:
+            raise ValueError("Embedding source features must reference the same dataset")
+        return next(iter(dataset_ids))
+
+    def _model_metric_names(self, task_type: str) -> list[str]:
+        if task_type == "classifier":
+            return ["accuracy", "recall", "precision", "f1_score"]
+        if task_type == "regressor":
+            return ["rmse", "mae"]
+        raise ValueError(f"Unsupported model task type: {task_type}")
 
     def preview_dataset(self, project_id: str, dataset_id: str, table: str, *, limit: int = 20, offset: int = 0) -> TabularPreview:
         dataset = self.read_dataset(project_id, dataset_id)
@@ -1178,6 +1549,21 @@ class WorkbenchStore:
         if embedding.status != "completed" or embedding.output_files is None:
             raise ValueError("Embedding preview is available only after computation completes")
         return self._preview_parquet(self.embedding_path(project_id, embedding.id) / embedding.output_files.embeddings, limit=limit, offset=offset)
+
+    def preview_model(self, project_id: str, model_id: str) -> ModelPreview:
+        model = self.read_model(project_id, model_id)
+        if model.status != "completed" or model.output_files is None:
+            raise ValueError("Model preview is available only after training completes")
+        metrics_path = self.model_path(project_id, model.id) / model.output_files.metrics
+        if not metrics_path.exists():
+            raise ValueError("Model metrics output is missing")
+        payload = self._read_json(metrics_path)
+        return ModelPreview(
+            summary=payload.get("summary", {}),
+            metrics=payload.get("metrics", []),
+            feature_columns=payload.get("feature_columns", []),
+            classes=payload.get("classes"),
+        )
 
     def _preview_parquet(self, path: Path, *, limit: int, offset: int) -> TabularPreview:
         import pandas as pd
@@ -1373,6 +1759,52 @@ class WorkbenchStore:
         expected_columns = [f"emb_{index}" for index in range(manifest.operation.params["embedding_dimension"])]
         if manifest.expected_output.columns != expected_columns:
             raise ValueError("Embedding manifest expected columns must match the embedding dimension")
+        if manifest.output_files is not None:
+            for data_file in manifest.output_files.model_dump(exclude_none=True).values():
+                self._validate_relative_file_ref(data_file)
+
+    def _validate_model_manifest(self, manifest: ModelManifest) -> None:
+        if len(manifest.inputs) < 1:
+            raise ValueError("Model manifests must reference at least one embedding input")
+        embedding_ids = []
+        for input_ref in manifest.inputs:
+            if input_ref.role != "source_embedding" or input_ref.artifact_kind != "embedding":
+                raise ValueError("Model manifests must reference source embedding inputs")
+            self._normalize_artifact_id(input_ref.artifact_id)
+            embedding_ids.append(input_ref.artifact_id)
+        if len(set(embedding_ids)) != len(embedding_ids):
+            raise ValueError("Model manifests must reference unique source embedding inputs")
+        catalog = get_model_catalog_item(manifest.source_model_id)
+        if catalog is None:
+            raise ValueError("Model manifest references an unknown model catalog entry")
+        if (
+            manifest.operation.operation_id != catalog.operation_id
+            or manifest.operation.operation_version != catalog.operation_version
+        ):
+            raise ValueError("Model manifest operation must match its catalog entry")
+        if get_model_operation_definition(manifest.operation.operation_id, manifest.operation.operation_version) is None:
+            raise ValueError("Model manifest references an unsupported operation")
+        ModelCreateParams.model_validate(
+            {
+                "task_type": manifest.operation.params.get("task_type"),
+                "sample_size": manifest.operation.params.get("sample_size"),
+                "test_size": manifest.operation.params.get("test_size"),
+                "balance_dataset": manifest.operation.params.get("balance_dataset"),
+                "n_jobs": manifest.operation.params.get("n_jobs"),
+                "parallel_backend": manifest.operation.params.get("parallel_backend"),
+            }
+        )
+        if manifest.operation.params.get("model_algorithm") != manifest.source_model_id:
+            raise ValueError("Model manifest operation must target its source model algorithm")
+        if manifest.operation.params.get("random_state") != 42:
+            raise ValueError("Model manifest operation must use the fixed random seed")
+        if manifest.operation.params.get("embedding_ids") != embedding_ids:
+            raise ValueError("Model manifest operation embedding IDs must match source embedding inputs")
+        if manifest.operation.params.get("embedding_columns") != "all":
+            raise ValueError("Model manifest operation must use all source embedding columns")
+        expected_metrics = self._model_metric_names(str(manifest.operation.params["task_type"]))
+        if manifest.expected_output.metrics != expected_metrics:
+            raise ValueError("Model manifest expected metrics must match the task type")
         if manifest.output_files is not None:
             for data_file in manifest.output_files.model_dump(exclude_none=True).values():
                 self._validate_relative_file_ref(data_file)

@@ -21,6 +21,10 @@ export function useEmbeddingLibrary() {
   return useQuery({ queryKey: ["embedding-library"], queryFn: api.embeddingLibrary });
 }
 
+export function useModelLibrary() {
+  return useQuery({ queryKey: ["model-library"], queryFn: api.modelLibrary });
+}
+
 export function useProjectDatasets(projectId: string) {
   return useQuery({
     queryKey: ["projects", projectId, "datasets"],
@@ -48,6 +52,15 @@ export function useProjectEmbeddings(projectId: string) {
   });
 }
 
+export function useProjectModels(projectId: string) {
+  return useQuery({
+    queryKey: ["projects", projectId, "models"],
+    queryFn: () => api.projectModels(projectId),
+    enabled: Boolean(projectId),
+    refetchInterval: 5_000
+  });
+}
+
 export function useProjectJobs(projectId: string) {
   return useQuery({
     queryKey: ["projects", projectId, "jobs"],
@@ -65,5 +78,6 @@ export function useInvalidateWorkspace() {
     client.invalidateQueries({ queryKey: ["dataset-library"] });
     client.invalidateQueries({ queryKey: ["feature-library"] });
     client.invalidateQueries({ queryKey: ["embedding-library"] });
+    client.invalidateQueries({ queryKey: ["model-library"] });
   };
 }

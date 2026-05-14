@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Literal, Optional
+from typing import Any, Literal, Optional, Union
 
 from pydantic import BaseModel, Field
 
@@ -227,6 +227,79 @@ class EmbeddingCreateRequest(BaseModel):
 
 class EmbeddingRunBatchRequest(BaseModel):
     embedding_ids: list[str] = Field(min_length=1)
+
+
+class ModelCatalogEntry(BaseModel):
+    id: str
+    name: str
+    description: str = ""
+    output: str
+    operation_id: str
+    operation_version: str
+
+
+class ModelCreateParams(BaseModel):
+    task_type: Literal["classifier", "regressor"]
+    sample_size: int = Field(default=5, ge=1, le=100)
+    test_size: float = Field(default=0.3, ge=0.05, le=0.95)
+    balance_dataset: bool = False
+    n_jobs: int = Field(default=1, ge=1, le=32)
+    parallel_backend: Literal["thread", "process"] = "thread"
+
+
+class ModelCreateRequest(BaseModel):
+    source_model_id: str
+    source_embedding_ids: list[str] = Field(min_length=1)
+    params: ModelCreateParams
+
+
+class ModelRunBatchRequest(BaseModel):
+    model_ids: list[str] = Field(min_length=1)
+
+
+class ModelExpectedOutput(BaseModel):
+    artifact_kind: Literal["model"] = "model"
+    storage_format: Literal["neext-model-results-v1"] = "neext-model-results-v1"
+    metrics: list[str]
+
+
+class ModelOutputFiles(BaseModel):
+    metrics: str
+    model: str
+
+
+class ModelOutputStats(BaseModel):
+    metric_count: int
+    sample_size: int
+    feature_count: int
+    graph_count: int
+
+
+class ModelManifest(BaseModel):
+    schema_version: str = "1"
+    manifest_type: Literal["model"] = "model"
+    id: str
+    project_id: str
+    name: str
+    description: str = ""
+    status: Literal["planned", "running", "completed", "failed"] = "planned"
+    created_at: str
+    updated_at: str
+    inputs: list[ArtifactInputRef]
+    source_type: Literal["neext_supervised_graph_model"] = "neext_supervised_graph_model"
+    source_model_id: str
+    operation: OperationSpec
+    expected_output: ModelExpectedOutput
+    output_files: Optional[ModelOutputFiles] = None
+    output_stats: Optional[ModelOutputStats] = None
+    error: Optional[ArtifactError] = None
+
+
+class ModelPreview(BaseModel):
+    summary: dict[str, Union[float, int, str, list[str]]]
+    metrics: list[dict[str, Any]]
+    feature_columns: list[str]
+    classes: Optional[list[str]] = None
 
 
 class JobArtifactRef(BaseModel):

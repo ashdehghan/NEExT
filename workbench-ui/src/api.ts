@@ -165,6 +165,44 @@ export interface EmbeddingManifest {
   error?: ArtifactError | null;
 }
 
+export interface ModelExpectedOutput {
+  artifact_kind: "model";
+  storage_format: "neext-model-results-v1";
+  metrics: string[];
+}
+
+export interface ModelOutputFiles {
+  metrics: string;
+  model: string;
+}
+
+export interface ModelOutputStats {
+  metric_count: number;
+  sample_size: number;
+  feature_count: number;
+  graph_count: number;
+}
+
+export interface ModelManifest {
+  schema_version: string;
+  manifest_type: "model";
+  id: string;
+  project_id: string;
+  name: string;
+  description: string;
+  status: "planned" | "running" | "completed" | "failed";
+  created_at: string;
+  updated_at: string;
+  inputs: ArtifactInputRef[];
+  source_type: "neext_supervised_graph_model";
+  source_model_id: string;
+  operation: OperationSpec;
+  expected_output: ModelExpectedOutput;
+  output_files?: ModelOutputFiles | null;
+  output_stats?: ModelOutputStats | null;
+  error?: ArtifactError | null;
+}
+
 export interface JobManifest {
   schema_version: string;
   manifest_type: "job";
@@ -218,6 +256,15 @@ export interface EmbeddingCatalogEntry {
   operation_version: string;
 }
 
+export interface ModelCatalogEntry {
+  id: string;
+  name: string;
+  description: string;
+  output: string;
+  operation_id: string;
+  operation_version: string;
+}
+
 export interface FeatureCreatePayload {
   source_dataset_id: string;
   source_feature_id: string;
@@ -237,6 +284,26 @@ export interface EmbeddingCreatePayload {
   };
 }
 
+export interface ModelCreatePayload {
+  source_model_id: string;
+  source_embedding_ids: string[];
+  params: {
+    task_type: "classifier" | "regressor";
+    sample_size: number;
+    test_size: number;
+    balance_dataset: boolean;
+    n_jobs: number;
+    parallel_backend: "thread" | "process";
+  };
+}
+
+export interface ModelPreview {
+  summary: Record<string, number | string | string[]>;
+  metrics: Record<string, unknown>[];
+  feature_columns: string[];
+  classes?: string[] | null;
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, init);
   if (!response.ok) {
@@ -253,6 +320,7 @@ export const api = {
   datasetLibrary: () => request<DatasetCatalogEntry[]>("/api/dataset-library"),
   featureLibrary: () => request<FeatureCatalogEntry[]>("/api/feature-library"),
   embeddingLibrary: () => request<EmbeddingCatalogEntry[]>("/api/embedding-library"),
+  modelLibrary: () => request<ModelCatalogEntry[]>("/api/model-library"),
   projectDatasets: (projectId: string) => request<DatasetManifest[]>(`/api/projects/${projectId}/datasets`),
   projectDataset: (projectId: string, datasetId: string) =>
     request<DatasetManifest>(`/api/projects/${projectId}/datasets/${datasetId}`),
@@ -262,6 +330,9 @@ export const api = {
   projectEmbeddings: (projectId: string) => request<EmbeddingManifest[]>(`/api/projects/${projectId}/embeddings`),
   projectEmbedding: (projectId: string, embeddingId: string) =>
     request<EmbeddingManifest>(`/api/projects/${projectId}/embeddings/${embeddingId}`),
+  projectModels: (projectId: string) => request<ModelManifest[]>(`/api/projects/${projectId}/models`),
+  projectModel: (projectId: string, modelId: string) =>
+    request<ModelManifest>(`/api/projects/${projectId}/models/${modelId}`),
   projectJobs: (projectId: string) => request<JobManifest[]>(`/api/projects/${projectId}/jobs`),
   projectJob: (projectId: string, jobId: string) => request<JobManifest>(`/api/projects/${projectId}/jobs/${jobId}`),
   createDataset: (projectId: string, payload: DatasetCreatePayload) =>
@@ -306,6 +377,22 @@ export const api = {
     }),
   embeddingPreview: (projectId: string, embeddingId: string, limit = 20, offset = 0) =>
     request<TabularPreview>(`/api/projects/${projectId}/embeddings/${embeddingId}/preview?limit=${limit}&offset=${offset}`),
+  createModel: (projectId: string, payload: ModelCreatePayload) =>
+    request<ModelManifest>(`/api/projects/${projectId}/models`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    }),
+  runModel: (projectId: string, modelId: string) =>
+    request<JobManifest>(`/api/projects/${projectId}/models/${modelId}/run`, { method: "POST" }),
+  runModelBatch: (projectId: string, modelIds: string[]) =>
+    request<JobManifest>(`/api/projects/${projectId}/models/run-batch`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ model_ids: modelIds })
+    }),
+  modelPreview: (projectId: string, modelId: string) =>
+    request<ModelPreview>(`/api/projects/${projectId}/models/${modelId}/preview`),
   createProject: (payload: { name: string; description: string }) =>
     request<ProjectManifest>("/api/projects", {
       method: "POST",

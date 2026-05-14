@@ -10,6 +10,8 @@ from .schemas import (
     EmbeddingRunBatchRequest,
     FeatureCreateRequest,
     FeatureRunBatchRequest,
+    ModelCreateRequest,
+    ModelRunBatchRequest,
     ProjectCreate,
     WorkspaceInfo,
 )
@@ -65,6 +67,10 @@ def create_app(workspace_path: Optional[Union[str, Path]] = None):
     @app.get("/api/embedding-library")
     def embedding_library():
         return store.list_embedding_catalog()
+
+    @app.get("/api/model-library")
+    def model_library():
+        return store.list_model_catalog()
 
     @app.post("/api/projects")
     def create_project(request: ProjectCreate):
@@ -203,6 +209,48 @@ def create_app(workspace_path: Optional[Union[str, Path]] = None):
     def preview_project_embedding(project_id: str, embedding_id: str, limit: int = 20, offset: int = 0):
         try:
             return store.preview_embedding(project_id, embedding_id, limit=limit, offset=offset)
+        except Exception as exc:
+            raise api_exception(exc) from exc
+
+    @app.get("/api/projects/{project_id}/models")
+    def list_project_models(project_id: str):
+        try:
+            return store.list_models(project_id)
+        except Exception as exc:
+            raise api_exception(exc) from exc
+
+    @app.post("/api/projects/{project_id}/models")
+    def create_project_model(project_id: str, request: ModelCreateRequest):
+        try:
+            return store.create_model(project_id, request)
+        except Exception as exc:
+            raise api_exception(exc) from exc
+
+    @app.get("/api/projects/{project_id}/models/{model_id}")
+    def get_project_model(project_id: str, model_id: str):
+        try:
+            return store.read_model(project_id, model_id)
+        except Exception as exc:
+            raise api_exception(exc) from exc
+
+    @app.post("/api/projects/{project_id}/models/{model_id}/run")
+    def run_project_model(project_id: str, model_id: str):
+        try:
+            return store.run_model(project_id, model_id)
+        except Exception as exc:
+            raise api_exception(exc) from exc
+
+    @app.post("/api/projects/{project_id}/models/run-batch")
+    def run_project_models(project_id: str, request: ModelRunBatchRequest):
+        try:
+            return store.run_model_batch(project_id, request)
+        except Exception as exc:
+            raise api_exception(exc) from exc
+
+    @app.get("/api/projects/{project_id}/models/{model_id}/preview")
+    def preview_project_model(project_id: str, model_id: str):
+        try:
+            return store.preview_model(project_id, model_id)
         except Exception as exc:
             raise api_exception(exc) from exc
 

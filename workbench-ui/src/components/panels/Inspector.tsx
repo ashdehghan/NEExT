@@ -1,3 +1,5 @@
+import { useQuery } from "@tanstack/react-query";
+import { api } from "../../api";
 import type {
   DatasetCatalogEntry,
   DatasetManifest,
@@ -5,6 +7,8 @@ import type {
   EmbeddingManifest,
   FeatureCatalogEntry,
   FeatureManifest,
+  ModelCatalogEntry,
+  ModelManifest,
   ProjectManifest
 } from "../../api";
 import { EmptyState } from "../primitives/EmptyState";
@@ -23,6 +27,11 @@ interface InspectorProps {
   embeddingFeatures: FeatureManifest[];
   embeddingCatalogEntry?: EmbeddingCatalogEntry;
   selectedEmbeddingCatalogEntry?: EmbeddingCatalogEntry;
+  model?: ModelManifest;
+  modelDataset?: DatasetManifest;
+  modelEmbeddings: EmbeddingManifest[];
+  modelCatalogEntry?: ModelCatalogEntry;
+  selectedModelCatalogEntry?: ModelCatalogEntry;
 }
 
 function InspectorRow({ label, value, mono = false }: { label: string; value: string; mono?: boolean }) {
@@ -46,6 +55,23 @@ function datasetStats(dataset: DatasetManifest) {
   return dataset.prepared_stats || dataset.stats || dataset.source_stats;
 }
 
+function taskLabel(taskType?: string): string {
+  if (taskType === "classifier") return "Classifier";
+  if (taskType === "regressor") return "Regressor";
+  return "";
+}
+
+function metricLabel(metric: string): string {
+  if (metric === "f1_score") return "F1 Score";
+  if (metric === "rmse") return "RMSE";
+  if (metric === "mae") return "MAE";
+  return metric.replace(/_/g, " ").replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+function metricValue(value: unknown): string {
+  return typeof value === "number" ? value.toFixed(4) : value == null ? "" : String(value);
+}
+
 export function Inspector({
   project,
   dataset,
@@ -59,7 +85,12 @@ export function Inspector({
   embeddingDataset,
   embeddingFeatures,
   embeddingCatalogEntry,
-  selectedEmbeddingCatalogEntry
+  selectedEmbeddingCatalogEntry,
+  model,
+  modelDataset,
+  modelEmbeddings,
+  modelCatalogEntry,
+  selectedModelCatalogEntry
 }: InspectorProps) {
   const description = project?.description.trim() || "None";
   const datasetDescription = dataset?.description.trim() || "None";
@@ -71,6 +102,15 @@ export function Inspector({
   const embeddingAlgorithmName = embeddingCatalogEntry?.name || embedding?.source_embedding_id || "";
   const embeddingFeatureNames = embeddingFeatures.length ? embeddingFeatures.map((item) => item.name).join(", ") : "Unknown features";
   const embeddingCatalogDescription = selectedEmbeddingCatalogEntry?.description.trim() || "None";
+  const modelDescription = model?.description.trim() || "None";
+  const modelAlgorithmName = modelCatalogEntry?.name || model?.source_model_id || "";
+  const modelEmbeddingNames = modelEmbeddings.length ? modelEmbeddings.map((item) => item.name).join(", ") : "Unknown embeddings";
+  const modelCatalogDescription = selectedModelCatalogEntry?.description.trim() || "None";
+  const modelPreview = useQuery({
+    queryKey: ["projects", model?.project_id, "models", model?.id, "preview", "inspector"],
+    queryFn: () => api.modelPreview(model!.project_id, model!.id),
+    enabled: Boolean(model?.project_id && model?.id && model.status === "completed")
+  });
 
   return (
     <section className="panel inspector-panel">
@@ -78,7 +118,62 @@ export function Inspector({
         <span>Inspector</span>
       </div>
       <div className="panel-body">
-        {embedding ? (
+        {model ? (
+          <div className="inspector-details">
+            <h3>Model Details</h3>
+            <dl>
+              <InspectorRow label="Name" value={model.name} />
+              <InspectorRow label="Description" value={modelDescription} />
+              <InspectorRow label="Status" value={model.status} />
+              <InspectorRow label="Dataset" value={modelDataset?.name || "Unknown dataset"} />
+              <InspectorRow label="Embeddings" value={modelEmbeddingNames} />
+              <InspectorRow label="Algorithm" value={modelAlgorithmName} />
+              <InspectorRow label="Algorithm ID" value={model.source_model_id} mono />
+              <InspectorRow label="Task Type" value={taskLabel(String(model.operation.params.task_type))} />
+              <InspectorRow label="Sample Size" value={String(model.operation.params.sample_size)} />
+              <InspectorRow label="Test Size" value={String(model.operation.params.test_size)} />
+              <InspectorRow label="Balance Dataset" value={boolText(Boolean(model.operation.params.balance_dataset))} />
+              <InspectorRow label="Random Seed" value={String(model.operation.params.random_state)} />
+              <InspectorRow label="Parallel Jobs" value={String(model.operation.params.n_jobs)} />
+              <InspectorRow label="Parallel Backend" value={String(model.operation.params.parallel_backend)} />
+              <InspectorRow label="Expected Metrics" value={model.expected_output.metrics.join(", ")} mono />
+              <InspectorRow label="Operation ID" value={model.operation.operation_id} mono />
+              <InspectorRow label="Operation Version" value={model.operation.operation_version} mono />
+              {model.output_stats ? <InspectorRow label="Metric Count" value={String(model.output_stats.metric_count)} /> : null}
+              {model.output_stats ? <InspectorRow label="Feature Count" value={String(model.output_stats.feature_count)} /> : null}
+              {model.output_stats ? <InspectorRow label="Graph Count" value={String(model.output_stats.graph_count)} /> : null}
+              {modelPreview.data
+                ? model.expected_output.metrics.map((metric) => (
+                    <InspectorRow
+                      key={metric}
+                      label={`${metricLabel(metric)} Mean`}
+                      value={metricValue(modelPreview.data.summary[`${metric}_mean`])}
+                    />
+                  ))
+                : null}
+              {model.output_files ? <InspectorRow label="Metrics File" value={model.output_files.metrics} mono /> : null}
+              {model.output_files ? <InspectorRow label="Model File" value={model.output_files.model} mono /> : null}
+              {model.error ? <InspectorRow label="Error" value={model.error.message} /> : null}
+              <InspectorRow label="Model ID" value={model.id} mono />
+              <InspectorRow label="Project ID" value={model.project_id} mono />
+              <InspectorRow label="Created" value={model.created_at} mono />
+              <InspectorRow label="Updated" value={model.updated_at} mono />
+            </dl>
+          </div>
+        ) : selectedModelCatalogEntry ? (
+          <div className="inspector-details">
+            <h3>Catalog Model Details</h3>
+            <dl>
+              <InspectorRow label="Name" value={selectedModelCatalogEntry.name} />
+              <InspectorRow label="Description" value={modelCatalogDescription} />
+              <InspectorRow label="Status" value="Available" />
+              <InspectorRow label="Algorithm ID" value={selectedModelCatalogEntry.id} mono />
+              <InspectorRow label="Output" value={selectedModelCatalogEntry.output} />
+              <InspectorRow label="Operation ID" value={selectedModelCatalogEntry.operation_id} mono />
+              <InspectorRow label="Operation Version" value={selectedModelCatalogEntry.operation_version} mono />
+            </dl>
+          </div>
+        ) : embedding ? (
           <div className="inspector-details">
             <h3>Embedding Details</h3>
             <dl>

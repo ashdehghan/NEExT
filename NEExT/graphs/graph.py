@@ -35,7 +35,7 @@ class Graph(BaseModel):
     }
 
     graph_id: Union[int, str]
-    graph_label: Optional[Union[int, float]] = None
+    graph_label: Optional[Union[int, float, str]] = None
     nodes: List[int]
     edges: List[tuple[int, int]]
     node_attributes: Dict[int, Dict[str, Union[float, int, str]]] = Field(default_factory=dict)
@@ -258,7 +258,7 @@ class Graph(BaseModel):
             "graph_label": self.graph_label,
         }
 
-    def set_graph_label(self, label: int):
+    def set_graph_label(self, label: Union[int, float, str]):
         self.graph_label = label
 
     def sample_nodes(self, sample_rate: float = 1.0, random_seed: Optional[int] = None) -> List[int]:

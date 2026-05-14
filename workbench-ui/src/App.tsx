@@ -4,9 +4,11 @@ import {
   useDatasetLibrary,
   useEmbeddingLibrary,
   useFeatureLibrary,
+  useModelLibrary,
   useProjectDatasets,
   useProjectEmbeddings,
   useProjectFeatures,
+  useProjectModels,
   useProjectJobs,
   useWorkspace,
   useProjects
@@ -27,6 +29,7 @@ import { CreateProjectView, ProjectsView } from "./pages/home/ProjectsPage";
 import { ConfigureDatasetView, DatasetLibraryView, DatasetPreviewView, ProjectDatasetsView } from "./pages/datasets/DatasetsPage";
 import { ConfigureFeatureView, FeatureLibraryView, FeaturePreviewView, ProjectFeaturesView } from "./pages/features/FeaturesPage";
 import { ConfigureEmbeddingView, EmbeddingLibraryView, EmbeddingPreviewView, ProjectEmbeddingsView } from "./pages/embeddings/EmbeddingsPage";
+import { ConfigureModelView, ModelLibraryView, ModelPreviewView, ProjectModelsView } from "./pages/models/ModelsPage";
 
 interface Route {
   topTab: MainTab;
@@ -69,21 +72,27 @@ export default function App() {
   const [selectedFeatureCatalogId, setSelectedFeatureCatalogId] = useState("");
   const [selectedEmbeddingId, setSelectedEmbeddingId] = useState("");
   const [selectedEmbeddingCatalogId, setSelectedEmbeddingCatalogId] = useState("");
+  const [selectedModelId, setSelectedModelId] = useState("");
+  const [selectedModelCatalogId, setSelectedModelCatalogId] = useState("");
   const [configureDatasetCatalogId, setConfigureDatasetCatalogId] = useState("");
   const [configureFeatureCatalogId, setConfigureFeatureCatalogId] = useState("");
   const [configureEmbeddingCatalogId, setConfigureEmbeddingCatalogId] = useState("");
+  const [configureModelCatalogId, setConfigureModelCatalogId] = useState("");
   const [previewDatasetId, setPreviewDatasetId] = useState("");
   const [previewFeatureId, setPreviewFeatureId] = useState("");
   const [previewEmbeddingId, setPreviewEmbeddingId] = useState("");
+  const [previewModelId, setPreviewModelId] = useState("");
 
   const workspaceQuery = useWorkspace();
   const projectsQuery = useProjects();
   const datasetLibraryQuery = useDatasetLibrary();
   const featureLibraryQuery = useFeatureLibrary();
   const embeddingLibraryQuery = useEmbeddingLibrary();
+  const modelLibraryQuery = useModelLibrary();
   const projectDatasetsQuery = useProjectDatasets(activeProjectId);
   const projectFeaturesQuery = useProjectFeatures(activeProjectId);
   const projectEmbeddingsQuery = useProjectEmbeddings(activeProjectId);
+  const projectModelsQuery = useProjectModels(activeProjectId);
   const projectJobsQuery = useProjectJobs(activeProjectId);
 
   useEffect(() => {
@@ -100,6 +109,7 @@ export default function App() {
   const datasets = projectDatasetsQuery.data || [];
   const features = projectFeaturesQuery.data || [];
   const embeddings = projectEmbeddingsQuery.data || [];
+  const models = projectModelsQuery.data || [];
   const selectedDataset = useMemo(
     () => datasets.find((dataset) => dataset.id === selectedDatasetId),
     [datasets, selectedDatasetId]
@@ -111,6 +121,10 @@ export default function App() {
   const selectedEmbedding = useMemo(
     () => embeddings.find((embedding) => embedding.id === selectedEmbeddingId),
     [embeddings, selectedEmbeddingId]
+  );
+  const selectedModel = useMemo(
+    () => models.find((model) => model.id === selectedModelId),
+    [models, selectedModelId]
   );
   const selectedCatalogEntry = useMemo(
     () => datasetLibraryQuery.data?.find((entry) => entry.id === selectedCatalogId),
@@ -124,6 +138,10 @@ export default function App() {
     () => embeddingLibraryQuery.data?.find((entry) => entry.id === selectedEmbeddingCatalogId),
     [embeddingLibraryQuery.data, selectedEmbeddingCatalogId]
   );
+  const selectedModelCatalogEntry = useMemo(
+    () => modelLibraryQuery.data?.find((entry) => entry.id === selectedModelCatalogId),
+    [modelLibraryQuery.data, selectedModelCatalogId]
+  );
   const configuredFeatureCatalogEntry = useMemo(
     () => featureLibraryQuery.data?.find((entry) => entry.id === configureFeatureCatalogId),
     [configureFeatureCatalogId, featureLibraryQuery.data]
@@ -131,6 +149,10 @@ export default function App() {
   const configuredEmbeddingCatalogEntry = useMemo(
     () => embeddingLibraryQuery.data?.find((entry) => entry.id === configureEmbeddingCatalogId),
     [configureEmbeddingCatalogId, embeddingLibraryQuery.data]
+  );
+  const configuredModelCatalogEntry = useMemo(
+    () => modelLibraryQuery.data?.find((entry) => entry.id === configureModelCatalogId),
+    [configureModelCatalogId, modelLibraryQuery.data]
   );
   const configuredDatasetCatalogEntry = useMemo(
     () => datasetLibraryQuery.data?.find((entry) => entry.id === configureDatasetCatalogId),
@@ -147,6 +169,10 @@ export default function App() {
   const previewEmbedding = useMemo(
     () => embeddings.find((embedding) => embedding.id === previewEmbeddingId),
     [embeddings, previewEmbeddingId]
+  );
+  const previewModel = useMemo(
+    () => models.find((model) => model.id === previewModelId),
+    [models, previewModelId]
   );
   const selectedFeatureMethod = useMemo(
     () => featureLibraryQuery.data?.find((entry) => entry.id === selectedFeature?.source_feature_id),
@@ -172,6 +198,27 @@ export default function App() {
     const datasetInput = firstFeature?.inputs.find((input) => input.role === "source_dataset" && input.artifact_kind === "dataset");
     return datasetInput ? datasets.find((dataset) => dataset.id === datasetInput.artifact_id) : undefined;
   }, [datasets, selectedEmbeddingFeatures]);
+  const selectedModelAlgorithm = useMemo(
+    () => modelLibraryQuery.data?.find((entry) => entry.id === selectedModel?.source_model_id),
+    [modelLibraryQuery.data, selectedModel]
+  );
+  const selectedModelEmbeddings = useMemo(() => {
+    if (!selectedModel) return [];
+    const embeddingIds = selectedModel.inputs
+      .filter((input) => input.role === "source_embedding" && input.artifact_kind === "embedding")
+      .map((input) => input.artifact_id);
+    return embeddingIds.map((embeddingId) => embeddings.find((embedding) => embedding.id === embeddingId)).filter(Boolean) as typeof embeddings;
+  }, [embeddings, selectedModel]);
+  const selectedModelDataset = useMemo(() => {
+    const firstEmbedding = selectedModelEmbeddings[0];
+    if (!firstEmbedding) return undefined;
+    const featureIds = firstEmbedding.inputs
+      .filter((input) => input.role === "source_feature" && input.artifact_kind === "feature")
+      .map((input) => input.artifact_id);
+    const firstFeature = featureIds.map((featureId) => features.find((feature) => feature.id === featureId)).find(Boolean);
+    const datasetInput = firstFeature?.inputs.find((input) => input.role === "source_dataset" && input.artifact_kind === "dataset");
+    return datasetInput ? datasets.find((dataset) => dataset.id === datasetInput.artifact_id) : undefined;
+  }, [datasets, features, selectedModelEmbeddings]);
   const importedCatalogIds = useMemo(() => new Set(datasets.map((dataset) => dataset.source_catalog_id)), [datasets]);
   const jobs = projectJobsQuery.data || [];
 
@@ -182,12 +229,16 @@ export default function App() {
     setSelectedFeatureCatalogId("");
     setSelectedEmbeddingId("");
     setSelectedEmbeddingCatalogId("");
+    setSelectedModelId("");
+    setSelectedModelCatalogId("");
     setConfigureDatasetCatalogId("");
     setConfigureFeatureCatalogId("");
     setConfigureEmbeddingCatalogId("");
+    setConfigureModelCatalogId("");
     setPreviewDatasetId("");
     setPreviewFeatureId("");
     setPreviewEmbeddingId("");
+    setPreviewModelId("");
   }, [activeProjectId]);
 
   useEffect(() => {
@@ -226,13 +277,27 @@ export default function App() {
     }
   }, [embeddingLibraryQuery.data, selectedEmbeddingCatalogEntry, selectedEmbeddingCatalogId]);
 
+  useEffect(() => {
+    if (selectedModelId && models.length && !selectedModel) {
+      setSelectedModelId("");
+    }
+  }, [models, selectedModel, selectedModelId]);
+
+  useEffect(() => {
+    if (selectedModelCatalogId && modelLibraryQuery.data?.length && !selectedModelCatalogEntry) {
+      setSelectedModelCatalogId("");
+    }
+  }, [modelLibraryQuery.data, selectedModelCatalogEntry, selectedModelCatalogId]);
+
   const setActiveTab = useCallback((tab: MainTab) => {
     setConfigureDatasetCatalogId("");
     setConfigureFeatureCatalogId("");
     setConfigureEmbeddingCatalogId("");
+    setConfigureModelCatalogId("");
     setPreviewDatasetId("");
     setPreviewFeatureId("");
     setPreviewEmbeddingId("");
+    setPreviewModelId("");
     setRoute({ topTab: tab, command: DEFAULT_COMMANDS[tab] });
   }, []);
 
@@ -240,9 +305,11 @@ export default function App() {
     setConfigureDatasetCatalogId("");
     setConfigureFeatureCatalogId("");
     setConfigureEmbeddingCatalogId("");
+    setConfigureModelCatalogId("");
     setPreviewDatasetId("");
     setPreviewFeatureId("");
     setPreviewEmbeddingId("");
+    setPreviewModelId("");
     setRoute((current) => ({ ...current, command }));
   }, []);
 
@@ -252,10 +319,12 @@ export default function App() {
     queryClient.invalidateQueries({ queryKey: ["dataset-library"] });
     queryClient.invalidateQueries({ queryKey: ["feature-library"] });
     queryClient.invalidateQueries({ queryKey: ["embedding-library"] });
+    queryClient.invalidateQueries({ queryKey: ["model-library"] });
     if (activeProjectId) {
       queryClient.invalidateQueries({ queryKey: ["projects", activeProjectId, "datasets"] });
       queryClient.invalidateQueries({ queryKey: ["projects", activeProjectId, "features"] });
       queryClient.invalidateQueries({ queryKey: ["projects", activeProjectId, "embeddings"] });
+      queryClient.invalidateQueries({ queryKey: ["projects", activeProjectId, "models"] });
       queryClient.invalidateQueries({ queryKey: ["projects", activeProjectId, "jobs"] });
     }
   }, [activeProjectId, queryClient]);
@@ -273,12 +342,16 @@ export default function App() {
     setSelectedFeatureCatalogId("");
     setSelectedEmbeddingId("");
     setSelectedEmbeddingCatalogId("");
+    setSelectedModelId("");
+    setSelectedModelCatalogId("");
     setConfigureDatasetCatalogId("");
     setConfigureFeatureCatalogId("");
     setConfigureEmbeddingCatalogId("");
+    setConfigureModelCatalogId("");
     setPreviewDatasetId("");
     setPreviewFeatureId("");
     setPreviewEmbeddingId("");
+    setPreviewModelId("");
   }, []);
 
   const handleConfigureDatasetCatalog = useCallback((catalogId: string) => {
@@ -288,12 +361,16 @@ export default function App() {
     setSelectedFeatureCatalogId("");
     setSelectedEmbeddingId("");
     setSelectedEmbeddingCatalogId("");
+    setSelectedModelId("");
+    setSelectedModelCatalogId("");
     setConfigureDatasetCatalogId(catalogId);
     setConfigureFeatureCatalogId("");
     setConfigureEmbeddingCatalogId("");
+    setConfigureModelCatalogId("");
     setPreviewDatasetId("");
     setPreviewFeatureId("");
     setPreviewEmbeddingId("");
+    setPreviewModelId("");
     setRoute({ topTab: "datasets", command: "library" });
   }, []);
 
@@ -304,12 +381,16 @@ export default function App() {
     setSelectedFeatureCatalogId("");
     setSelectedEmbeddingId("");
     setSelectedEmbeddingCatalogId("");
+    setSelectedModelId("");
+    setSelectedModelCatalogId("");
     setConfigureDatasetCatalogId("");
     setConfigureFeatureCatalogId("");
     setConfigureEmbeddingCatalogId("");
+    setConfigureModelCatalogId("");
     setPreviewDatasetId("");
     setPreviewFeatureId("");
     setPreviewEmbeddingId("");
+    setPreviewModelId("");
   }, []);
 
   const handleSelectFeatureCatalog = useCallback((catalogId: string) => {
@@ -319,12 +400,16 @@ export default function App() {
     setSelectedFeatureId("");
     setSelectedEmbeddingId("");
     setSelectedEmbeddingCatalogId("");
+    setSelectedModelId("");
+    setSelectedModelCatalogId("");
     setConfigureDatasetCatalogId("");
     setConfigureFeatureCatalogId("");
     setConfigureEmbeddingCatalogId("");
+    setConfigureModelCatalogId("");
     setPreviewDatasetId("");
     setPreviewFeatureId("");
     setPreviewEmbeddingId("");
+    setPreviewModelId("");
   }, []);
 
   const handleConfigureFeatureCatalog = useCallback((catalogId: string) => {
@@ -334,12 +419,16 @@ export default function App() {
     setSelectedFeatureId("");
     setSelectedEmbeddingId("");
     setSelectedEmbeddingCatalogId("");
+    setSelectedModelId("");
+    setSelectedModelCatalogId("");
     setConfigureDatasetCatalogId("");
     setConfigureFeatureCatalogId(catalogId);
     setConfigureEmbeddingCatalogId("");
+    setConfigureModelCatalogId("");
     setPreviewDatasetId("");
     setPreviewFeatureId("");
     setPreviewEmbeddingId("");
+    setPreviewModelId("");
     setRoute({ topTab: "features", command: "library" });
   }, []);
 
@@ -350,12 +439,16 @@ export default function App() {
     setSelectedFeatureCatalogId("");
     setSelectedEmbeddingId("");
     setSelectedEmbeddingCatalogId("");
+    setSelectedModelId("");
+    setSelectedModelCatalogId("");
     setConfigureDatasetCatalogId("");
     setConfigureFeatureCatalogId("");
     setConfigureEmbeddingCatalogId("");
+    setConfigureModelCatalogId("");
     setPreviewDatasetId("");
     setPreviewFeatureId("");
     setPreviewEmbeddingId("");
+    setPreviewModelId("");
   }, []);
 
   const handleDatasetCreated = useCallback((datasetId: string) => {
@@ -365,12 +458,16 @@ export default function App() {
     setSelectedFeatureCatalogId("");
     setSelectedEmbeddingId("");
     setSelectedEmbeddingCatalogId("");
+    setSelectedModelId("");
+    setSelectedModelCatalogId("");
     setConfigureDatasetCatalogId("");
     setConfigureFeatureCatalogId("");
     setConfigureEmbeddingCatalogId("");
+    setConfigureModelCatalogId("");
     setPreviewDatasetId("");
     setPreviewFeatureId("");
     setPreviewEmbeddingId("");
+    setPreviewModelId("");
     setRoute({ topTab: "datasets", command: "datasets" });
   }, []);
 
@@ -381,12 +478,16 @@ export default function App() {
     setSelectedFeatureCatalogId("");
     setSelectedEmbeddingId("");
     setSelectedEmbeddingCatalogId("");
+    setSelectedModelId("");
+    setSelectedModelCatalogId("");
     setConfigureDatasetCatalogId("");
     setConfigureFeatureCatalogId("");
     setConfigureEmbeddingCatalogId("");
+    setConfigureModelCatalogId("");
     setPreviewDatasetId("");
     setPreviewFeatureId("");
     setPreviewEmbeddingId("");
+    setPreviewModelId("");
     setRoute({ topTab: "features", command: "features" });
   }, []);
 
@@ -397,9 +498,12 @@ export default function App() {
     setSelectedFeatureCatalogId("");
     setSelectedEmbeddingId("");
     setSelectedEmbeddingCatalogId("");
+    setSelectedModelId("");
+    setSelectedModelCatalogId("");
     setPreviewDatasetId(datasetId);
     setPreviewFeatureId("");
     setPreviewEmbeddingId("");
+    setPreviewModelId("");
     setRoute({ topTab: "datasets", command: "datasets" });
   }, []);
 
@@ -410,9 +514,12 @@ export default function App() {
     setSelectedFeatureCatalogId("");
     setSelectedEmbeddingId("");
     setSelectedEmbeddingCatalogId("");
+    setSelectedModelId("");
+    setSelectedModelCatalogId("");
     setPreviewFeatureId(featureId);
     setPreviewDatasetId("");
     setPreviewEmbeddingId("");
+    setPreviewModelId("");
     setRoute({ topTab: "features", command: "features" });
   }, []);
 
@@ -423,12 +530,16 @@ export default function App() {
     setSelectedFeatureId("");
     setSelectedFeatureCatalogId("");
     setSelectedEmbeddingId("");
+    setSelectedModelId("");
+    setSelectedModelCatalogId("");
     setConfigureDatasetCatalogId("");
     setConfigureFeatureCatalogId("");
     setConfigureEmbeddingCatalogId("");
+    setConfigureModelCatalogId("");
     setPreviewDatasetId("");
     setPreviewFeatureId("");
     setPreviewEmbeddingId("");
+    setPreviewModelId("");
   }, []);
 
   const handleConfigureEmbeddingCatalog = useCallback((catalogId: string) => {
@@ -438,12 +549,16 @@ export default function App() {
     setSelectedFeatureId("");
     setSelectedFeatureCatalogId("");
     setSelectedEmbeddingId("");
+    setSelectedModelId("");
+    setSelectedModelCatalogId("");
     setConfigureDatasetCatalogId("");
     setConfigureFeatureCatalogId("");
     setConfigureEmbeddingCatalogId(catalogId);
+    setConfigureModelCatalogId("");
     setPreviewDatasetId("");
     setPreviewFeatureId("");
     setPreviewEmbeddingId("");
+    setPreviewModelId("");
     setRoute({ topTab: "embeddings", command: "library" });
   }, []);
 
@@ -454,12 +569,16 @@ export default function App() {
     setSelectedFeatureId("");
     setSelectedFeatureCatalogId("");
     setSelectedEmbeddingCatalogId("");
+    setSelectedModelId("");
+    setSelectedModelCatalogId("");
     setConfigureDatasetCatalogId("");
     setConfigureFeatureCatalogId("");
     setConfigureEmbeddingCatalogId("");
+    setConfigureModelCatalogId("");
     setPreviewDatasetId("");
     setPreviewFeatureId("");
     setPreviewEmbeddingId("");
+    setPreviewModelId("");
   }, []);
 
   const handleEmbeddingCreated = useCallback((embeddingId: string) => {
@@ -469,12 +588,16 @@ export default function App() {
     setSelectedFeatureId("");
     setSelectedFeatureCatalogId("");
     setSelectedEmbeddingCatalogId("");
+    setSelectedModelId("");
+    setSelectedModelCatalogId("");
     setConfigureDatasetCatalogId("");
     setConfigureFeatureCatalogId("");
     setConfigureEmbeddingCatalogId("");
+    setConfigureModelCatalogId("");
     setPreviewDatasetId("");
     setPreviewFeatureId("");
     setPreviewEmbeddingId("");
+    setPreviewModelId("");
     setRoute({ topTab: "embeddings", command: "embeddings" });
   }, []);
 
@@ -485,10 +608,107 @@ export default function App() {
     setSelectedFeatureId("");
     setSelectedFeatureCatalogId("");
     setSelectedEmbeddingCatalogId("");
+    setSelectedModelId("");
+    setSelectedModelCatalogId("");
     setPreviewEmbeddingId(embeddingId);
     setPreviewDatasetId("");
     setPreviewFeatureId("");
+    setPreviewModelId("");
     setRoute({ topTab: "embeddings", command: "embeddings" });
+  }, []);
+
+  const handleSelectModelCatalog = useCallback((catalogId: string) => {
+    setSelectedModelCatalogId(catalogId);
+    setSelectedDatasetId("");
+    setSelectedCatalogId("");
+    setSelectedFeatureId("");
+    setSelectedFeatureCatalogId("");
+    setSelectedEmbeddingId("");
+    setSelectedEmbeddingCatalogId("");
+    setSelectedModelId("");
+    setConfigureDatasetCatalogId("");
+    setConfigureFeatureCatalogId("");
+    setConfigureEmbeddingCatalogId("");
+    setConfigureModelCatalogId("");
+    setPreviewDatasetId("");
+    setPreviewFeatureId("");
+    setPreviewEmbeddingId("");
+    setPreviewModelId("");
+  }, []);
+
+  const handleConfigureModelCatalog = useCallback((catalogId: string) => {
+    setSelectedModelCatalogId(catalogId);
+    setSelectedDatasetId("");
+    setSelectedCatalogId("");
+    setSelectedFeatureId("");
+    setSelectedFeatureCatalogId("");
+    setSelectedEmbeddingId("");
+    setSelectedEmbeddingCatalogId("");
+    setSelectedModelId("");
+    setConfigureDatasetCatalogId("");
+    setConfigureFeatureCatalogId("");
+    setConfigureEmbeddingCatalogId("");
+    setConfigureModelCatalogId(catalogId);
+    setPreviewDatasetId("");
+    setPreviewFeatureId("");
+    setPreviewEmbeddingId("");
+    setPreviewModelId("");
+    setRoute({ topTab: "models", command: "library" });
+  }, []);
+
+  const handleSelectModel = useCallback((modelId: string) => {
+    setSelectedModelId(modelId);
+    setSelectedDatasetId("");
+    setSelectedCatalogId("");
+    setSelectedFeatureId("");
+    setSelectedFeatureCatalogId("");
+    setSelectedEmbeddingId("");
+    setSelectedEmbeddingCatalogId("");
+    setSelectedModelCatalogId("");
+    setConfigureDatasetCatalogId("");
+    setConfigureFeatureCatalogId("");
+    setConfigureEmbeddingCatalogId("");
+    setConfigureModelCatalogId("");
+    setPreviewDatasetId("");
+    setPreviewFeatureId("");
+    setPreviewEmbeddingId("");
+    setPreviewModelId("");
+  }, []);
+
+  const handleModelCreated = useCallback((modelId: string) => {
+    setSelectedModelId(modelId);
+    setSelectedDatasetId("");
+    setSelectedCatalogId("");
+    setSelectedFeatureId("");
+    setSelectedFeatureCatalogId("");
+    setSelectedEmbeddingId("");
+    setSelectedEmbeddingCatalogId("");
+    setSelectedModelCatalogId("");
+    setConfigureDatasetCatalogId("");
+    setConfigureFeatureCatalogId("");
+    setConfigureEmbeddingCatalogId("");
+    setConfigureModelCatalogId("");
+    setPreviewDatasetId("");
+    setPreviewFeatureId("");
+    setPreviewEmbeddingId("");
+    setPreviewModelId("");
+    setRoute({ topTab: "models", command: "models" });
+  }, []);
+
+  const handlePreviewModel = useCallback((modelId: string) => {
+    setSelectedModelId(modelId);
+    setSelectedDatasetId("");
+    setSelectedCatalogId("");
+    setSelectedFeatureId("");
+    setSelectedFeatureCatalogId("");
+    setSelectedEmbeddingId("");
+    setSelectedEmbeddingCatalogId("");
+    setSelectedModelCatalogId("");
+    setPreviewModelId(modelId);
+    setPreviewDatasetId("");
+    setPreviewFeatureId("");
+    setPreviewEmbeddingId("");
+    setRoute({ topTab: "models", command: "models" });
   }, []);
 
   function renderCenterView() {
@@ -624,6 +844,50 @@ export default function App() {
         />
       );
     }
+    if (route.topTab === "models" && route.command === "library" && configureModelCatalogId) {
+      return (
+        <ConfigureModelView
+          activeProjectId={activeProjectId}
+          model={configuredModelCatalogEntry}
+          embeddings={embeddings}
+          features={features}
+          datasets={datasets}
+          loading={projectEmbeddingsQuery.isLoading || projectFeaturesQuery.isLoading || projectDatasetsQuery.isLoading}
+          onCreated={handleModelCreated}
+        />
+      );
+    }
+    if (route.topTab === "models" && route.command === "library") {
+      return (
+        <ModelLibraryView
+          activeProjectId={activeProjectId}
+          catalog={modelLibraryQuery.data || []}
+          loading={modelLibraryQuery.isLoading}
+          selectedCatalogId={selectedModelCatalogId}
+          onSelectCatalog={handleSelectModelCatalog}
+          onConfigure={handleConfigureModelCatalog}
+        />
+      );
+    }
+    if (route.topTab === "models" && route.command === "models" && previewModelId) {
+      return <ModelPreviewView activeProjectId={activeProjectId} model={previewModel} />;
+    }
+    if (route.topTab === "models" && route.command === "models") {
+      return (
+        <ProjectModelsView
+          activeProjectId={activeProjectId}
+          models={models}
+          embeddings={embeddings}
+          features={features}
+          datasets={datasets}
+          catalog={modelLibraryQuery.data || []}
+          loading={projectModelsQuery.isLoading}
+          selectedModelId={selectedModelId}
+          onSelectModel={handleSelectModel}
+          onPreviewModel={handlePreviewModel}
+        />
+      );
+    }
     return <TitleOnlyView title={title} />;
   }
 
@@ -645,12 +909,15 @@ export default function App() {
           datasets={datasets}
           features={features}
           embeddings={embeddings}
+          models={models}
           selectedDatasetId={selectedDatasetId}
           selectedFeatureId={selectedFeatureId}
           selectedEmbeddingId={selectedEmbeddingId}
+          selectedModelId={selectedModelId}
           onSelectDataset={handleSelectDataset}
           onSelectFeature={handleSelectFeature}
           onSelectEmbedding={handleSelectEmbedding}
+          onSelectModel={handleSelectModel}
         />
       }
       center={
@@ -685,6 +952,11 @@ export default function App() {
             embeddingFeatures={selectedEmbeddingFeatures}
             embeddingCatalogEntry={selectedEmbeddingAlgorithm}
             selectedEmbeddingCatalogEntry={selectedEmbeddingCatalogEntry}
+            model={selectedModel}
+            modelDataset={selectedModelDataset}
+            modelEmbeddings={selectedModelEmbeddings}
+            modelCatalogEntry={selectedModelAlgorithm}
+            selectedModelCatalogEntry={selectedModelCatalogEntry}
           />
           <JobsPanel jobs={jobs} />
         </>
