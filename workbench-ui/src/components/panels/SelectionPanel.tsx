@@ -21,14 +21,44 @@ interface SelectionPanelProps {
 
 const SHELL_SECTIONS: {
   title: string;
+  kind: "datasets" | "features" | "embeddings" | "models";
   fcIcon: FcIconName;
   itemIcon: LucideIcon;
   color: string;
+  emptyLabel: string;
 }[] = [
-  { title: "Datasets", fcIcon: "datasets", itemIcon: Database, color: "var(--neext-blue)" },
-  { title: "Features", fcIcon: "features", itemIcon: Sigma, color: "var(--neext-orange)" },
-  { title: "Embeddings", fcIcon: "embeddings", itemIcon: Box, color: "var(--neext-green)" },
-  { title: "Models", fcIcon: "models", itemIcon: BarChart3, color: "var(--neext-purple)" }
+  {
+    title: "Datasets",
+    kind: "datasets",
+    fcIcon: "datasets",
+    itemIcon: Database,
+    color: "var(--neext-blue)",
+    emptyLabel: "No datasets"
+  },
+  {
+    title: "Features",
+    kind: "features",
+    fcIcon: "features",
+    itemIcon: Sigma,
+    color: "var(--neext-orange)",
+    emptyLabel: "No features"
+  },
+  {
+    title: "Embeddings",
+    kind: "embeddings",
+    fcIcon: "embeddings",
+    itemIcon: Box,
+    color: "var(--neext-green)",
+    emptyLabel: "No embeddings"
+  },
+  {
+    title: "Models",
+    kind: "models",
+    fcIcon: "models",
+    itemIcon: BarChart3,
+    color: "var(--neext-purple)",
+    emptyLabel: "No models"
+  }
 ];
 
 export function SelectionPanel({
@@ -52,7 +82,7 @@ export function SelectionPanel({
         <span>Selection</span>
       </div>
       <div className="panel-body panel-body-flush">
-        <section className="sel-section">
+        <section className="sel-section" data-kind="project">
           <header className="sel-header">
             <span className="sel-header-title">
               <FcIcon name="projects" size={16} />
@@ -69,19 +99,21 @@ export function SelectionPanel({
                 <span className="sel-item-name">{project.name}</span>
                 <span className="sel-item-sub">Active</span>
               </div>
-            ) : null}
+            ) : (
+              <div className="sel-empty">No project</div>
+            )}
           </div>
         </section>
 
         {SHELL_SECTIONS.map((section) => {
           const ItemIcon = section.itemIcon;
-          const isDatasetSection = section.title === "Datasets";
-          const isFeatureSection = section.title === "Features";
-          const isEmbeddingSection = section.title === "Embeddings";
-          const isModelSection = section.title === "Models";
+          const isDatasetSection = section.kind === "datasets";
+          const isFeatureSection = section.kind === "features";
+          const isEmbeddingSection = section.kind === "embeddings";
+          const isModelSection = section.kind === "models";
           const count = isDatasetSection ? datasets.length : isFeatureSection ? features.length : isEmbeddingSection ? embeddings.length : models.length;
           return (
-            <section className="sel-section" key={section.title}>
+            <section className="sel-section" data-kind={section.kind} key={section.title}>
               <header className="sel-header">
                 <span className="sel-header-title">
                   <FcIcon name={section.fcIcon} size={16} />
@@ -155,13 +187,7 @@ export function SelectionPanel({
                     </button>
                   ))
                 ) : (
-                  <div className="sel-item sel-item-shell" aria-hidden="true">
-                    <span className="sel-item-icon" style={{ color: section.color }}>
-                      <ItemIcon />
-                    </span>
-                    <span className="sel-item-name" />
-                    <span className="sel-item-sub" />
-                  </div>
+                  <div className="sel-empty">{section.emptyLabel}</div>
                 )}
               </div>
             </section>
