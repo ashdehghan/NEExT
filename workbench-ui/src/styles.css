@@ -573,6 +573,12 @@ input:focus, textarea:focus, select:focus {
   color: var(--err);
   font-size: var(--text-11);
 }
+.feature-picker {
+  max-height: 260px;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-2);
+}
 
 .tbl {
   width: 100%;

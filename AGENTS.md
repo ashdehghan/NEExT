@@ -63,7 +63,7 @@ NEExT Workbench is a local, single-user FastAPI + React desktop-style UI for res
 - Core graph/network functionality belongs in NEExT. Workbench should orchestrate, expose, and enhance real NEExT workflows instead of duplicating algorithms.
 - Do not build fake, stub, placeholder, or half-wired Workbench features. Every Workbench UI feature must have real behavior, real data, and user-path verification.
 - Phase one Workbench is project-first. The committed frontend may contain the shell architecture for Spaces, Ribbon Groups, Ribbon Commands, Left Panel, Center Panel, Right Panel, Command Window, and status bar, but speculative workflow details are not allowed until designed.
-- The current Workbench backend exposes health, workspace, project metadata, Dataset Library/project dataset APIs, Feature Library/project feature APIs, local serialized jobs, Dataset preparation, Feature execution, and preview APIs. Embedding, model, arbitrary import/export, cancellation, artifact lifecycle, concurrency beyond the single worker, and broader execution behavior must still be designed and added layer by layer before code is introduced.
+- The current Workbench backend exposes health, workspace, project metadata, Dataset Library/project dataset APIs, Feature Library/project feature APIs, Embedding Library/project embedding APIs, local serialized jobs, Dataset preparation, Feature execution, Embedding execution, and preview APIs. Model, arbitrary import/export, cancellation, artifact lifecycle, concurrency beyond the single worker, and broader execution behavior must still be designed and added layer by layer before code is introduced.
 - Do not keep dead Workbench code for later. Remove obsolete workflow code, dialogs, hooks, API clients, schemas, and storage helpers when the corresponding behavior is intentionally deferred.
 
 ### Workbench UI Vocabulary
@@ -136,7 +136,7 @@ Approved Workbench project foundation:
 - Project and future artifact IDs are UUIDv4 values. Folder names are IDs only; display names live in manifests and may change without moving folders.
 - `workspace.json` and `project.json` use `schema_version`, `manifest_type`, `created_at`, and `updated_at`. Project manifests also contain `id`, `name`, and `description`.
 - Manifests must not store absolute paths. Store relative paths only when files are referenced. Project API responses must not expose on-disk project paths.
-- In the current Dataset preparation plus Feature execution phase, projects, configured Dataset artifacts, Feature artifacts, and local job records are real and persisted. Project creation creates the typed artifact directories above. Jobs are created under `jobs/<job_uuid>/job.json` when execution is requested.
+- In the current Dataset preparation, Feature execution, and Embedding execution phase, projects, configured Dataset artifacts, Feature artifacts, Embedding artifacts, and local job records are real and persisted. Project creation creates the typed artifact directories above. Jobs are created under `jobs/<job_uuid>/job.json` when execution is requested.
 - Project deletion moves `projects/<project_uuid>/` into workspace-relative `trash/projects/<folder-name>/`; when the direct trash folder exists, use a suffixed folder instead of overwriting it.
 - Delete APIs/UI must not expose absolute paths. Trash paths are workspace-relative.
 - Deletion is project-only until the artifact lifecycle is explicitly designed; do not add artifact deletion, restore, archive, or lifecycle behavior without approval.
@@ -147,15 +147,18 @@ Approved Workbench project foundation:
 - Artifact lineage is a general DAG represented by typed input references in artifact manifests. This must support one dataset to many feature sets, multiple feature sets to one embedding, one artifact to many downstream artifacts, and future multi-dataset workflows.
 - Configured Dataset artifacts are planned compute graph nodes until Dataset preparation runs. Dataset preparation uses NEExT graph construction and normalization semantics, writes a raw Parquet snapshot, prepared NEExT-ready graph Parquet files, complete source-to-internal mapping Parquet files, summary stats, and status/error metadata.
 - Feature artifacts define compute graph nodes and may execute once their configured Dataset input is prepared. One Feature artifact targets one Dataset artifact and one built-in structural node feature method, records one dataset input, stores an operation spec with stable operation ID and version, and writes feature output Parquet only on successful execution.
+- Embedding Library entries are built-in graph embedding algorithm templates, not executable project artifacts. A catalog row must be configured into a project Embedding artifact before it can participate in the compute graph.
+- Embedding artifacts define compute graph nodes downstream of one or more Feature artifacts. All selected Feature inputs must reference the same Dataset. Embedding execution can auto-run planned or failed upstream Dataset preparation and Feature computation before computing graph-level embeddings.
+- Workbench persists Embedding manifests, graph embedding Parquet outputs, jobs, readable job logs, preview metadata, and output file metadata.
 - Future artifacts are immutable once saved. Edits create new artifact IDs.
 - Workbench canonical dataset storage is Parquet plus `artifact.json`; CSV is an import/source format, not the canonical Workbench dataset format.
 - Dataset Library v1 uses curated NEExT CSV bundles as source templates. Dataset preparation downloads/loads those sources and normalizes them into Workbench Parquet artifacts.
 - Dataset manifests and APIs must expose only artifact/workspace/project-relative paths. Do not expose on-disk absolute project paths.
 - Feature execution depends on configured Dataset artifacts, never directly on Dataset Library catalog entries or source-shaped imported data. If a Feature run targets a planned Dataset, Workbench prepares the Dataset first.
 - Workbench persists raw snapshots, prepared graph data, mappings, jobs, readable job logs, preview metadata, and output files. Browser previews must stay limited/paginated and must not load complete large mapping or output files by default.
-- Do not add arbitrary URL imports, PyG/DGL/OGB providers, dataset deletion, feature deletion, feature editing, feature duplication, restore, archive, cancellation, additional status transitions, or artifact lifecycle behavior without explicit design approval.
+- Do not add arbitrary URL imports, PyG/DGL/OGB providers, dataset deletion, feature deletion, embedding deletion, feature editing, embedding editing, feature duplication, embedding duplication, restore, archive, cancellation, additional status transitions, or artifact lifecycle behavior without explicit design approval.
 - Future project archives should contain `project.json` and `artifacts/` at zip root. If an imported project UUID already exists, import it as a copy with a new UUID and preserve the original UUID in metadata.
-- Do not keep dead Workbench code for later. Add embedding, model, import/export, cancellation, concurrency beyond the single local worker, additional storage categories, and broader execution behavior only after each layer is explicitly designed.
+- Do not keep dead Workbench code for later. Add model, import/export, cancellation, concurrency beyond the single local worker, additional storage categories, and broader execution behavior only after each layer is explicitly designed.
 
 ## Setup and Commands
 

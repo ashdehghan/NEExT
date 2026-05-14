@@ -749,6 +749,445 @@ def test_feature_batch_run_auto_prepares_planned_dataset_and_writes_outputs(monk
         assert jobs.json()[0]["id"] == job["id"]
 
 
+def test_embedding_library_catalog_endpoint_exposes_built_ins_without_paths_or_code():
+    pytest.importorskip("fastapi")
+
+    from fastapi.testclient import TestClient
+
+    from NEExT.workbench.app import create_app
+
+    with TemporaryDirectory() as tmpdir:
+        client = TestClient(create_app(tmpdir))
+        response = client.get("/api/embedding-library")
+
+        assert response.status_code == 200
+        catalog = response.json()
+        assert {entry["id"] for entry in catalog} == {"approx_wasserstein", "wasserstein", "sinkhornvectorizer"}
+        assert len(catalog) == 3
+        approx = next(entry for entry in catalog if entry["id"] == "approx_wasserstein")
+        assert approx["name"] == "Approx Wasserstein"
+        assert approx["operation_id"] == "neext.compute_graph_embeddings"
+        assert approx["operation_version"] == "1"
+        for entry in catalog:
+            payload = json.dumps(entry)
+            assert "files" not in entry
+            assert "path" not in entry
+            assert "callable" not in entry
+            assert "function" not in entry
+            assert "http://" not in payload
+            assert "https://" not in payload
+
+
+def test_create_embedding_artifacts_validate_source_features_and_dataset_lineage(monkeypatch):
+    pytest.importorskip("fastapi")
+    pytest.importorskip("pyarrow")
+
+    from fastapi.testclient import TestClient
+
+    import NEExT.workbench.dataset_library as dataset_library
+    from NEExT.workbench.app import create_app
+    from NEExT.workbench.dataset_library import CatalogDataset
+
+    with TemporaryDirectory() as tmpdir:
+        source_files = write_dataset_source_bundle(Path(tmpdir) / "source")
+        monkeypatch.setattr(
+            dataset_library,
+            "DATASET_CATALOG",
+            (
+                CatalogDataset(
+                    id="TINY",
+                    name="Tiny Dataset",
+                    description="local test bundle",
+                    domain="Tests",
+                    files=source_files,
+                    graph_count=2,
+                    node_count=4,
+                    edge_count=2,
+                    source="Test catalog",
+                ),
+            ),
+        )
+
+        client = TestClient(create_app(tmpdir))
+        project = client.post("/api/projects", json={"name": "Embedding Project"}).json()
+        project_id = project["id"]
+        first_dataset = client.post(f"/api/projects/{project_id}/datasets", json={"catalog_id": "TINY"}).json()
+        second_dataset = client.post(f"/api/projects/{project_id}/datasets", json={"catalog_id": "TINY"}).json()
+
+        first_feature_ids = []
+        for source_feature_id in ["page_rank", "degree_centrality"]:
+            created = client.post(
+                f"/api/projects/{project_id}/features",
+                json={
+                    "source_dataset_id": first_dataset["id"],
+                    "source_feature_id": source_feature_id,
+                    "params": {
+                        "feature_vector_length": 2,
+                        "normalize_features": False,
+                        "n_jobs": 1,
+                        "parallel_backend": "threading",
+                    },
+                },
+            )
+            assert created.status_code == 200
+            first_feature_ids.append(created.json()["id"])
+
+        second_feature = client.post(
+            f"/api/projects/{project_id}/features",
+            json={
+                "source_dataset_id": second_dataset["id"],
+                "source_feature_id": "page_rank",
+                "params": {
+                    "feature_vector_length": 2,
+                    "normalize_features": False,
+                    "n_jobs": 1,
+                    "parallel_backend": "threading",
+                },
+            },
+        ).json()
+
+        created = client.post(
+            f"/api/projects/{project_id}/embeddings",
+            json={
+                "source_embedding_id": "approx_wasserstein",
+                "source_feature_ids": first_feature_ids,
+                "params": {"embedding_dimension": 2},
+            },
+        )
+        assert created.status_code == 200
+        embedding = created.json()
+        embedding_id = embedding["id"]
+        assert_uuid4(embedding_id)
+        assert embedding["schema_version"] == "1"
+        assert embedding["manifest_type"] == "embedding"
+        assert embedding["project_id"] == project_id
+        assert embedding["name"] == "Tiny Dataset - Approx Wasserstein Embedding"
+        assert embedding["status"] == "planned"
+        assert embedding["source_type"] == "neext_graph_embedding"
+        assert embedding["source_embedding_id"] == "approx_wasserstein"
+        assert embedding["inputs"] == [
+            {"role": "source_feature", "artifact_kind": "feature", "artifact_id": first_feature_ids[0]},
+            {"role": "source_feature", "artifact_kind": "feature", "artifact_id": first_feature_ids[1]},
+        ]
+        assert embedding["operation"] == {
+            "operation_id": "neext.compute_graph_embeddings",
+            "operation_version": "1",
+            "params": {
+                "embedding_algorithm": "approx_wasserstein",
+                "embedding_dimension": 2,
+                "random_state": 42,
+                "memory_size": "4G",
+                "feature_ids": first_feature_ids,
+                "feature_columns": "all",
+            },
+        }
+        assert embedding["expected_output"] == {
+            "artifact_kind": "embedding",
+            "storage_format": "neext-embedding-parquet-v1",
+            "columns": ["emb_0", "emb_1"],
+        }
+        assert embedding["output_files"] is None
+        assert embedding["output_stats"] is None
+        assert str(Path(tmpdir).resolve()) not in json.dumps(embedding)
+
+        artifact_path = Path(tmpdir) / "projects" / project_id / "artifacts" / "embeddings" / embedding_id
+        assert (artifact_path / "artifact.json").is_file()
+        assert json.loads((artifact_path / "artifact.json").read_text(encoding="utf-8")) == embedding
+
+        listed = client.get(f"/api/projects/{project_id}/embeddings")
+        assert listed.status_code == 200
+        assert [item["id"] for item in listed.json()] == [embedding_id]
+
+        cross_dataset = client.post(
+            f"/api/projects/{project_id}/embeddings",
+            json={
+                "source_embedding_id": "approx_wasserstein",
+                "source_feature_ids": [first_feature_ids[0], second_feature["id"]],
+                "params": {"embedding_dimension": 2},
+            },
+        )
+        assert cross_dataset.status_code == 400
+        assert "same dataset" in cross_dataset.json()["detail"]
+
+        duplicate_features = client.post(
+            f"/api/projects/{project_id}/embeddings",
+            json={
+                "source_embedding_id": "approx_wasserstein",
+                "source_feature_ids": [first_feature_ids[0], first_feature_ids[0]],
+                "params": {"embedding_dimension": 2},
+            },
+        )
+        assert duplicate_features.status_code == 400
+        assert "unique" in duplicate_features.json()["detail"]
+
+
+def test_run_embedding_auto_runs_planned_dataset_and_features_and_writes_preview(monkeypatch):
+    pytest.importorskip("fastapi")
+    pytest.importorskip("pyarrow")
+    pytest.importorskip("vectorizers")
+
+    import pandas as pd
+    from fastapi.testclient import TestClient
+
+    import NEExT.workbench.dataset_library as dataset_library
+    from NEExT.workbench.app import create_app
+    from NEExT.workbench.dataset_library import CatalogDataset
+
+    with TemporaryDirectory() as tmpdir:
+        source_files = write_dataset_source_bundle(Path(tmpdir) / "source")
+        monkeypatch.setattr(
+            dataset_library,
+            "DATASET_CATALOG",
+            (
+                CatalogDataset(
+                    id="TINY",
+                    name="Tiny Dataset",
+                    description="local test bundle",
+                    domain="Tests",
+                    files=source_files,
+                    graph_count=2,
+                    node_count=4,
+                    edge_count=2,
+                    source="Test catalog",
+                ),
+            ),
+        )
+
+        client = TestClient(create_app(tmpdir))
+        project = client.post("/api/projects", json={"name": "Embedding Run Project"}).json()
+        project_id = project["id"]
+        dataset = client.post(f"/api/projects/{project_id}/datasets", json={"catalog_id": "TINY"}).json()
+        feature_ids = []
+        for source_feature_id in ["page_rank", "degree_centrality"]:
+            feature = client.post(
+                f"/api/projects/{project_id}/features",
+                json={
+                    "source_dataset_id": dataset["id"],
+                    "source_feature_id": source_feature_id,
+                    "params": {
+                        "feature_vector_length": 2,
+                        "normalize_features": False,
+                        "n_jobs": 1,
+                        "parallel_backend": "threading",
+                    },
+                },
+            ).json()
+            feature_ids.append(feature["id"])
+
+        embedding = client.post(
+            f"/api/projects/{project_id}/embeddings",
+            json={
+                "source_embedding_id": "approx_wasserstein",
+                "source_feature_ids": feature_ids,
+                "params": {"embedding_dimension": 2},
+            },
+        ).json()
+
+        run = client.post(f"/api/projects/{project_id}/embeddings/{embedding['id']}/run")
+        assert run.status_code == 200
+        job = wait_for_job(client, project_id, run.json()["id"])
+        assert job["status"] == "completed"
+        assert job["operation"]["operation_id"] == "neext.compute_graph_embeddings"
+        assert job["target_artifacts"] == [{"artifact_kind": "embedding", "artifact_id": embedding["id"]}]
+        assert "Preparing upstream dataset Tiny Dataset" in job["log"]
+        assert f"Computing upstream features for embedding {embedding['name']}" in job["log"]
+        assert "Computing features: page_rank, degree_centrality" in job["log"]
+        assert f"Computing embedding {embedding['name']} with approx_wasserstein" in job["log"]
+
+        dataset_after = client.get(f"/api/projects/{project_id}/datasets/{dataset['id']}").json()
+        assert dataset_after["status"] == "completed"
+        for feature_id in feature_ids:
+            assert client.get(f"/api/projects/{project_id}/features/{feature_id}").json()["status"] == "completed"
+
+        completed = client.get(f"/api/projects/{project_id}/embeddings/{embedding['id']}").json()
+        assert completed["status"] == "completed"
+        assert completed["output_files"] == {"embeddings": "output/embeddings.parquet"}
+        assert completed["output_stats"] == {"row_count": 2, "column_count": 3}
+        assert completed["error"] is None
+
+        output_path = Path(tmpdir) / "projects" / project_id / "artifacts" / "embeddings" / embedding["id"] / "output" / "embeddings.parquet"
+        output_df = pd.read_parquet(output_path)
+        assert list(output_df.columns) == ["graph_id", "emb_0", "emb_1"]
+
+        preview = client.get(f"/api/projects/{project_id}/embeddings/{embedding['id']}/preview?limit=1")
+        assert preview.status_code == 200
+        assert preview.json()["columns"] == ["graph_id", "emb_0", "emb_1"]
+        assert preview.json()["total_rows"] == 2
+        assert len(preview.json()["rows"]) == 1
+
+
+def test_embedding_batch_run_completes_selected_outputs_in_one_job(monkeypatch):
+    pytest.importorskip("fastapi")
+    pytest.importorskip("pyarrow")
+    pytest.importorskip("vectorizers")
+
+    from fastapi.testclient import TestClient
+
+    import NEExT.workbench.dataset_library as dataset_library
+    from NEExT.workbench.app import create_app
+    from NEExT.workbench.dataset_library import CatalogDataset
+
+    with TemporaryDirectory() as tmpdir:
+        source_files = write_dataset_source_bundle(Path(tmpdir) / "source")
+        monkeypatch.setattr(
+            dataset_library,
+            "DATASET_CATALOG",
+            (
+                CatalogDataset(
+                    id="TINY",
+                    name="Tiny Dataset",
+                    description="local test bundle",
+                    domain="Tests",
+                    files=source_files,
+                    graph_count=2,
+                    node_count=4,
+                    edge_count=2,
+                    source="Test catalog",
+                ),
+            ),
+        )
+
+        client = TestClient(create_app(tmpdir))
+        project = client.post("/api/projects", json={"name": "Embedding Batch Project"}).json()
+        project_id = project["id"]
+        dataset = client.post(f"/api/projects/{project_id}/datasets", json={"catalog_id": "TINY"}).json()
+        feature = client.post(
+            f"/api/projects/{project_id}/features",
+            json={
+                "source_dataset_id": dataset["id"],
+                "source_feature_id": "page_rank",
+                "params": {
+                    "feature_vector_length": 2,
+                    "normalize_features": False,
+                    "n_jobs": 1,
+                    "parallel_backend": "threading",
+                },
+            },
+        ).json()
+
+        embedding_ids = []
+        for dimension in [1, 2]:
+            embedding = client.post(
+                f"/api/projects/{project_id}/embeddings",
+                json={
+                    "source_embedding_id": "approx_wasserstein",
+                    "source_feature_ids": [feature["id"]],
+                    "params": {"embedding_dimension": dimension},
+                },
+            ).json()
+            embedding_ids.append(embedding["id"])
+
+        duplicate_run = client.post(
+            f"/api/projects/{project_id}/embeddings/run-batch",
+            json={"embedding_ids": [embedding_ids[0], embedding_ids[0]]},
+        )
+        assert duplicate_run.status_code == 400
+        assert "unique" in duplicate_run.json()["detail"]
+
+        run = client.post(f"/api/projects/{project_id}/embeddings/run-batch", json={"embedding_ids": embedding_ids})
+        assert run.status_code == 200
+        job = wait_for_job(client, project_id, run.json()["id"])
+        assert job["status"] == "completed"
+        assert job["target_artifacts"] == [
+            {"artifact_kind": "embedding", "artifact_id": embedding_ids[0]},
+            {"artifact_kind": "embedding", "artifact_id": embedding_ids[1]},
+        ]
+
+        for embedding_id in embedding_ids:
+            embedding = client.get(f"/api/projects/{project_id}/embeddings/{embedding_id}").json()
+            assert embedding["status"] == "completed"
+            assert embedding["output_files"] == {"embeddings": "output/embeddings.parquet"}
+
+
+def test_failed_embedding_execution_sets_error_and_cleans_partial_output(monkeypatch):
+    pytest.importorskip("fastapi")
+    pytest.importorskip("pyarrow")
+
+    import pandas as pd
+    from fastapi.testclient import TestClient
+
+    import NEExT.workbench.dataset_library as dataset_library
+    from NEExT.workbench.app import create_app
+    from NEExT.workbench.dataset_library import CatalogDataset
+
+    with TemporaryDirectory() as tmpdir:
+        source_files = write_dataset_source_bundle(Path(tmpdir) / "source")
+        monkeypatch.setattr(
+            dataset_library,
+            "DATASET_CATALOG",
+            (
+                CatalogDataset(
+                    id="TINY",
+                    name="Tiny Dataset",
+                    description="local test bundle",
+                    domain="Tests",
+                    files=source_files,
+                    graph_count=2,
+                    node_count=4,
+                    edge_count=2,
+                    source="Test catalog",
+                ),
+            ),
+        )
+
+        app = create_app(tmpdir)
+        client = TestClient(app)
+        project = client.post("/api/projects", json={"name": "Embedding Failure Project"}).json()
+        project_id = project["id"]
+        dataset = client.post(f"/api/projects/{project_id}/datasets", json={"catalog_id": "TINY"}).json()
+        feature = client.post(
+            f"/api/projects/{project_id}/features",
+            json={
+                "source_dataset_id": dataset["id"],
+                "source_feature_id": "page_rank",
+                "params": {
+                    "feature_vector_length": 2,
+                    "normalize_features": False,
+                    "n_jobs": 1,
+                    "parallel_backend": "threading",
+                },
+            },
+        ).json()
+        feature_run = client.post(f"/api/projects/{project_id}/features/{feature['id']}/run")
+        assert wait_for_job(client, project_id, feature_run.json()["id"])["status"] == "completed"
+        embedding = client.post(
+            f"/api/projects/{project_id}/embeddings",
+            json={
+                "source_embedding_id": "approx_wasserstein",
+                "source_feature_ids": [feature["id"]],
+                "params": {"embedding_dimension": 2},
+            },
+        ).json()
+
+        class DummyEmbeddings:
+            embeddings_df = pd.DataFrame({"graph_id": ["g1", "g2"], "emb_0": [0.1, 0.2], "emb_1": [0.3, 0.4]})
+
+        monkeypatch.setattr(app.state.store, "_compute_graph_embeddings", lambda collection, features, params: DummyEmbeddings())
+
+        def fail_writer(project_id: str, embedding_id: str, output_df):
+            artifact_path = app.state.store.embedding_path(project_id, embedding_id)
+            tmp_path = artifact_path / "_tmp" / "output"
+            tmp_path.mkdir(parents=True, exist_ok=True)
+            (tmp_path / "partial.txt").write_text("partial", encoding="utf-8")
+            raise RuntimeError("forced embedding write failure")
+
+        monkeypatch.setattr(app.state.store, "_write_embedding_output", fail_writer)
+
+        run = client.post(f"/api/projects/{project_id}/embeddings/{embedding['id']}/run")
+        assert run.status_code == 200
+        job = wait_for_job(client, project_id, run.json()["id"])
+        assert job["status"] == "failed"
+        assert "forced embedding write failure" in job["error"]
+
+        failed = client.get(f"/api/projects/{project_id}/embeddings/{embedding['id']}").json()
+        assert failed["status"] == "failed"
+        assert "forced embedding write failure" in failed["error"]["message"]
+        assert failed["output_files"] is None
+        artifact_path = Path(tmpdir) / "projects" / project_id / "artifacts" / "embeddings" / embedding["id"]
+        assert not (artifact_path / "_tmp").exists()
+        assert not (artifact_path / "output").exists()
+
+
 def test_dataset_endpoints_return_404_for_missing_project_or_catalog(monkeypatch):
     pytest.importorskip("fastapi")
     pytest.importorskip("pyarrow")

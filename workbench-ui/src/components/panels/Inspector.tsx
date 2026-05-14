@@ -1,4 +1,12 @@
-import type { DatasetCatalogEntry, DatasetManifest, FeatureCatalogEntry, FeatureManifest, ProjectManifest } from "../../api";
+import type {
+  DatasetCatalogEntry,
+  DatasetManifest,
+  EmbeddingCatalogEntry,
+  EmbeddingManifest,
+  FeatureCatalogEntry,
+  FeatureManifest,
+  ProjectManifest
+} from "../../api";
 import { EmptyState } from "../primitives/EmptyState";
 
 interface InspectorProps {
@@ -10,6 +18,11 @@ interface InspectorProps {
   featureDataset?: DatasetManifest;
   featureCatalogEntry?: FeatureCatalogEntry;
   selectedFeatureCatalogEntry?: FeatureCatalogEntry;
+  embedding?: EmbeddingManifest;
+  embeddingDataset?: DatasetManifest;
+  embeddingFeatures: FeatureManifest[];
+  embeddingCatalogEntry?: EmbeddingCatalogEntry;
+  selectedEmbeddingCatalogEntry?: EmbeddingCatalogEntry;
 }
 
 function InspectorRow({ label, value, mono = false }: { label: string; value: string; mono?: boolean }) {
@@ -41,7 +54,12 @@ export function Inspector({
   feature,
   featureDataset,
   featureCatalogEntry,
-  selectedFeatureCatalogEntry
+  selectedFeatureCatalogEntry,
+  embedding,
+  embeddingDataset,
+  embeddingFeatures,
+  embeddingCatalogEntry,
+  selectedEmbeddingCatalogEntry
 }: InspectorProps) {
   const description = project?.description.trim() || "None";
   const datasetDescription = dataset?.description.trim() || "None";
@@ -49,6 +67,10 @@ export function Inspector({
   const featureDescription = feature?.description.trim() || "None";
   const featureMethodName = featureCatalogEntry?.name || feature?.source_feature_id || "";
   const featureCatalogDescription = selectedFeatureCatalogEntry?.description.trim() || "None";
+  const embeddingDescription = embedding?.description.trim() || "None";
+  const embeddingAlgorithmName = embeddingCatalogEntry?.name || embedding?.source_embedding_id || "";
+  const embeddingFeatureNames = embeddingFeatures.length ? embeddingFeatures.map((item) => item.name).join(", ") : "Unknown features";
+  const embeddingCatalogDescription = selectedEmbeddingCatalogEntry?.description.trim() || "None";
 
   return (
     <section className="panel inspector-panel">
@@ -56,7 +78,46 @@ export function Inspector({
         <span>Inspector</span>
       </div>
       <div className="panel-body">
-        {feature ? (
+        {embedding ? (
+          <div className="inspector-details">
+            <h3>Embedding Details</h3>
+            <dl>
+              <InspectorRow label="Name" value={embedding.name} />
+              <InspectorRow label="Description" value={embeddingDescription} />
+              <InspectorRow label="Status" value={embedding.status} />
+              <InspectorRow label="Dataset" value={embeddingDataset?.name || "Unknown dataset"} />
+              <InspectorRow label="Features" value={embeddingFeatureNames} />
+              <InspectorRow label="Algorithm" value={embeddingAlgorithmName} />
+              <InspectorRow label="Algorithm ID" value={embedding.source_embedding_id} mono />
+              <InspectorRow label="Dimension" value={String(embedding.operation.params.embedding_dimension)} />
+              <InspectorRow label="Random Seed" value={String(embedding.operation.params.random_state)} />
+              <InspectorRow label="Memory Size" value={String(embedding.operation.params.memory_size)} />
+              <InspectorRow label="Expected Columns" value={embedding.expected_output.columns.join(", ")} mono />
+              <InspectorRow label="Operation ID" value={embedding.operation.operation_id} mono />
+              <InspectorRow label="Operation Version" value={embedding.operation.operation_version} mono />
+              {embedding.output_stats ? <InspectorRow label="Output Rows" value={String(embedding.output_stats.row_count)} /> : null}
+              {embedding.output_files ? <InspectorRow label="Output File" value={embedding.output_files.embeddings} mono /> : null}
+              {embedding.error ? <InspectorRow label="Error" value={embedding.error.message} /> : null}
+              <InspectorRow label="Embedding ID" value={embedding.id} mono />
+              <InspectorRow label="Project ID" value={embedding.project_id} mono />
+              <InspectorRow label="Created" value={embedding.created_at} mono />
+              <InspectorRow label="Updated" value={embedding.updated_at} mono />
+            </dl>
+          </div>
+        ) : selectedEmbeddingCatalogEntry ? (
+          <div className="inspector-details">
+            <h3>Catalog Embedding Details</h3>
+            <dl>
+              <InspectorRow label="Name" value={selectedEmbeddingCatalogEntry.name} />
+              <InspectorRow label="Description" value={embeddingCatalogDescription} />
+              <InspectorRow label="Status" value="Available" />
+              <InspectorRow label="Algorithm ID" value={selectedEmbeddingCatalogEntry.id} mono />
+              <InspectorRow label="Output" value={selectedEmbeddingCatalogEntry.output} />
+              <InspectorRow label="Operation ID" value={selectedEmbeddingCatalogEntry.operation_id} mono />
+              <InspectorRow label="Operation Version" value={selectedEmbeddingCatalogEntry.operation_version} mono />
+            </dl>
+          </div>
+        ) : feature ? (
           <div className="inspector-details">
             <h3>Feature Details</h3>
             <dl>

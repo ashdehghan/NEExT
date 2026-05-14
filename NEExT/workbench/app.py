@@ -4,7 +4,15 @@ from pathlib import Path
 from typing import Optional, Union
 
 from .paths import resolve_workspace_path
-from .schemas import DatasetCreateRequest, FeatureCreateRequest, FeatureRunBatchRequest, ProjectCreate, WorkspaceInfo
+from .schemas import (
+    DatasetCreateRequest,
+    EmbeddingCreateRequest,
+    EmbeddingRunBatchRequest,
+    FeatureCreateRequest,
+    FeatureRunBatchRequest,
+    ProjectCreate,
+    WorkspaceInfo,
+)
 from .storage import WorkbenchStore
 
 
@@ -53,6 +61,10 @@ def create_app(workspace_path: Optional[Union[str, Path]] = None):
     @app.get("/api/feature-library")
     def feature_library():
         return store.list_feature_catalog()
+
+    @app.get("/api/embedding-library")
+    def embedding_library():
+        return store.list_embedding_catalog()
 
     @app.post("/api/projects")
     def create_project(request: ProjectCreate):
@@ -149,6 +161,48 @@ def create_app(workspace_path: Optional[Union[str, Path]] = None):
     def preview_project_feature(project_id: str, feature_id: str, limit: int = 20, offset: int = 0):
         try:
             return store.preview_feature(project_id, feature_id, limit=limit, offset=offset)
+        except Exception as exc:
+            raise api_exception(exc) from exc
+
+    @app.get("/api/projects/{project_id}/embeddings")
+    def list_project_embeddings(project_id: str):
+        try:
+            return store.list_embeddings(project_id)
+        except Exception as exc:
+            raise api_exception(exc) from exc
+
+    @app.post("/api/projects/{project_id}/embeddings")
+    def create_project_embedding(project_id: str, request: EmbeddingCreateRequest):
+        try:
+            return store.create_embedding(project_id, request)
+        except Exception as exc:
+            raise api_exception(exc) from exc
+
+    @app.get("/api/projects/{project_id}/embeddings/{embedding_id}")
+    def get_project_embedding(project_id: str, embedding_id: str):
+        try:
+            return store.read_embedding(project_id, embedding_id)
+        except Exception as exc:
+            raise api_exception(exc) from exc
+
+    @app.post("/api/projects/{project_id}/embeddings/{embedding_id}/run")
+    def run_project_embedding(project_id: str, embedding_id: str):
+        try:
+            return store.run_embedding(project_id, embedding_id)
+        except Exception as exc:
+            raise api_exception(exc) from exc
+
+    @app.post("/api/projects/{project_id}/embeddings/run-batch")
+    def run_project_embeddings(project_id: str, request: EmbeddingRunBatchRequest):
+        try:
+            return store.run_embedding_batch(project_id, request)
+        except Exception as exc:
+            raise api_exception(exc) from exc
+
+    @app.get("/api/projects/{project_id}/embeddings/{embedding_id}/preview")
+    def preview_project_embedding(project_id: str, embedding_id: str, limit: int = 20, offset: int = 0):
+        try:
+            return store.preview_embedding(project_id, embedding_id, limit=limit, offset=offset)
         except Exception as exc:
             raise api_exception(exc) from exc
 

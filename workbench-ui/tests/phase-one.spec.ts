@@ -1,7 +1,9 @@
 import { expect, test } from "@playwright/test";
 import type { Page } from "@playwright/test";
+import { execFileSync } from "node:child_process";
+import path from "node:path";
 
-const TITLE_ONLY_SPACES = ["EMBEDDINGS", "MODELS"] as const;
+const TITLE_ONLY_SPACES = ["MODELS"] as const;
 const COMMANDS = ["Import", "Library", "Create"] as const;
 
 async function clearProjects(page: Page) {
@@ -18,6 +20,111 @@ async function createProject(page: Page, name: string, description: string) {
   await page.getByRole("textbox", { name: "Name" }).fill(name);
   await page.getByRole("textbox", { name: "Description" }).fill(description);
   await page.locator("#form-create-project").getByRole("button", { name: "Create" }).click();
+}
+
+function seedTinyEmbeddingProject(name: string) {
+  const repoRoot = path.resolve(process.cwd(), "..");
+  const workspacePath = path.join(repoRoot, "sandbox", "workbench-e2e");
+  const script = String.raw`
+import json
+import sys
+from pathlib import Path
+
+import pandas as pd
+
+from NEExT.workbench.schemas import (
+    DatasetDataFiles,
+    DatasetManifest,
+    DatasetStats,
+    FeatureCreateParams,
+    FeatureCreateRequest,
+    OperationSpec,
+    ProjectCreate,
+)
+from NEExT.workbench.storage import WorkbenchStore, utc_now
+
+workspace_path = Path(sys.argv[1])
+project_name = sys.argv[2]
+store = WorkbenchStore(workspace_path)
+project = store.create_project(ProjectCreate(name=project_name, description="tiny embedding project"))
+
+dataset_id = store._new_dataset_id(project.id)
+dataset_path = store.dataset_path(project.id, dataset_id)
+(dataset_path / "prepared").mkdir(parents=True, exist_ok=False)
+
+nodes = pd.DataFrame(
+    [
+        {"graph_id": "g1", "node_id": 0},
+        {"graph_id": "g1", "node_id": 1},
+        {"graph_id": "g1", "node_id": 2},
+        {"graph_id": "g2", "node_id": 0},
+        {"graph_id": "g2", "node_id": 1},
+        {"graph_id": "g2", "node_id": 2},
+    ]
+)
+edges = pd.DataFrame(
+    [
+        {"graph_id": "g1", "src_node_id": 0, "dest_node_id": 1},
+        {"graph_id": "g1", "src_node_id": 1, "dest_node_id": 2},
+        {"graph_id": "g2", "src_node_id": 0, "dest_node_id": 1},
+        {"graph_id": "g2", "src_node_id": 1, "dest_node_id": 2},
+    ]
+)
+graph_labels = pd.DataFrame([{"graph_id": "g1", "graph_label": 0}, {"graph_id": "g2", "graph_label": 1}])
+nodes.to_parquet(dataset_path / "prepared" / "nodes.parquet", index=False)
+edges.to_parquet(dataset_path / "prepared" / "edges.parquet", index=False)
+graph_labels.to_parquet(dataset_path / "prepared" / "graph_labels.parquet", index=False)
+
+now = utc_now()
+stats = DatasetStats(
+    graph_count=2,
+    node_count=6,
+    edge_count=4,
+    has_graph_labels=True,
+    has_node_features=False,
+    has_edge_features=False,
+)
+prepared_files = DatasetDataFiles(
+    nodes="prepared/nodes.parquet",
+    edges="prepared/edges.parquet",
+    graph_labels="prepared/graph_labels.parquet",
+)
+dataset = DatasetManifest(
+    id=dataset_id,
+    project_id=project.id,
+    name="Tiny Embedding",
+    description="tiny prepared graph collection",
+    status="completed",
+    created_at=now,
+    updated_at=now,
+    source_catalog_id="TINY_E2E",
+    source_name="Tiny Embedding",
+    source="E2E fixture",
+    source_domain="Tests",
+    operation=OperationSpec(
+        operation_id="neext.prepare_graph_collection",
+        operation_version="1",
+        params={"graph_type": "networkx", "reindex_nodes": True, "filter_largest_component": False},
+    ),
+    source_stats=stats,
+    prepared_stats=stats,
+    prepared_data_files=prepared_files,
+    data_files=prepared_files,
+    stats=stats,
+)
+store._write_json(dataset_path / "artifact.json", dataset.model_dump())
+
+params = FeatureCreateParams(feature_vector_length=2, normalize_features=False, n_jobs=1, parallel_backend="threading")
+page_rank = store.create_feature(project.id, FeatureCreateRequest(source_dataset_id=dataset_id, source_feature_id="page_rank", params=params))
+degree = store.create_feature(project.id, FeatureCreateRequest(source_dataset_id=dataset_id, source_feature_id="degree_centrality", params=params))
+
+print(json.dumps({"project_id": project.id, "dataset_id": dataset_id, "feature_ids": [page_rank.id, degree.id]}))
+`;
+  return JSON.parse(execFileSync("python", ["-c", script, workspacePath, name], { cwd: repoRoot, encoding: "utf-8" })) as {
+    project_id: string;
+    dataset_id: string;
+    feature_ids: string[];
+  };
 }
 
 test.beforeEach(async ({ page }) => {
@@ -143,7 +250,7 @@ test("Home commands switch center views", async ({ page }) => {
   await expect(page.locator(".artifact-table-title")).toContainText("Projects");
 });
 
-test("Embeddings and Models spaces expose structural title-only commands", async ({ page }) => {
+test("Models space exposes structural title-only commands", async ({ page }) => {
   await page.goto("/");
 
   for (const space of TITLE_ONLY_SPACES) {
@@ -316,6 +423,86 @@ test("Datasets and Features run through planned artifacts and jobs", async ({ pa
   await featureRow.getByRole("button", { name: "Preview" }).click();
   await expect(page.locator(".artifact-table-title")).toContainText("MUTAG - PageRank Preview");
   await expect(page.locator(".artifact-table .tbl thead")).toContainText("page_rank_0");
+});
+
+test("Embeddings library configures, batches, runs, and previews persisted artifacts", async ({ page }) => {
+  test.setTimeout(120_000);
+  const projectName = `Embedding Project ${Date.now()}`;
+  seedTinyEmbeddingProject(projectName);
+
+  await page.goto("/");
+  await expect(page.locator(".selection-panel .sel-item-name", { hasText: projectName })).toBeVisible();
+  await page.getByRole("button", { name: "EMBEDDINGS" }).click();
+  const ribbon = page.locator(".ribbon");
+  const inspector = page.locator(".inspector-panel");
+
+  await expect(page.locator(".artifact-table-title")).toContainText("Embeddings");
+  await expect(page.locator(".artifact-table-empty")).toContainText("No embeddings.");
+  await expect(page.locator(".selection-panel .sel-section", { hasText: "Features" }).locator(".sel-count")).toHaveText("2");
+
+  await ribbon.getByRole("button", { name: "Library" }).click();
+  await expect(page.locator(".artifact-table .tbl thead th")).toHaveText(["Name", "Algorithm", "Output", "Actions"]);
+  const approxRow = page.locator("table tbody tr", { hasText: "Approx Wasserstein" }).first();
+  await expect(approxRow).toBeVisible();
+  await approxRow.click();
+  await expect(approxRow).toHaveClass(/is-selected/);
+  await expect(inspector).toContainText("Catalog Embedding Details");
+  await expect(inspector).toContainText("approx_wasserstein");
+  await expect(inspector).toContainText("neext.compute_graph_embeddings");
+
+  await approxRow.getByRole("button", { name: "Configure" }).click();
+  await expect(page.getByRole("heading", { name: "Configure Approx Wasserstein" })).toBeVisible();
+  await expect(page.locator(".card-foot").getByRole("button", { name: "Save" })).toBeDisabled();
+  await expect(page.getByLabel("Embedding Dimension")).toHaveValue("3");
+  await page.getByLabel("Embedding Dimension").fill("2");
+  const pageRankFeaturePickerRow = page.locator(".feature-picker table tbody tr", { hasText: "Tiny Embedding - PageRank" });
+  const degreeFeaturePickerRow = page.locator(".feature-picker table tbody tr", { hasText: "Tiny Embedding - Degree Centrality" });
+  await pageRankFeaturePickerRow.click();
+  await degreeFeaturePickerRow.click();
+  await expect(page.getByText("Dataset: Tiny Embedding")).toBeVisible();
+  await expect(page.locator(".card-foot").getByRole("button", { name: "Save" })).toBeEnabled();
+  await page.locator(".card-foot").getByRole("button", { name: "Save" }).click();
+
+  const approxEmbeddingRow = page.locator("table tbody tr", { hasText: "Tiny Embedding - Approx Wasserstein Embedding" }).first();
+  await expect(approxEmbeddingRow).toBeVisible();
+  await expect(approxEmbeddingRow).toContainText("Tiny Embedding");
+  await expect(approxEmbeddingRow).toContainText("Approx Wasserstein");
+  await expect(approxEmbeddingRow).toContainText("Tiny Embedding - PageRank");
+  await expect(approxEmbeddingRow).toContainText("Tiny Embedding - Degree Centrality");
+  await expect(approxEmbeddingRow).toContainText("planned");
+  await expect(page.locator(".selection-panel .sel-section", { hasText: "Embeddings" }).locator(".sel-count")).toHaveText("1");
+  await approxEmbeddingRow.click();
+  await expect(inspector).toContainText("Embedding Details");
+  await expect(inspector).toContainText("Tiny Embedding - Approx Wasserstein Embedding");
+  await expect(inspector).toContainText("Tiny Embedding - PageRank");
+  await expect(inspector).toContainText("Tiny Embedding - Degree Centrality");
+  await expect(inspector).toContainText("Dimension");
+  await expect(inspector).toContainText("2");
+
+  await ribbon.getByRole("button", { name: "Library" }).click();
+  const secondApproxRow = page.locator("table tbody tr", { hasText: "Approx Wasserstein" }).first();
+  await expect(secondApproxRow).toBeVisible();
+  await secondApproxRow.getByRole("button", { name: "Configure" }).click();
+  await page.getByLabel("Embedding Dimension").fill("1");
+  await page.locator(".feature-picker table tbody tr", { hasText: "Tiny Embedding - PageRank" }).click();
+  await page.locator(".card-foot").getByRole("button", { name: "Save" }).click();
+
+  const approxEmbeddingRows = page.locator("table tbody tr", { hasText: "Tiny Embedding - Approx Wasserstein Embedding" });
+  await expect(approxEmbeddingRows).toHaveCount(2);
+  await expect(page.locator(".selection-panel .sel-section", { hasText: "Embeddings" }).locator(".sel-count")).toHaveText("2");
+  await approxEmbeddingRows.nth(0).locator("input[type='checkbox']").check();
+  await approxEmbeddingRows.nth(1).locator("input[type='checkbox']").check();
+  await page.getByRole("button", { name: "Run Selected" }).click();
+  await expect(page.locator(".jobs-panel")).toContainText("neext.compute_graph_embeddings", { timeout: 20_000 });
+  await expect(page.locator(".cmd")).toContainText("Computing upstream features for embedding", { timeout: 20_000 });
+  await expect(page.locator(".cmd")).toContainText("Computing embedding", { timeout: 30_000 });
+  await expect(approxEmbeddingRows.nth(0).locator(".status-pill")).toHaveText("completed", { timeout: 60_000 });
+  await expect(approxEmbeddingRows.nth(1).locator(".status-pill")).toHaveText("completed", { timeout: 60_000 });
+  await approxEmbeddingRows.nth(0).getByRole("button", { name: "Preview" }).click();
+  await expect(page.locator(".artifact-table-title")).toContainText("Tiny Embedding - Approx Wasserstein Embedding Preview");
+  await expect(page.locator(".artifact-table .tbl thead")).toContainText("graph_id");
+  await expect(page.locator(".artifact-table .tbl thead")).toContainText("emb_0");
+  await expect(page.locator(".artifact-table .tbl tbody tr")).toHaveCount(2);
 });
 
 test("removed workflow controls are absent", async ({ page }) => {

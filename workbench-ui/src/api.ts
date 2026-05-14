@@ -130,6 +130,41 @@ export interface FeatureManifest {
   error?: ArtifactError | null;
 }
 
+export interface EmbeddingExpectedOutput {
+  artifact_kind: "embedding";
+  storage_format: "neext-embedding-parquet-v1";
+  columns: string[];
+}
+
+export interface EmbeddingOutputFiles {
+  embeddings: string;
+}
+
+export interface EmbeddingOutputStats {
+  row_count: number;
+  column_count: number;
+}
+
+export interface EmbeddingManifest {
+  schema_version: string;
+  manifest_type: "embedding";
+  id: string;
+  project_id: string;
+  name: string;
+  description: string;
+  status: "planned" | "running" | "completed" | "failed";
+  created_at: string;
+  updated_at: string;
+  inputs: ArtifactInputRef[];
+  source_type: "neext_graph_embedding";
+  source_embedding_id: string;
+  operation: OperationSpec;
+  expected_output: EmbeddingExpectedOutput;
+  output_files?: EmbeddingOutputFiles | null;
+  output_stats?: EmbeddingOutputStats | null;
+  error?: ArtifactError | null;
+}
+
 export interface JobManifest {
   schema_version: string;
   manifest_type: "job";
@@ -174,6 +209,15 @@ export interface FeatureCatalogEntry {
   operation_version: string;
 }
 
+export interface EmbeddingCatalogEntry {
+  id: string;
+  name: string;
+  description: string;
+  output: string;
+  operation_id: string;
+  operation_version: string;
+}
+
 export interface FeatureCreatePayload {
   source_dataset_id: string;
   source_feature_id: string;
@@ -182,6 +226,14 @@ export interface FeatureCreatePayload {
     normalize_features: boolean;
     n_jobs: number;
     parallel_backend: "loky" | "threading";
+  };
+}
+
+export interface EmbeddingCreatePayload {
+  source_embedding_id: string;
+  source_feature_ids: string[];
+  params: {
+    embedding_dimension: number;
   };
 }
 
@@ -200,12 +252,16 @@ export const api = {
   project: (projectId: string) => request<ProjectManifest>(`/api/projects/${projectId}`),
   datasetLibrary: () => request<DatasetCatalogEntry[]>("/api/dataset-library"),
   featureLibrary: () => request<FeatureCatalogEntry[]>("/api/feature-library"),
+  embeddingLibrary: () => request<EmbeddingCatalogEntry[]>("/api/embedding-library"),
   projectDatasets: (projectId: string) => request<DatasetManifest[]>(`/api/projects/${projectId}/datasets`),
   projectDataset: (projectId: string, datasetId: string) =>
     request<DatasetManifest>(`/api/projects/${projectId}/datasets/${datasetId}`),
   projectFeatures: (projectId: string) => request<FeatureManifest[]>(`/api/projects/${projectId}/features`),
   projectFeature: (projectId: string, featureId: string) =>
     request<FeatureManifest>(`/api/projects/${projectId}/features/${featureId}`),
+  projectEmbeddings: (projectId: string) => request<EmbeddingManifest[]>(`/api/projects/${projectId}/embeddings`),
+  projectEmbedding: (projectId: string, embeddingId: string) =>
+    request<EmbeddingManifest>(`/api/projects/${projectId}/embeddings/${embeddingId}`),
   projectJobs: (projectId: string) => request<JobManifest[]>(`/api/projects/${projectId}/jobs`),
   projectJob: (projectId: string, jobId: string) => request<JobManifest>(`/api/projects/${projectId}/jobs/${jobId}`),
   createDataset: (projectId: string, payload: DatasetCreatePayload) =>
@@ -234,6 +290,22 @@ export const api = {
     }),
   featurePreview: (projectId: string, featureId: string, limit = 20, offset = 0) =>
     request<TabularPreview>(`/api/projects/${projectId}/features/${featureId}/preview?limit=${limit}&offset=${offset}`),
+  createEmbedding: (projectId: string, payload: EmbeddingCreatePayload) =>
+    request<EmbeddingManifest>(`/api/projects/${projectId}/embeddings`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    }),
+  runEmbedding: (projectId: string, embeddingId: string) =>
+    request<JobManifest>(`/api/projects/${projectId}/embeddings/${embeddingId}/run`, { method: "POST" }),
+  runEmbeddingBatch: (projectId: string, embeddingIds: string[]) =>
+    request<JobManifest>(`/api/projects/${projectId}/embeddings/run-batch`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ embedding_ids: embeddingIds })
+    }),
+  embeddingPreview: (projectId: string, embeddingId: string, limit = 20, offset = 0) =>
+    request<TabularPreview>(`/api/projects/${projectId}/embeddings/${embeddingId}/preview?limit=${limit}&offset=${offset}`),
   createProject: (payload: { name: string; description: string }) =>
     request<ProjectManifest>("/api/projects", {
       method: "POST",

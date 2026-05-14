@@ -180,6 +180,55 @@ class FeatureRunBatchRequest(BaseModel):
     feature_ids: list[str] = Field(min_length=1)
 
 
+class EmbeddingExpectedOutput(BaseModel):
+    artifact_kind: Literal["embedding"] = "embedding"
+    storage_format: Literal["neext-embedding-parquet-v1"] = "neext-embedding-parquet-v1"
+    columns: list[str]
+
+
+class EmbeddingOutputFiles(BaseModel):
+    embeddings: str
+
+
+class EmbeddingOutputStats(BaseModel):
+    row_count: int
+    column_count: int
+
+
+class EmbeddingManifest(BaseModel):
+    schema_version: str = "1"
+    manifest_type: Literal["embedding"] = "embedding"
+    id: str
+    project_id: str
+    name: str
+    description: str = ""
+    status: Literal["planned", "running", "completed", "failed"] = "planned"
+    created_at: str
+    updated_at: str
+    inputs: list[ArtifactInputRef]
+    source_type: Literal["neext_graph_embedding"] = "neext_graph_embedding"
+    source_embedding_id: str
+    operation: OperationSpec
+    expected_output: EmbeddingExpectedOutput
+    output_files: Optional[EmbeddingOutputFiles] = None
+    output_stats: Optional[EmbeddingOutputStats] = None
+    error: Optional[ArtifactError] = None
+
+
+class EmbeddingCreateParams(BaseModel):
+    embedding_dimension: int = Field(default=3, ge=1, le=128)
+
+
+class EmbeddingCreateRequest(BaseModel):
+    source_embedding_id: str = Field(min_length=1)
+    source_feature_ids: list[str] = Field(min_length=1)
+    params: EmbeddingCreateParams = Field(default_factory=EmbeddingCreateParams)
+
+
+class EmbeddingRunBatchRequest(BaseModel):
+    embedding_ids: list[str] = Field(min_length=1)
+
+
 class JobArtifactRef(BaseModel):
     artifact_kind: str
     artifact_id: str
@@ -222,6 +271,15 @@ class FeatureCatalogEntry(BaseModel):
     description: str = ""
     type: Literal["structural_node_feature"] = "structural_node_feature"
     source_type: Literal["neext_structural_node_feature"] = "neext_structural_node_feature"
+    output: str
+    operation_id: str
+    operation_version: str
+
+
+class EmbeddingCatalogEntry(BaseModel):
+    id: str
+    name: str
+    description: str = ""
     output: str
     operation_id: str
     operation_version: str

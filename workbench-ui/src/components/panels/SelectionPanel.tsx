@@ -1,16 +1,19 @@
 import { BarChart3, Box, Database, FolderOpen, Sigma } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
-import type { DatasetManifest, FeatureManifest, ProjectManifest } from "../../api";
+import type { DatasetManifest, EmbeddingManifest, FeatureManifest, ProjectManifest } from "../../api";
 import { FcIcon, type FcIconName } from "../primitives/FcIcon";
 
 interface SelectionPanelProps {
   project?: ProjectManifest;
   datasets: DatasetManifest[];
   features: FeatureManifest[];
+  embeddings: EmbeddingManifest[];
   selectedDatasetId: string;
   selectedFeatureId: string;
+  selectedEmbeddingId: string;
   onSelectDataset: (datasetId: string) => void;
   onSelectFeature: (featureId: string) => void;
+  onSelectEmbedding: (embeddingId: string) => void;
 }
 
 const SHELL_SECTIONS: {
@@ -29,10 +32,13 @@ export function SelectionPanel({
   project,
   datasets,
   features,
+  embeddings,
   selectedDatasetId,
   selectedFeatureId,
+  selectedEmbeddingId,
   onSelectDataset,
-  onSelectFeature
+  onSelectFeature,
+  onSelectEmbedding
 }: SelectionPanelProps) {
   return (
     <section className="panel selection-panel">
@@ -65,7 +71,8 @@ export function SelectionPanel({
           const ItemIcon = section.itemIcon;
           const isDatasetSection = section.title === "Datasets";
           const isFeatureSection = section.title === "Features";
-          const count = isDatasetSection ? datasets.length : isFeatureSection ? features.length : 0;
+          const isEmbeddingSection = section.title === "Embeddings";
+          const count = isDatasetSection ? datasets.length : isFeatureSection ? features.length : isEmbeddingSection ? embeddings.length : 0;
           return (
             <section className="sel-section" key={section.title}>
               <header className="sel-header">
@@ -106,6 +113,22 @@ export function SelectionPanel({
                       </span>
                       <span className="sel-item-name">{feature.name}</span>
                       <span className="sel-item-sub">Feature</span>
+                    </button>
+                  ))
+                ) : isEmbeddingSection && embeddings.length ? (
+                  embeddings.map((embedding) => (
+                    <button
+                      key={embedding.id}
+                      type="button"
+                      className={`sel-item ${embedding.id === selectedEmbeddingId ? "is-active" : ""}`}
+                      aria-current={embedding.id === selectedEmbeddingId ? "true" : undefined}
+                      onClick={() => onSelectEmbedding(embedding.id)}
+                    >
+                      <span className="sel-item-icon" style={{ color: section.color }}>
+                        <ItemIcon />
+                      </span>
+                      <span className="sel-item-name">{embedding.name}</span>
+                      <span className="sel-item-sub">Embedding</span>
                     </button>
                   ))
                 ) : (
