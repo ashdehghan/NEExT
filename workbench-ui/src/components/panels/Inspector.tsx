@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { api } from "../../api";
 import type {
   DatasetCatalogEntry,
+  DatasetGraphSummary,
   DatasetManifest,
   EmbeddingCatalogEntry,
   EmbeddingManifest,
@@ -14,8 +15,13 @@ import type {
 import { EmptyState } from "../primitives/EmptyState";
 
 interface InspectorProps {
+  activeProjectId: string;
   project?: ProjectManifest;
   dataset?: DatasetManifest;
+  exploreDataset?: DatasetManifest;
+  exploreGraphSummary?: DatasetGraphSummary | null;
+  exploreNodeId?: string;
+  exploreNodeVisible?: boolean | null;
   catalogEntry?: DatasetCatalogEntry;
   catalogImportStatus?: string;
   feature?: FeatureManifest;
@@ -72,9 +78,21 @@ function metricValue(value: unknown): string {
   return typeof value === "number" ? value.toFixed(4) : value == null ? "" : String(value);
 }
 
+function inspectorValue(value: unknown): string {
+  if (value == null) return "None";
+  if (typeof value === "number") return Number.isInteger(value) ? String(value) : String(value);
+  if (typeof value === "boolean") return boolText(value);
+  return String(value);
+}
+
 export function Inspector({
+  activeProjectId,
   project,
   dataset,
+  exploreDataset,
+  exploreGraphSummary,
+  exploreNodeId = "",
+  exploreNodeVisible = null,
   catalogEntry,
   catalogImportStatus,
   feature,
@@ -111,6 +129,21 @@ export function Inspector({
     queryFn: () => api.modelPreview(model!.project_id, model!.id),
     enabled: Boolean(model?.project_id && model?.id && model.status === "completed")
   });
+  const exploreNodeDetail = useQuery({
+    queryKey: [
+      "projects",
+      activeProjectId,
+      "datasets",
+      exploreDataset?.id,
+      "analysis",
+      "node",
+      exploreGraphSummary?.graph_id,
+      exploreNodeId,
+      "inspector"
+    ],
+    queryFn: () => api.datasetNodeDetail(activeProjectId, exploreDataset!.id, exploreGraphSummary!.graph_id, exploreNodeId),
+    enabled: Boolean(activeProjectId && exploreDataset?.id && exploreGraphSummary?.graph_id && exploreNodeId)
+  });
 
   return (
     <section className="panel inspector-panel">
@@ -118,7 +151,48 @@ export function Inspector({
         <span>Inspector</span>
       </div>
       <div className="panel-body">
-        {model ? (
+        {exploreDataset && exploreGraphSummary && exploreNodeId ? (
+          <div className="inspector-details">
+            <h3>Dataset Node Details</h3>
+            <dl>
+              <InspectorRow label="Dataset" value={exploreDataset.name} />
+              <InspectorRow label="Graph ID" value={exploreGraphSummary.graph_id} mono />
+              <InspectorRow label="Node ID" value={exploreNodeId} mono />
+              <InspectorRow
+                label="Visible In Visual"
+                value={exploreNodeVisible == null ? "Unknown" : boolText(Boolean(exploreNodeVisible))}
+              />
+              {exploreNodeVisible === false ? <InspectorRow label="Sampled Visual" value="Node is outside the sampled visual" /> : null}
+              {exploreNodeDetail.isLoading ? <InspectorRow label="Status" value="Loading" /> : null}
+              {exploreNodeDetail.error ? <InspectorRow label="Error" value={exploreNodeDetail.error.message} /> : null}
+              {exploreNodeDetail.data ? <InspectorRow label="Degree" value={String(exploreNodeDetail.data.degree)} /> : null}
+              {exploreNodeDetail.data ? <InspectorRow label="Graph Label" value={inspectorValue(exploreNodeDetail.data.graph_label)} /> : null}
+              {exploreNodeDetail.data?.source_graph_id ? (
+                <InspectorRow label="Source Graph ID" value={exploreNodeDetail.data.source_graph_id} mono />
+              ) : null}
+              {exploreNodeDetail.data?.source_node_id ? (
+                <InspectorRow label="Source Node ID" value={exploreNodeDetail.data.source_node_id} mono />
+              ) : null}
+              {exploreNodeDetail.data
+                ? Object.entries(exploreNodeDetail.data.feature_values).map(([name, value]) => (
+                    <InspectorRow key={name} label={name} value={inspectorValue(value)} />
+                  ))
+                : null}
+            </dl>
+          </div>
+        ) : exploreDataset && exploreGraphSummary ? (
+          <div className="inspector-details">
+            <h3>Dataset Graph Details</h3>
+            <dl>
+              <InspectorRow label="Dataset" value={exploreDataset.name} />
+              <InspectorRow label="Graph ID" value={exploreGraphSummary.graph_id} mono />
+              <InspectorRow label="Graph Label" value={inspectorValue(exploreGraphSummary.graph_label)} />
+              <InspectorRow label="Nodes" value={String(exploreGraphSummary.node_count)} />
+              <InspectorRow label="Edges" value={String(exploreGraphSummary.edge_count)} />
+              <InspectorRow label="Dataset ID" value={exploreDataset.id} mono />
+            </dl>
+          </div>
+        ) : model ? (
           <div className="inspector-details">
             <h3>Model Details</h3>
             <dl>

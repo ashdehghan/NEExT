@@ -102,6 +102,75 @@ class DatasetManifest(BaseModel):
     stats: Optional[DatasetStats] = None
 
 
+class DatasetGraphSummary(BaseModel):
+    graph_id: str
+    node_count: int
+    edge_count: int
+    graph_label: Optional[Any] = None
+
+
+class DatasetVisualNode(BaseModel):
+    id: str
+    label: str
+    degree: int
+
+
+class DatasetVisualEdge(BaseModel):
+    source: str
+    target: str
+
+
+class DatasetGraphVisual(BaseModel):
+    graph_id: str
+    node_count: int
+    edge_count: int
+    sampled: bool
+    nodes: list[DatasetVisualNode]
+    edges: list[DatasetVisualEdge]
+    sample_reason: Optional[str] = None
+
+
+class DatasetAnalysis(BaseModel):
+    dataset_id: str
+    dataset_name: str
+    dataset_status: Literal["completed"]
+    source_stats: DatasetStats
+    prepared_stats: DatasetStats
+    dropped_node_count: int
+    graph_label_distribution: dict[str, int]
+    node_feature_columns: list[str]
+    edge_feature_columns: list[str]
+    graph_summaries: list[DatasetGraphSummary]
+    selected_graph_id: str
+    visual: DatasetGraphVisual
+
+
+class DatasetGraphSearchResult(BaseModel):
+    kind: Literal["graph", "node"]
+    graph_id: str
+    node_id: Optional[str] = None
+    graph_label: Optional[Any] = None
+    node_count: int
+    edge_count: int
+
+
+class DatasetGraphSearchResponse(BaseModel):
+    query: str
+    limit: int
+    total_matches: int
+    results: list[DatasetGraphSearchResult]
+
+
+class DatasetNodeDetail(BaseModel):
+    graph_id: str
+    node_id: str
+    degree: int
+    graph_label: Optional[Any] = None
+    source_graph_id: Optional[str] = None
+    source_node_id: Optional[str] = None
+    feature_values: dict[str, Any] = Field(default_factory=dict)
+
+
 class DatasetCatalogEntry(BaseModel):
     id: str
     name: str

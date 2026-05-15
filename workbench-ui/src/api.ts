@@ -82,6 +82,75 @@ export interface DatasetManifest {
   stats?: DatasetStats | null;
 }
 
+export interface DatasetGraphSummary {
+  graph_id: string;
+  node_count: number;
+  edge_count: number;
+  graph_label?: unknown;
+}
+
+export interface DatasetVisualNode {
+  id: string;
+  label: string;
+  degree: number;
+}
+
+export interface DatasetVisualEdge {
+  source: string;
+  target: string;
+}
+
+export interface DatasetGraphVisual {
+  graph_id: string;
+  node_count: number;
+  edge_count: number;
+  sampled: boolean;
+  nodes: DatasetVisualNode[];
+  edges: DatasetVisualEdge[];
+  sample_reason?: string | null;
+}
+
+export interface DatasetAnalysis {
+  dataset_id: string;
+  dataset_name: string;
+  dataset_status: "completed";
+  source_stats: DatasetStats;
+  prepared_stats: DatasetStats;
+  dropped_node_count: number;
+  graph_label_distribution: Record<string, number>;
+  node_feature_columns: string[];
+  edge_feature_columns: string[];
+  graph_summaries: DatasetGraphSummary[];
+  selected_graph_id: string;
+  visual: DatasetGraphVisual;
+}
+
+export interface DatasetGraphSearchResult {
+  kind: "graph" | "node";
+  graph_id: string;
+  node_id?: string | null;
+  graph_label?: unknown;
+  node_count: number;
+  edge_count: number;
+}
+
+export interface DatasetGraphSearchResponse {
+  query: string;
+  limit: number;
+  total_matches: number;
+  results: DatasetGraphSearchResult[];
+}
+
+export interface DatasetNodeDetail {
+  graph_id: string;
+  node_id: string;
+  degree: number;
+  graph_label?: unknown;
+  source_graph_id?: string | null;
+  source_node_id?: string | null;
+  feature_values: Record<string, unknown>;
+}
+
 export interface DatasetCatalogEntry {
   id: string;
   name: string;
@@ -228,6 +297,16 @@ export interface TabularPreview {
   total_rows: number;
 }
 
+export type DatasetPreviewTable =
+  | "nodes"
+  | "edges"
+  | "graph_labels"
+  | "node_features"
+  | "edge_features"
+  | "node_mapping"
+  | "graph_mapping"
+  | "mapping";
+
 export interface DatasetCreatePayload {
   catalog_id: string;
   params: {
@@ -343,7 +422,31 @@ export const api = {
     }),
   runDataset: (projectId: string, datasetId: string) =>
     request<JobManifest>(`/api/projects/${projectId}/datasets/${datasetId}/run`, { method: "POST" }),
-  datasetPreview: (projectId: string, datasetId: string, table: "nodes" | "edges" | "mapping", limit = 20, offset = 0) =>
+  datasetAnalysis: (
+    projectId: string,
+    datasetId: string,
+    params: { graph_id?: string; max_nodes?: number; max_edges?: number } = {}
+  ) => {
+    const search = new URLSearchParams();
+    if (params.graph_id) search.set("graph_id", params.graph_id);
+    if (params.max_nodes != null) search.set("max_nodes", String(params.max_nodes));
+    if (params.max_edges != null) search.set("max_edges", String(params.max_edges));
+    const suffix = search.toString() ? `?${search.toString()}` : "";
+    return request<DatasetAnalysis>(`/api/projects/${projectId}/datasets/${datasetId}/analysis${suffix}`);
+  },
+  datasetGraphSearch: (projectId: string, datasetId: string, query: string, limit = 25) => {
+    const search = new URLSearchParams();
+    search.set("query", query);
+    search.set("limit", String(limit));
+    return request<DatasetGraphSearchResponse>(`/api/projects/${projectId}/datasets/${datasetId}/analysis/search?${search.toString()}`);
+  },
+  datasetNodeDetail: (projectId: string, datasetId: string, graphId: string, nodeId: string) => {
+    const search = new URLSearchParams();
+    search.set("graph_id", graphId);
+    search.set("node_id", nodeId);
+    return request<DatasetNodeDetail>(`/api/projects/${projectId}/datasets/${datasetId}/analysis/node?${search.toString()}`);
+  },
+  datasetPreview: (projectId: string, datasetId: string, table: DatasetPreviewTable, limit = 20, offset = 0) =>
     request<TabularPreview>(`/api/projects/${projectId}/datasets/${datasetId}/preview/${table}?limit=${limit}&offset=${offset}`),
   createFeature: (projectId: string, payload: FeatureCreatePayload) =>
     request<FeatureManifest>(`/api/projects/${projectId}/features`, {

@@ -26,12 +26,20 @@ from .model_library import (
 from .schemas import (
     ArtifactError,
     ArtifactInputRef,
+    DatasetAnalysis,
     DatasetCatalogEntry,
     DatasetCreateRequest,
     DatasetDataFiles,
+    DatasetGraphSearchResponse,
+    DatasetGraphSearchResult,
+    DatasetGraphSummary,
+    DatasetGraphVisual,
     DatasetManifest,
     DatasetMappingFiles,
+    DatasetNodeDetail,
     DatasetStats,
+    DatasetVisualEdge,
+    DatasetVisualNode,
     EmbeddingCatalogEntry,
     EmbeddingCreateParams,
     EmbeddingCreateRequest,
@@ -1518,24 +1526,355 @@ class WorkbenchStore:
             return ["rmse", "mae"]
         raise ValueError(f"Unsupported model task type: {task_type}")
 
+    def analyze_dataset(
+        self,
+        project_id: str,
+        dataset_id: str,
+        *,
+        graph_id: str | None = None,
+        max_nodes: int = 150,
+        max_edges: int = 300,
+    ) -> DatasetAnalysis:
+        import pandas as pd
+
+        if max_nodes < 1 or max_nodes > 1000:
+            raise ValueError("Graph visualization max_nodes must be between 1 and 1000")
+        if max_edges < 1 or max_edges > 5000:
+            raise ValueError("Graph visualization max_edges must be between 1 and 5000")
+
+        dataset = self.read_dataset(project_id, dataset_id)
+        if dataset.status != "completed" or dataset.prepared_data_files is None or dataset.prepared_stats is None:
+            raise ValueError("Dataset analysis is available only after preparation completes")
+
+        artifact_path = self.dataset_path(project_id, dataset.id)
+        nodes = pd.read_parquet(artifact_path / dataset.prepared_data_files.nodes)
+        edges = pd.read_parquet(artifact_path / dataset.prepared_data_files.edges)
+        graph_labels = None
+        node_features = None
+        edge_features = None
+        if dataset.prepared_data_files.graph_labels:
+            graph_labels = pd.read_parquet(artifact_path / dataset.prepared_data_files.graph_labels)
+        if dataset.prepared_data_files.node_features:
+            node_features = pd.read_parquet(artifact_path / dataset.prepared_data_files.node_features)
+        if dataset.prepared_data_files.edge_features:
+            edge_features = pd.read_parquet(artifact_path / dataset.prepared_data_files.edge_features)
+
+        dropped_node_count = max(0, dataset.source_stats.node_count - dataset.prepared_stats.node_count)
+        if dataset.mapping_files is not None:
+            node_mapping_path = artifact_path / dataset.mapping_files.node_mapping
+            if node_mapping_path.exists():
+                node_mapping = pd.read_parquet(node_mapping_path)
+                if "included" in node_mapping.columns:
+                    dropped_node_count = int((~node_mapping["included"].astype(bool)).sum())
+
+        label_by_graph: dict[str, object] = {}
+        graph_label_distribution: dict[str, int] = {}
+        if graph_labels is not None and not graph_labels.empty:
+            for row in graph_labels.to_dict(orient="records"):
+                label_by_graph[str(row["graph_id"])] = self._json_scalar(row["graph_label"])
+            for label, count in graph_labels["graph_label"].map(self._json_scalar).value_counts(dropna=False).items():
+                graph_label_distribution[str(label)] = int(count)
+
+        node_feature_columns = [] if node_features is None else [column for column in node_features.columns if column not in {"graph_id", "node_id"}]
+        edge_feature_columns = (
+            []
+            if edge_features is None
+            else [column for column in edge_features.columns if column not in {"graph_id", "src_node_id", "dest_node_id"}]
+        )
+
+        node_counts = nodes.assign(_graph_id=nodes["graph_id"].map(str)).groupby("_graph_id").size().to_dict()
+        edge_counts = edges.assign(_graph_id=edges["graph_id"].map(str)).groupby("_graph_id").size().to_dict() if not edges.empty else {}
+        graph_ids = set(node_counts) | set(edge_counts)
+        graph_summaries = [
+            DatasetGraphSummary(
+                graph_id=str(current_graph_id),
+                node_count=int(node_counts.get(current_graph_id, 0)),
+                edge_count=int(edge_counts.get(current_graph_id, 0)),
+                graph_label=label_by_graph.get(str(current_graph_id)),
+            )
+            for current_graph_id in graph_ids
+        ]
+        graph_summaries.sort(key=lambda item: (-item.node_count, -item.edge_count, item.graph_id))
+        if not graph_summaries:
+            raise ValueError("Dataset has no prepared graph data")
+
+        selected_graph_id = str(graph_id) if graph_id else graph_summaries[0].graph_id
+        if selected_graph_id not in {summary.graph_id for summary in graph_summaries}:
+            raise ValueError(f"Prepared graph not found: {selected_graph_id}")
+
+        visual = self._dataset_graph_visual(
+            nodes=nodes,
+            edges=edges,
+            graph_id=selected_graph_id,
+            max_nodes=max_nodes,
+            max_edges=max_edges,
+        )
+        return DatasetAnalysis(
+            dataset_id=dataset.id,
+            dataset_name=dataset.name,
+            dataset_status="completed",
+            source_stats=dataset.source_stats,
+            prepared_stats=dataset.prepared_stats,
+            dropped_node_count=dropped_node_count,
+            graph_label_distribution=graph_label_distribution,
+            node_feature_columns=node_feature_columns,
+            edge_feature_columns=edge_feature_columns,
+            graph_summaries=graph_summaries,
+            selected_graph_id=selected_graph_id,
+            visual=visual,
+        )
+
+    def search_dataset_graphs(self, project_id: str, dataset_id: str, *, query: str = "", limit: int = 25) -> DatasetGraphSearchResponse:
+        import pandas as pd
+
+        if limit < 1 or limit > 100:
+            raise ValueError("Dataset graph search limit must be between 1 and 100")
+
+        query_text = query.strip()
+        if not query_text:
+            return DatasetGraphSearchResponse(query=query_text, limit=limit, total_matches=0, results=[])
+
+        dataset = self.read_dataset(project_id, dataset_id)
+        if dataset.status != "completed" or dataset.prepared_data_files is None or dataset.prepared_stats is None:
+            raise ValueError("Dataset analysis is available only after preparation completes")
+
+        artifact_path = self.dataset_path(project_id, dataset.id)
+        nodes = pd.read_parquet(artifact_path / dataset.prepared_data_files.nodes)
+        edges = pd.read_parquet(artifact_path / dataset.prepared_data_files.edges)
+        graph_labels = None
+        if dataset.prepared_data_files.graph_labels:
+            graph_labels = pd.read_parquet(artifact_path / dataset.prepared_data_files.graph_labels)
+
+        label_by_graph: dict[str, object] = {}
+        if graph_labels is not None and not graph_labels.empty:
+            for row in graph_labels.to_dict(orient="records"):
+                label_by_graph[str(row["graph_id"])] = self._json_scalar(row["graph_label"])
+
+        node_counts = nodes.assign(_graph_id=nodes["graph_id"].map(str)).groupby("_graph_id").size().to_dict()
+        edge_counts = edges.assign(_graph_id=edges["graph_id"].map(str)).groupby("_graph_id").size().to_dict() if not edges.empty else {}
+        graph_ids = sorted(set(node_counts) | set(edge_counts), key=lambda graph_id: (-int(node_counts.get(graph_id, 0)), -int(edge_counts.get(graph_id, 0)), graph_id))
+        graph_order = {graph_id: index for index, graph_id in enumerate(graph_ids)}
+
+        def match_rank(value: str) -> int:
+            value_lower = value.lower()
+            query_lower = query_text.lower()
+            if value_lower == query_lower:
+                return 0
+            if value_lower.startswith(query_lower):
+                return 1
+            return 2
+
+        matches: list[tuple[int, int, str, DatasetGraphSearchResult]] = []
+        query_lower = query_text.lower()
+        for graph_id in graph_ids:
+            if query_lower in graph_id.lower():
+                matches.append(
+                    (
+                        match_rank(graph_id),
+                        graph_order[graph_id],
+                        graph_id,
+                        DatasetGraphSearchResult(
+                            kind="graph",
+                            graph_id=graph_id,
+                            graph_label=label_by_graph.get(graph_id),
+                            node_count=int(node_counts.get(graph_id, 0)),
+                            edge_count=int(edge_counts.get(graph_id, 0)),
+                        ),
+                    )
+                )
+
+        node_pairs = (
+            nodes.assign(_graph_id=nodes["graph_id"].map(str), _node_id=nodes["node_id"].map(str))[["_graph_id", "_node_id"]]
+            .drop_duplicates()
+            .to_dict(orient="records")
+        )
+        for row in node_pairs:
+            graph_id = str(row["_graph_id"])
+            node_id = str(row["_node_id"])
+            if query_lower not in node_id.lower():
+                continue
+            matches.append(
+                (
+                    match_rank(node_id),
+                    graph_order.get(graph_id, len(graph_order)),
+                    node_id,
+                    DatasetGraphSearchResult(
+                        kind="node",
+                        graph_id=graph_id,
+                        node_id=node_id,
+                        graph_label=label_by_graph.get(graph_id),
+                        node_count=int(node_counts.get(graph_id, 0)),
+                        edge_count=int(edge_counts.get(graph_id, 0)),
+                    ),
+                )
+            )
+
+        matches.sort(key=lambda item: (item[0], 0 if item[3].kind == "graph" else 1, item[1], item[2]))
+        results = [item[3] for item in matches[:limit]]
+        return DatasetGraphSearchResponse(query=query_text, limit=limit, total_matches=len(matches), results=results)
+
+    def dataset_node_detail(self, project_id: str, dataset_id: str, *, graph_id: str, node_id: str) -> DatasetNodeDetail:
+        import pandas as pd
+
+        dataset = self.read_dataset(project_id, dataset_id)
+        if dataset.status != "completed" or dataset.prepared_data_files is None or dataset.prepared_stats is None:
+            raise ValueError("Dataset analysis is available only after preparation completes")
+
+        artifact_path = self.dataset_path(project_id, dataset.id)
+        nodes = pd.read_parquet(artifact_path / dataset.prepared_data_files.nodes)
+        edges = pd.read_parquet(artifact_path / dataset.prepared_data_files.edges)
+        graph_id = str(graph_id)
+        node_id = str(node_id)
+
+        graph_nodes = nodes[nodes["graph_id"].map(str) == graph_id]
+        if graph_nodes.empty:
+            raise ValueError(f"Prepared graph not found: {graph_id}")
+        if graph_nodes[graph_nodes["node_id"].map(str) == node_id].empty:
+            raise ValueError(f"Prepared node not found: {node_id}")
+
+        graph_edges = edges[edges["graph_id"].map(str) == graph_id]
+        degree = 0
+        for row in graph_edges.to_dict(orient="records"):
+            if str(row["src_node_id"]) == node_id:
+                degree += 1
+            if str(row["dest_node_id"]) == node_id:
+                degree += 1
+
+        graph_label = None
+        if dataset.prepared_data_files.graph_labels:
+            graph_labels = pd.read_parquet(artifact_path / dataset.prepared_data_files.graph_labels)
+            label_rows = graph_labels[graph_labels["graph_id"].map(str) == graph_id]
+            if not label_rows.empty:
+                graph_label = self._json_scalar(label_rows.iloc[0]["graph_label"])
+
+        feature_values: dict[str, object] = {}
+        if dataset.prepared_data_files.node_features:
+            node_features = pd.read_parquet(artifact_path / dataset.prepared_data_files.node_features)
+            feature_rows = node_features[
+                (node_features["graph_id"].map(str) == graph_id) & (node_features["node_id"].map(str) == node_id)
+            ]
+            if not feature_rows.empty:
+                feature_row = feature_rows.iloc[0]
+                for column in node_features.columns:
+                    if column not in {"graph_id", "node_id"}:
+                        feature_values[column] = self._json_scalar(feature_row[column])
+
+        source_graph_id = None
+        source_node_id = None
+        if dataset.mapping_files is not None:
+            mapping_path = artifact_path / dataset.mapping_files.node_mapping
+            if mapping_path.exists():
+                mapping = pd.read_parquet(mapping_path)
+                mapping_rows = mapping[
+                    (mapping["internal_graph_id"].map(str) == graph_id) & (mapping["internal_node_id"].map(str) == node_id)
+                ]
+                if "included" in mapping_rows.columns:
+                    mapping_rows = mapping_rows[mapping_rows["included"].astype(bool)]
+                if not mapping_rows.empty:
+                    mapping_row = mapping_rows.iloc[0]
+                    source_graph_id = str(self._json_scalar(mapping_row["source_graph_id"]))
+                    source_node_id = str(self._json_scalar(mapping_row["source_node_id"]))
+
+        return DatasetNodeDetail(
+            graph_id=graph_id,
+            node_id=node_id,
+            degree=degree,
+            graph_label=graph_label,
+            source_graph_id=source_graph_id,
+            source_node_id=source_node_id,
+            feature_values=feature_values,
+        )
+
+    def _dataset_graph_visual(self, *, nodes, edges, graph_id: str, max_nodes: int, max_edges: int) -> DatasetGraphVisual:
+        graph_nodes = nodes[nodes["graph_id"].map(str) == graph_id]
+        graph_edges = edges[edges["graph_id"].map(str) == graph_id]
+        node_ids = [str(node_id) for node_id in graph_nodes["node_id"].tolist()]
+        node_id_set = set(node_ids)
+        degree = dict.fromkeys(node_ids, 0)
+        edge_records: list[tuple[str, str]] = []
+
+        for row in graph_edges.to_dict(orient="records"):
+            source = str(row["src_node_id"])
+            target = str(row["dest_node_id"])
+            edge_records.append((source, target))
+            if source in degree:
+                degree[source] += 1
+            if target in degree:
+                degree[target] += 1
+
+        sampled = False
+        sample_reasons = []
+        included_node_ids = node_id_set
+        if len(included_node_ids) > max_nodes:
+            sampled = True
+            sample_reasons.append(f"nodes limited to {max_nodes}")
+            ordered_nodes = sorted(included_node_ids, key=lambda node_id: (-degree.get(node_id, 0), node_id))
+            included_node_ids = set(ordered_nodes[:max_nodes])
+
+        included_edges = [(source, target) for source, target in edge_records if source in included_node_ids and target in included_node_ids]
+        if len(included_edges) > max_edges:
+            sampled = True
+            sample_reasons.append(f"edges limited to {max_edges}")
+            included_edges = sorted(
+                included_edges,
+                key=lambda edge: (-(degree.get(edge[0], 0) + degree.get(edge[1], 0)), edge[0], edge[1]),
+            )[:max_edges]
+
+        ordered_visual_nodes = sorted(included_node_ids, key=lambda node_id: (-degree.get(node_id, 0), node_id))
+        return DatasetGraphVisual(
+            graph_id=graph_id,
+            node_count=int(len(graph_nodes)),
+            edge_count=int(len(graph_edges)),
+            sampled=sampled,
+            sample_reason=", ".join(sample_reasons) if sample_reasons else None,
+            nodes=[
+                DatasetVisualNode(
+                    id=node_id,
+                    label=node_id,
+                    degree=int(degree.get(node_id, 0)),
+                )
+                for node_id in ordered_visual_nodes
+            ],
+            edges=[DatasetVisualEdge(source=source, target=target) for source, target in included_edges],
+        )
+
+    def _json_scalar(self, value):
+        import pandas as pd
+
+        if pd.isna(value):
+            return None
+        if hasattr(value, "item"):
+            return value.item()
+        return value
+
+    def _dataset_preview_path(self, project_id: str, dataset: DatasetManifest, table: str) -> Path:
+        prepared_files = dataset.prepared_data_files
+        mapping_files = dataset.mapping_files
+        table_paths = {
+            "nodes": prepared_files.nodes if prepared_files is not None else None,
+            "edges": prepared_files.edges if prepared_files is not None else None,
+            "graph_labels": prepared_files.graph_labels if prepared_files is not None else None,
+            "node_features": prepared_files.node_features if prepared_files is not None else None,
+            "edge_features": prepared_files.edge_features if prepared_files is not None else None,
+            "node_mapping": mapping_files.node_mapping if mapping_files is not None else None,
+            "mapping": mapping_files.node_mapping if mapping_files is not None else None,
+            "graph_mapping": mapping_files.graph_mapping if mapping_files is not None else None,
+        }
+        if table not in table_paths:
+            raise ValueError("Unsupported dataset preview table")
+        data_file = table_paths[table]
+        if not data_file:
+            raise ValueError(f"Dataset has no {table} data")
+        path = self.dataset_path(project_id, dataset.id) / data_file
+        if not path.exists():
+            raise ValueError(f"Dataset {table} data is missing")
+        return path
+
     def preview_dataset(self, project_id: str, dataset_id: str, table: str, *, limit: int = 20, offset: int = 0) -> TabularPreview:
         dataset = self.read_dataset(project_id, dataset_id)
         if dataset.status != "completed":
             raise ValueError("Dataset preview is available only after preparation completes")
-        if table == "nodes":
-            if dataset.prepared_data_files is None:
-                raise ValueError("Dataset has no prepared node data")
-            path = self.dataset_path(project_id, dataset.id) / dataset.prepared_data_files.nodes
-        elif table == "edges":
-            if dataset.prepared_data_files is None:
-                raise ValueError("Dataset has no prepared edge data")
-            path = self.dataset_path(project_id, dataset.id) / dataset.prepared_data_files.edges
-        elif table == "mapping":
-            if dataset.mapping_files is None:
-                raise ValueError("Dataset has no node mapping data")
-            path = self.dataset_path(project_id, dataset.id) / dataset.mapping_files.node_mapping
-        else:
-            raise ValueError("Unsupported dataset preview table")
+        path = self._dataset_preview_path(project_id, dataset, table)
         return self._preview_parquet(path, limit=limit, offset=offset)
 
     def preview_feature(self, project_id: str, feature_id: str, *, limit: int = 20, offset: int = 0) -> TabularPreview:

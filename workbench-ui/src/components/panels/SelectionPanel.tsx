@@ -9,10 +9,12 @@ interface SelectionPanelProps {
   features: FeatureManifest[];
   embeddings: EmbeddingManifest[];
   models: ModelManifest[];
+  isProjectSelected: boolean;
   selectedDatasetId: string;
   selectedFeatureId: string;
   selectedEmbeddingId: string;
   selectedModelId: string;
+  onSelectProject: () => void;
   onSelectDataset: (datasetId: string) => void;
   onSelectFeature: (featureId: string) => void;
   onSelectEmbedding: (embeddingId: string) => void;
@@ -67,10 +69,12 @@ export function SelectionPanel({
   features,
   embeddings,
   models,
+  isProjectSelected,
   selectedDatasetId,
   selectedFeatureId,
   selectedEmbeddingId,
   selectedModelId,
+  onSelectProject,
   onSelectDataset,
   onSelectFeature,
   onSelectEmbedding,
@@ -92,13 +96,18 @@ export function SelectionPanel({
           </header>
           <div className="sel-list">
             {project ? (
-              <div className="sel-item is-active" aria-current="true">
+              <button
+                type="button"
+                className={`sel-item ${isProjectSelected ? "is-active" : ""}`}
+                aria-current={isProjectSelected ? "true" : undefined}
+                onClick={onSelectProject}
+              >
                 <span className="sel-item-icon" style={{ color: "var(--neext-blue)" }}>
                   <FolderOpen />
                 </span>
                 <span className="sel-item-name">{project.name}</span>
                 <span className="sel-item-sub">Active</span>
-              </div>
+              </button>
             ) : (
               <div className="sel-empty">No project</div>
             )}

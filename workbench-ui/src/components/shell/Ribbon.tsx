@@ -2,7 +2,7 @@ import { ToolButton } from "./ToolButton";
 import type { FcIconName } from "../primitives/FcIcon";
 import type { MainTab } from "../../types";
 
-export type RibbonCommand = "import" | "create" | "projects" | "settings" | "help" | "library" | MainTab;
+export type RibbonCommand = "import" | "create" | "projects" | "settings" | "help" | "library" | "explore" | MainTab;
 
 interface RibbonProps {
   activeTab: MainTab;
@@ -51,6 +51,10 @@ const GROUPS: Record<MainTab, GroupDef[]> = {
         STRUCTURAL_TOOLS.create,
         { label: "Datasets", icon: "datasets", command: "datasets" }
       ]
+    },
+    {
+      label: "Dataset Analysis",
+      tools: [{ label: "Explore", icon: "explore", command: "explore" }]
     }
   ],
   features: [

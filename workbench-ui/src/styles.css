@@ -378,6 +378,9 @@ button.sel-item:hover {
   background: var(--select-bg);
   box-shadow: inset 0 0 0 1px var(--select-border);
 }
+button.sel-item.is-active:hover {
+  background: var(--select-bg);
+}
 .sel-item-icon {
   color: var(--chrome-500);
   display: grid;
@@ -417,12 +420,15 @@ button.sel-item:hover {
   border: 1px solid var(--border);
   border-radius: var(--radius-2);
   box-shadow: var(--shadow-rest);
+  display: flex;
+  flex-direction: column;
   min-height: 0;
   overflow: hidden;
 }
 
 .doc-body {
-  height: 100%;
+  flex: 1;
+  min-height: 0;
   padding: var(--space-4);
   overflow: auto;
 }
@@ -435,7 +441,18 @@ button.sel-item:hover {
   color: var(--text);
 }
 
-.workflow { display: grid; gap: var(--space-4); }
+.workflow {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  height: 100%;
+  min-height: 0;
+}
+.workflow > .artifact-table,
+.workflow > .card {
+  flex: 1;
+  min-height: 0;
+}
 
 .card {
   background: var(--panel);
@@ -616,8 +633,18 @@ input:focus, textarea:focus, select:focus {
   color: var(--chrome-700);
 }
 .artifact-table-title { display: inline-flex; align-items: center; gap: 6px; }
-.artifact-table-scroll { overflow: auto; max-height: 400px; }
-.artifact-table-empty { padding: var(--space-4); }
+.artifact-table-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+.artifact-table-empty {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  place-items: center;
+  padding: var(--space-4);
+}
 .table-toolbar {
   display: flex;
   gap: var(--space-2);
@@ -632,6 +659,14 @@ input:focus, textarea:focus, select:focus {
   color: var(--err);
   font-size: var(--text-11);
 }
+.table-note {
+  margin: 0;
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--border);
+  color: var(--muted);
+  font-size: var(--text-11);
+}
+.toolbar-spacer { flex: 1; }
 .feature-picker {
   max-height: 260px;
   overflow: auto;
@@ -672,6 +707,7 @@ input:focus, textarea:focus, select:focus {
 .tbl tbody tr { cursor: pointer; }
 .tbl tbody tr:hover td { background: var(--chrome-50); }
 .tbl tr.is-selected td { background: var(--select-bg); }
+.tbl tbody tr.is-selected:hover td { background: var(--select-bg); }
 .table-name-with-icon {
   display: inline-flex;
   align-items: center;
@@ -692,6 +728,8 @@ input:focus, textarea:focus, select:focus {
   color: var(--chrome-600);
 }
 .icon-btn:hover { background: var(--chrome-200); color: var(--text); }
+.icon-btn:disabled { opacity: .45; cursor: not-allowed; }
+.icon-btn:disabled:hover { background: transparent; color: var(--chrome-600); }
 .icon-btn svg { width: 14px; height: 14px; }
 .icon-btn-danger:hover {
   background: #f6dedb;
@@ -730,6 +768,170 @@ input:focus, textarea:focus, select:focus {
 }
 .tab-btn:hover { background: var(--chrome-200); }
 .tab-btn.is-active { background: var(--select-bg); color: var(--text); }
+
+.dataset-explore {
+  min-height: 0;
+}
+.dataset-tab-panel {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-3);
+}
+.graph-tab-panel {
+  padding: 0;
+  gap: 0;
+}
+.dataset-table-toolbar {
+  align-items: center;
+}
+.dataset-graph-toolbar {
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+.graph-nav-btn {
+  width: 28px;
+  height: 28px;
+  flex: 0 0 28px;
+}
+.graph-search-field {
+  min-width: 260px;
+  max-width: 360px;
+  flex: 1 1 300px;
+  margin: 0;
+}
+.graph-search-input {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+.graph-search-input svg {
+  position: absolute;
+  left: 8px;
+  width: 13px;
+  height: 13px;
+  color: var(--chrome-500);
+  pointer-events: none;
+}
+.graph-search-input input {
+  padding-left: 26px;
+}
+.graph-search-results {
+  max-height: 148px;
+  overflow: auto;
+  display: grid;
+  gap: var(--space-1);
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--border);
+  background: var(--panel);
+}
+.graph-search-result {
+  display: grid;
+  grid-template-columns: auto minmax(90px, auto) minmax(0, 1fr);
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  min-height: 30px;
+  padding: 4px 6px;
+  border-radius: var(--radius-1);
+  text-align: left;
+}
+.graph-search-result:hover {
+  background: var(--chrome-50);
+}
+.graph-search-result.is-selected {
+  background: var(--select-bg);
+  box-shadow: inset 0 0 0 1px var(--select-border);
+}
+.graph-search-result strong,
+.graph-search-result .muted {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.inline-error {
+  padding: 0;
+  border-bottom: 0;
+}
+.compact-field {
+  min-width: 220px;
+  margin: 0;
+}
+.compact-field span {
+  font-size: var(--text-10);
+}
+.dataset-page-count {
+  white-space: nowrap;
+  font-size: var(--text-11);
+}
+.dataset-data-scroll {
+  flex: 1;
+  min-height: 0;
+}
+.dataset-graph-chart {
+  flex: 1;
+  min-height: 240px;
+  width: 100%;
+  background: var(--panel);
+}
+.graph-tab-panel:focus,
+.dataset-graph-chart:focus {
+  outline: 2px solid var(--select-border);
+  outline-offset: -2px;
+}
+.stat-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-2);
+}
+.stat-tile {
+  display: grid;
+  gap: 2px;
+  padding: var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-2);
+  background: var(--chrome-50);
+}
+.stat-tile span {
+  color: var(--chrome-600);
+  font-size: var(--text-10);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+}
+.stat-tile strong {
+  font-size: var(--text-18);
+  line-height: 1.2;
+}
+.stat-tile small {
+  color: var(--muted);
+  font-size: var(--text-11);
+}
+.dataset-detail-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: var(--space-3);
+}
+.dataset-detail-grid section {
+  min-width: 0;
+  display: grid;
+  gap: var(--space-2);
+}
+.dataset-detail-grid h3 {
+  margin: 0;
+  font-size: var(--text-12);
+}
+.dataset-detail-grid p {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.compact-tbl th,
+.compact-tbl td {
+  padding: 6px 8px;
+}
 
 .job-list {
   display: grid;

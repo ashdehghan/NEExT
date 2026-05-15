@@ -389,6 +389,48 @@ test("Models Import and Create commands remain title-only", async ({ page }) => 
   }
 });
 
+test("Dataset Explore graph search and navigation update Inspector", async ({ page }) => {
+  const projectName = `Explore Project ${Date.now()}`;
+  seedTinyEmbeddingProject(projectName);
+
+  await page.goto("/");
+  await expect(page.locator(".selection-panel .sel-item-name", { hasText: projectName })).toBeVisible();
+  await page.getByRole("button", { name: "DATASETS" }).click();
+  const ribbon = page.locator(".ribbon");
+  const inspector = page.locator(".inspector-panel");
+  const datasetRow = page.locator("table tbody tr", { hasText: "Tiny Embedding" }).first();
+  await expect(datasetRow).toBeVisible();
+  await datasetRow.getByRole("button", { name: "Preview" }).click();
+
+  const exploreView = page.locator(".dataset-explore");
+  await expect(exploreView.getByRole("button", { name: "Statistics", exact: true })).toHaveClass(/is-active/);
+  await exploreView.getByRole("button", { name: "Graph", exact: true }).click();
+  await expect(exploreView.getByLabel("Search graphs and nodes")).toBeVisible();
+  await expect(exploreView.getByRole("button", { name: "Previous graph" })).toBeDisabled();
+  await expect(exploreView.getByRole("button", { name: "Next graph" })).toBeEnabled();
+  await expect(inspector).toContainText("Dataset Graph Details");
+  await expect(inspector).toContainText("Tiny Embedding");
+  await expect(inspector).toContainText("g1");
+
+  await exploreView.getByRole("button", { name: "Next graph" }).click();
+  await expect(inspector).toContainText("g2");
+  await expect(exploreView.getByRole("button", { name: "Next graph" })).toBeDisabled();
+
+  await exploreView.locator(".graph-tab-panel").focus();
+  await page.keyboard.press("ArrowLeft");
+  await expect(inspector).toContainText("g1");
+
+  await exploreView.getByLabel("Search graphs and nodes").fill("2");
+  const nodeResult = exploreView.locator(".graph-search-result", { hasText: "graph g1" }).first();
+  await expect(nodeResult).toBeVisible();
+  await nodeResult.click();
+  await expect(inspector).toContainText("Dataset Node Details");
+  await expect(inspector).toContainText("Node ID");
+  await expect(inspector).toContainText("2");
+  await expect(inspector).toContainText("Degree");
+  await expect(inspector).toContainText("Visible In Visual");
+});
+
 test("Datasets and Features run through planned artifacts and jobs", async ({ page }) => {
   test.setTimeout(120_000);
   await page.goto("/");
@@ -455,7 +497,16 @@ test("Datasets and Features run through planned artifacts and jobs", async ({ pa
   await expect(page.locator(".sel-section", { hasText: "Datasets" }).locator(".sel-count")).toHaveText("1");
 
   const leftPanelDatasetItem = page.locator(".selection-panel .sel-section", { hasText: "Datasets" }).locator(".sel-item", { hasText: "MUTAG" });
+  const leftPanelProjectItem = page.locator(".selection-panel .sel-section", { hasText: "Project" }).locator(".sel-item", { hasText: projectName });
   await expect(leftPanelDatasetItem).toBeVisible();
+
+  await leftPanelProjectItem.click();
+  await page.getByRole("button", { name: "DATASETS" }).click();
+  await ribbon.getByRole("button", { name: "Explore" }).click();
+  await expect(page.locator(".artifact-table-title")).toContainText("Dataset Explore");
+  await expect(page.locator("table tbody tr", { hasText: "MUTAG" })).toBeVisible();
+  await expect(page.locator("table tbody tr", { hasText: "MUTAG" }).locator(".status-pill")).toHaveText("planned");
+
   await leftPanelDatasetItem.click();
   await expect(leftPanelDatasetItem).toHaveClass(/is-active/);
   await expect(inspector).toContainText("Dataset Details");
@@ -483,12 +534,24 @@ test("Datasets and Features run through planned artifacts and jobs", async ({ pa
   await expect(datasetRow.locator(".status-pill")).toHaveText("completed", { timeout: 90_000 });
   await expect(datasetRow.getByRole("button", { name: "Preview" })).toBeVisible();
   await datasetRow.getByRole("button", { name: "Preview" }).click();
-  await expect(page.locator(".artifact-table-title")).toContainText("MUTAG Preview");
-  await expect(page.getByRole("button", { name: "nodes" })).toHaveClass(/is-active/);
-  await expect(page.locator(".artifact-table .tbl tbody tr")).toHaveCount(20);
-  await page.getByRole("button", { name: "edges" }).click();
+  await expect(page.locator(".artifact-table-title")).toContainText("MUTAG Explore");
+  await expect(ribbon.getByRole("button", { name: "Explore" })).toHaveClass(/is-active/);
+  const exploreView = page.locator(".dataset-explore");
+  await expect(exploreView.getByRole("button", { name: "Statistics", exact: true })).toBeVisible();
+  await expect(exploreView.getByRole("button", { name: "Graph", exact: true })).toBeVisible();
+  await expect(exploreView.getByRole("button", { name: "Data", exact: true })).toBeVisible();
+  await expect(exploreView.getByRole("button", { name: "Statistics", exact: true })).toHaveClass(/is-active/);
+  await expect(inspector).toContainText("MUTAG");
+  await exploreView.getByRole("button", { name: "Graph", exact: true }).click();
+  await expect(exploreView.getByLabel("Search graphs and nodes")).toBeVisible();
+  await expect(exploreView.getByRole("button", { name: "Previous graph" })).toBeVisible();
+  await expect(exploreView.getByRole("button", { name: "Next graph" })).toBeVisible();
+  await exploreView.getByRole("button", { name: "Data", exact: true }).click();
+  await expect(page.getByLabel("Dataset table")).toHaveValue("nodes");
+  await expect(page.locator(".artifact-table .tbl tbody tr")).toHaveCount(50);
+  await page.getByLabel("Dataset table").selectOption("edges");
   await expect(page.locator(".artifact-table .tbl thead")).toContainText("src_node_id");
-  await page.getByRole("button", { name: "Node Mapping" }).click();
+  await page.getByLabel("Dataset table").selectOption("node_mapping");
   await expect(page.locator(".artifact-table .tbl thead")).toContainText("source_node_id");
 
   await page.getByRole("button", { name: "FEATURES" }).click();

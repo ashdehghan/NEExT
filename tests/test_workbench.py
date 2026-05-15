@@ -361,6 +361,16 @@ def test_configure_and_run_dataset_writes_prepared_outputs_and_mapping(monkeypat
         assert not (artifact_path / "raw").exists()
         assert not (artifact_path / "prepared").exists()
 
+        not_ready_analysis = client.get(f"/api/projects/{project_id}/datasets/{dataset_id}/analysis")
+        assert not_ready_analysis.status_code == 400
+        assert "available only after preparation completes" in not_ready_analysis.json()["detail"]
+        not_ready_search = client.get(f"/api/projects/{project_id}/datasets/{dataset_id}/analysis/search?query=g1")
+        assert not_ready_search.status_code == 400
+        assert "available only after preparation completes" in not_ready_search.json()["detail"]
+        not_ready_node = client.get(f"/api/projects/{project_id}/datasets/{dataset_id}/analysis/node?graph_id=g1&node_id=0")
+        assert not_ready_node.status_code == 400
+        assert "available only after preparation completes" in not_ready_node.json()["detail"]
+
         run = client.post(f"/api/projects/{project_id}/datasets/{dataset_id}/run")
         assert run.status_code == 200
         job = wait_for_job(client, project_id, run.json()["id"])
@@ -433,6 +443,117 @@ def test_configure_and_run_dataset_writes_prepared_outputs_and_mapping(monkeypat
         assert preview.status_code == 200
         assert preview.json()["total_rows"] == 5
         assert len(preview.json()["rows"]) == 2
+
+        preview_tables = {
+            "graph_labels": 2,
+            "node_features": 4,
+            "edge_features": 2,
+            "node_mapping": 5,
+            "graph_mapping": 2,
+            "mapping": 5,
+        }
+        for table, total_rows in preview_tables.items():
+            table_preview = client.get(f"/api/projects/{project_id}/datasets/{dataset_id}/preview/{table}?limit=2")
+            assert table_preview.status_code == 200
+            assert table_preview.json()["total_rows"] == total_rows
+            assert str(Path(tmpdir).resolve()) not in json.dumps(table_preview.json())
+
+        node_mapping = client.get(f"/api/projects/{project_id}/datasets/{dataset_id}/preview/node_mapping?limit=2")
+        assert node_mapping.status_code == 200
+        assert node_mapping.json()["columns"] == [
+            "source_graph_id",
+            "source_node_id",
+            "internal_graph_id",
+            "internal_node_id",
+            "included",
+            "drop_reason",
+        ]
+
+        analysis = client.get(f"/api/projects/{project_id}/datasets/{dataset_id}/analysis")
+        assert analysis.status_code == 200
+        analysis_payload = analysis.json()
+        assert str(Path(tmpdir).resolve()) not in json.dumps(analysis_payload)
+        assert analysis_payload["dataset_id"] == dataset_id
+        assert analysis_payload["dataset_name"] == "Tiny Dataset"
+        assert analysis_payload["dataset_status"] == "completed"
+        assert analysis_payload["source_stats"]["node_count"] == 5
+        assert analysis_payload["prepared_stats"]["node_count"] == 4
+        assert analysis_payload["dropped_node_count"] == 1
+        assert analysis_payload["graph_label_distribution"] == {"0": 1, "1": 1}
+        assert analysis_payload["node_feature_columns"] == ["feature_a"]
+        assert analysis_payload["edge_feature_columns"] == ["edge_weight"]
+        assert analysis_payload["graph_summaries"] == [
+            {"graph_id": "g1", "node_count": 2, "edge_count": 1, "graph_label": 0},
+            {"graph_id": "g2", "node_count": 2, "edge_count": 1, "graph_label": 1},
+        ]
+        assert analysis_payload["selected_graph_id"] == "g1"
+        assert analysis_payload["visual"]["graph_id"] == "g1"
+        assert analysis_payload["visual"]["node_count"] == 2
+        assert analysis_payload["visual"]["edge_count"] == 1
+        assert analysis_payload["visual"]["sampled"] is False
+        assert {node["id"] for node in analysis_payload["visual"]["nodes"]} == {"0", "1"}
+        assert analysis_payload["visual"]["edges"] == [{"source": "0", "target": "1"}]
+
+        sampled = client.get(f"/api/projects/{project_id}/datasets/{dataset_id}/analysis?graph_id=g2&max_nodes=1&max_edges=1")
+        assert sampled.status_code == 200
+        sampled_payload = sampled.json()
+        assert sampled_payload["selected_graph_id"] == "g2"
+        assert sampled_payload["visual"]["sampled"] is True
+        assert sampled_payload["visual"]["node_count"] == 2
+        assert len(sampled_payload["visual"]["nodes"]) == 1
+
+        graph_search = client.get(f"/api/projects/{project_id}/datasets/{dataset_id}/analysis/search?query=g1")
+        assert graph_search.status_code == 200
+        graph_search_payload = graph_search.json()
+        assert str(Path(tmpdir).resolve()) not in json.dumps(graph_search_payload)
+        assert graph_search_payload == {
+            "query": "g1",
+            "limit": 25,
+            "total_matches": 1,
+            "results": [
+                {
+                    "kind": "graph",
+                    "graph_id": "g1",
+                    "node_id": None,
+                    "graph_label": 0,
+                    "node_count": 2,
+                    "edge_count": 1,
+                }
+            ],
+        }
+        node_search = client.get(f"/api/projects/{project_id}/datasets/{dataset_id}/analysis/search?query=0&limit=1")
+        assert node_search.status_code == 200
+        node_search_payload = node_search.json()
+        assert str(Path(tmpdir).resolve()) not in json.dumps(node_search_payload)
+        assert node_search_payload["query"] == "0"
+        assert node_search_payload["limit"] == 1
+        assert node_search_payload["total_matches"] == 2
+        assert len(node_search_payload["results"]) == 1
+        assert node_search_payload["results"][0] == {
+            "kind": "node",
+            "graph_id": "g1",
+            "node_id": "0",
+            "graph_label": 0,
+            "node_count": 2,
+            "edge_count": 1,
+        }
+
+        node_detail = client.get(f"/api/projects/{project_id}/datasets/{dataset_id}/analysis/node?graph_id=g1&node_id=0")
+        assert node_detail.status_code == 200
+        node_detail_payload = node_detail.json()
+        assert str(Path(tmpdir).resolve()) not in json.dumps(node_detail_payload)
+        assert node_detail_payload == {
+            "graph_id": "g1",
+            "node_id": "0",
+            "degree": 1,
+            "graph_label": 0,
+            "source_graph_id": "g1",
+            "source_node_id": "1",
+            "feature_values": {"feature_a": 0.1},
+        }
+        missing_node = client.get(f"/api/projects/{project_id}/datasets/{dataset_id}/analysis/node?graph_id=g1&node_id=missing")
+        assert missing_node.status_code == 400
+        assert "Prepared node not found" in missing_node.json()["detail"]
 
         second = client.post(f"/api/projects/{project_id}/datasets", json={"catalog_id": "TINY"})
         assert second.status_code == 200

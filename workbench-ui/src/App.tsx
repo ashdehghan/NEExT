@@ -13,6 +13,7 @@ import {
   useWorkspace,
   useProjects
 } from "./hooks/useWorkspace";
+import type { DatasetGraphSummary } from "./api";
 import type { MainTab } from "./types";
 import { titleCase } from "./types";
 
@@ -26,7 +27,7 @@ import { Inspector } from "./components/panels/Inspector";
 import { JobsPanel } from "./components/panels/JobsPanel";
 import { CommandWindow } from "./components/panels/CommandWindow";
 import { CreateProjectView, ProjectsView } from "./pages/home/ProjectsPage";
-import { ConfigureDatasetView, DatasetLibraryView, DatasetPreviewView, ProjectDatasetsView } from "./pages/datasets/DatasetsPage";
+import { ConfigureDatasetView, DatasetExploreView, DatasetLibraryView, ProjectDatasetsView } from "./pages/datasets/DatasetsPage";
 import { ConfigureFeatureView, FeatureLibraryView, FeaturePreviewView, ProjectFeaturesView } from "./pages/features/FeaturesPage";
 import { ConfigureEmbeddingView, EmbeddingLibraryView, EmbeddingPreviewView, ProjectEmbeddingsView } from "./pages/embeddings/EmbeddingsPage";
 import { ConfigureModelView, ModelLibraryView, ModelPreviewView, ProjectModelsView } from "./pages/models/ModelsPage";
@@ -78,7 +79,11 @@ export default function App() {
   const [configureFeatureCatalogId, setConfigureFeatureCatalogId] = useState("");
   const [configureEmbeddingCatalogId, setConfigureEmbeddingCatalogId] = useState("");
   const [configureModelCatalogId, setConfigureModelCatalogId] = useState("");
-  const [previewDatasetId, setPreviewDatasetId] = useState("");
+  const [exploreDatasetId, setExploreDatasetId] = useState("");
+  const [exploreGraphId, setExploreGraphId] = useState("");
+  const [exploreGraphSummary, setExploreGraphSummary] = useState<DatasetGraphSummary | null>(null);
+  const [exploreNodeId, setExploreNodeId] = useState("");
+  const [exploreNodeVisible, setExploreNodeVisible] = useState<boolean | null>(null);
   const [previewFeatureId, setPreviewFeatureId] = useState("");
   const [previewEmbeddingId, setPreviewEmbeddingId] = useState("");
   const [previewModelId, setPreviewModelId] = useState("");
@@ -158,10 +163,6 @@ export default function App() {
     () => datasetLibraryQuery.data?.find((entry) => entry.id === configureDatasetCatalogId),
     [configureDatasetCatalogId, datasetLibraryQuery.data]
   );
-  const previewDataset = useMemo(
-    () => datasets.find((dataset) => dataset.id === previewDatasetId),
-    [datasets, previewDatasetId]
-  );
   const previewFeature = useMemo(
     () => features.find((feature) => feature.id === previewFeatureId),
     [features, previewFeatureId]
@@ -221,6 +222,27 @@ export default function App() {
   }, [datasets, features, selectedModelEmbeddings]);
   const importedCatalogIds = useMemo(() => new Set(datasets.map((dataset) => dataset.source_catalog_id)), [datasets]);
   const jobs = projectJobsQuery.data || [];
+  const isProjectSelected = Boolean(
+    project &&
+      !selectedDatasetId &&
+      !selectedCatalogId &&
+      !selectedFeatureId &&
+      !selectedFeatureCatalogId &&
+      !selectedEmbeddingId &&
+      !selectedEmbeddingCatalogId &&
+      !selectedModelId &&
+      !selectedModelCatalogId &&
+      !configureDatasetCatalogId &&
+      !configureFeatureCatalogId &&
+      !configureEmbeddingCatalogId &&
+      !configureModelCatalogId &&
+      !exploreDatasetId &&
+      !exploreGraphId &&
+      !exploreNodeId &&
+      !previewFeatureId &&
+      !previewEmbeddingId &&
+      !previewModelId
+  );
 
   useEffect(() => {
     setSelectedDatasetId("");
@@ -235,7 +257,11 @@ export default function App() {
     setConfigureFeatureCatalogId("");
     setConfigureEmbeddingCatalogId("");
     setConfigureModelCatalogId("");
-    setPreviewDatasetId("");
+    setExploreDatasetId("");
+    setExploreGraphId("");
+    setExploreGraphSummary(null);
+    setExploreNodeId("");
+    setExploreNodeVisible(null);
     setPreviewFeatureId("");
     setPreviewEmbeddingId("");
     setPreviewModelId("");
@@ -246,6 +272,16 @@ export default function App() {
       setSelectedDatasetId("");
     }
   }, [datasets, selectedDataset, selectedDatasetId]);
+
+  useEffect(() => {
+    if (exploreDatasetId && datasets.length && !datasets.some((dataset) => dataset.id === exploreDatasetId)) {
+      setExploreDatasetId("");
+      setExploreGraphId("");
+      setExploreGraphSummary(null);
+      setExploreNodeId("");
+      setExploreNodeVisible(null);
+    }
+  }, [datasets, exploreDatasetId]);
 
   useEffect(() => {
     if (selectedCatalogId && datasetLibraryQuery.data?.length && !selectedCatalogEntry) {
@@ -294,7 +330,11 @@ export default function App() {
     setConfigureFeatureCatalogId("");
     setConfigureEmbeddingCatalogId("");
     setConfigureModelCatalogId("");
-    setPreviewDatasetId("");
+    setExploreDatasetId("");
+    setExploreGraphId("");
+    setExploreGraphSummary(null);
+    setExploreNodeId("");
+    setExploreNodeVisible(null);
     setPreviewFeatureId("");
     setPreviewEmbeddingId("");
     setPreviewModelId("");
@@ -306,12 +346,16 @@ export default function App() {
     setConfigureFeatureCatalogId("");
     setConfigureEmbeddingCatalogId("");
     setConfigureModelCatalogId("");
-    setPreviewDatasetId("");
+    setExploreDatasetId(command === "explore" && route.topTab === "datasets" ? selectedDatasetId : "");
+    setExploreGraphId("");
+    setExploreGraphSummary(null);
+    setExploreNodeId("");
+    setExploreNodeVisible(null);
     setPreviewFeatureId("");
     setPreviewEmbeddingId("");
     setPreviewModelId("");
     setRoute((current) => ({ ...current, command }));
-  }, []);
+  }, [route.topTab, selectedDatasetId]);
 
   const refreshAll = useCallback(() => {
     queryClient.invalidateQueries({ queryKey: ["workspace"] });
@@ -335,6 +379,35 @@ export default function App() {
     setRoute({ topTab: "home", command: "projects" });
   }, []);
 
+  const handleSelectProject = useCallback((projectId: string) => {
+    setActiveProjectId(projectId);
+    setSelectedDatasetId("");
+    setSelectedCatalogId("");
+    setSelectedFeatureId("");
+    setSelectedFeatureCatalogId("");
+    setSelectedEmbeddingId("");
+    setSelectedEmbeddingCatalogId("");
+    setSelectedModelId("");
+    setSelectedModelCatalogId("");
+    setConfigureDatasetCatalogId("");
+    setConfigureFeatureCatalogId("");
+    setConfigureEmbeddingCatalogId("");
+    setConfigureModelCatalogId("");
+    setExploreDatasetId("");
+    setExploreGraphId("");
+    setExploreGraphSummary(null);
+    setExploreNodeId("");
+    setExploreNodeVisible(null);
+    setPreviewFeatureId("");
+    setPreviewEmbeddingId("");
+    setPreviewModelId("");
+    setRoute({ topTab: "home", command: "projects" });
+  }, []);
+
+  const handleSelectActiveProject = useCallback(() => {
+    handleSelectProject(activeProjectId);
+  }, [activeProjectId, handleSelectProject]);
+
   const handleSelectCatalog = useCallback((catalogId: string) => {
     setSelectedCatalogId(catalogId);
     setSelectedDatasetId("");
@@ -348,7 +421,11 @@ export default function App() {
     setConfigureFeatureCatalogId("");
     setConfigureEmbeddingCatalogId("");
     setConfigureModelCatalogId("");
-    setPreviewDatasetId("");
+    setExploreDatasetId("");
+    setExploreGraphId("");
+    setExploreGraphSummary(null);
+    setExploreNodeId("");
+    setExploreNodeVisible(null);
     setPreviewFeatureId("");
     setPreviewEmbeddingId("");
     setPreviewModelId("");
@@ -367,7 +444,11 @@ export default function App() {
     setConfigureFeatureCatalogId("");
     setConfigureEmbeddingCatalogId("");
     setConfigureModelCatalogId("");
-    setPreviewDatasetId("");
+    setExploreDatasetId("");
+    setExploreGraphId("");
+    setExploreGraphSummary(null);
+    setExploreNodeId("");
+    setExploreNodeVisible(null);
     setPreviewFeatureId("");
     setPreviewEmbeddingId("");
     setPreviewModelId("");
@@ -387,10 +468,15 @@ export default function App() {
     setConfigureFeatureCatalogId("");
     setConfigureEmbeddingCatalogId("");
     setConfigureModelCatalogId("");
-    setPreviewDatasetId("");
+    setExploreDatasetId("");
+    setExploreGraphId("");
+    setExploreGraphSummary(null);
+    setExploreNodeId("");
+    setExploreNodeVisible(null);
     setPreviewFeatureId("");
     setPreviewEmbeddingId("");
     setPreviewModelId("");
+    setRoute({ topTab: "datasets", command: "datasets" });
   }, []);
 
   const handleSelectFeatureCatalog = useCallback((catalogId: string) => {
@@ -406,7 +492,11 @@ export default function App() {
     setConfigureFeatureCatalogId("");
     setConfigureEmbeddingCatalogId("");
     setConfigureModelCatalogId("");
-    setPreviewDatasetId("");
+    setExploreDatasetId("");
+    setExploreGraphId("");
+    setExploreGraphSummary(null);
+    setExploreNodeId("");
+    setExploreNodeVisible(null);
     setPreviewFeatureId("");
     setPreviewEmbeddingId("");
     setPreviewModelId("");
@@ -425,7 +515,11 @@ export default function App() {
     setConfigureFeatureCatalogId(catalogId);
     setConfigureEmbeddingCatalogId("");
     setConfigureModelCatalogId("");
-    setPreviewDatasetId("");
+    setExploreDatasetId("");
+    setExploreGraphId("");
+    setExploreGraphSummary(null);
+    setExploreNodeId("");
+    setExploreNodeVisible(null);
     setPreviewFeatureId("");
     setPreviewEmbeddingId("");
     setPreviewModelId("");
@@ -445,10 +539,15 @@ export default function App() {
     setConfigureFeatureCatalogId("");
     setConfigureEmbeddingCatalogId("");
     setConfigureModelCatalogId("");
-    setPreviewDatasetId("");
+    setExploreDatasetId("");
+    setExploreGraphId("");
+    setExploreGraphSummary(null);
+    setExploreNodeId("");
+    setExploreNodeVisible(null);
     setPreviewFeatureId("");
     setPreviewEmbeddingId("");
     setPreviewModelId("");
+    setRoute({ topTab: "features", command: "features" });
   }, []);
 
   const handleDatasetCreated = useCallback((datasetId: string) => {
@@ -464,7 +563,11 @@ export default function App() {
     setConfigureFeatureCatalogId("");
     setConfigureEmbeddingCatalogId("");
     setConfigureModelCatalogId("");
-    setPreviewDatasetId("");
+    setExploreDatasetId("");
+    setExploreGraphId("");
+    setExploreGraphSummary(null);
+    setExploreNodeId("");
+    setExploreNodeVisible(null);
     setPreviewFeatureId("");
     setPreviewEmbeddingId("");
     setPreviewModelId("");
@@ -484,14 +587,18 @@ export default function App() {
     setConfigureFeatureCatalogId("");
     setConfigureEmbeddingCatalogId("");
     setConfigureModelCatalogId("");
-    setPreviewDatasetId("");
+    setExploreDatasetId("");
+    setExploreGraphId("");
+    setExploreGraphSummary(null);
+    setExploreNodeId("");
+    setExploreNodeVisible(null);
     setPreviewFeatureId("");
     setPreviewEmbeddingId("");
     setPreviewModelId("");
     setRoute({ topTab: "features", command: "features" });
   }, []);
 
-  const handlePreviewDataset = useCallback((datasetId: string) => {
+  const handleExploreDataset = useCallback((datasetId: string) => {
     setSelectedDatasetId(datasetId);
     setSelectedCatalogId("");
     setSelectedFeatureId("");
@@ -500,11 +607,36 @@ export default function App() {
     setSelectedEmbeddingCatalogId("");
     setSelectedModelId("");
     setSelectedModelCatalogId("");
-    setPreviewDatasetId(datasetId);
+    setConfigureDatasetCatalogId("");
+    setConfigureFeatureCatalogId("");
+    setConfigureEmbeddingCatalogId("");
+    setConfigureModelCatalogId("");
+    setExploreDatasetId(datasetId);
+    setExploreGraphId("");
+    setExploreGraphSummary(null);
+    setExploreNodeId("");
+    setExploreNodeVisible(null);
     setPreviewFeatureId("");
     setPreviewEmbeddingId("");
     setPreviewModelId("");
-    setRoute({ topTab: "datasets", command: "datasets" });
+    setRoute({ topTab: "datasets", command: "explore" });
+  }, []);
+
+  const handleExploreGraphChange = useCallback(
+    (graphId: string, summary: DatasetGraphSummary | null, options: { clearNode?: boolean } = {}) => {
+      setExploreGraphId(graphId);
+      setExploreGraphSummary(summary);
+      if (options.clearNode !== false) {
+        setExploreNodeId("");
+        setExploreNodeVisible(null);
+      }
+    },
+    []
+  );
+
+  const handleExploreNodeChange = useCallback((nodeId: string) => {
+    setExploreNodeId(nodeId);
+    setExploreNodeVisible(null);
   }, []);
 
   const handlePreviewFeature = useCallback((featureId: string) => {
@@ -517,7 +649,11 @@ export default function App() {
     setSelectedModelId("");
     setSelectedModelCatalogId("");
     setPreviewFeatureId(featureId);
-    setPreviewDatasetId("");
+    setExploreDatasetId("");
+    setExploreGraphId("");
+    setExploreGraphSummary(null);
+    setExploreNodeId("");
+    setExploreNodeVisible(null);
     setPreviewEmbeddingId("");
     setPreviewModelId("");
     setRoute({ topTab: "features", command: "features" });
@@ -536,7 +672,11 @@ export default function App() {
     setConfigureFeatureCatalogId("");
     setConfigureEmbeddingCatalogId("");
     setConfigureModelCatalogId("");
-    setPreviewDatasetId("");
+    setExploreDatasetId("");
+    setExploreGraphId("");
+    setExploreGraphSummary(null);
+    setExploreNodeId("");
+    setExploreNodeVisible(null);
     setPreviewFeatureId("");
     setPreviewEmbeddingId("");
     setPreviewModelId("");
@@ -555,7 +695,11 @@ export default function App() {
     setConfigureFeatureCatalogId("");
     setConfigureEmbeddingCatalogId(catalogId);
     setConfigureModelCatalogId("");
-    setPreviewDatasetId("");
+    setExploreDatasetId("");
+    setExploreGraphId("");
+    setExploreGraphSummary(null);
+    setExploreNodeId("");
+    setExploreNodeVisible(null);
     setPreviewFeatureId("");
     setPreviewEmbeddingId("");
     setPreviewModelId("");
@@ -575,10 +719,15 @@ export default function App() {
     setConfigureFeatureCatalogId("");
     setConfigureEmbeddingCatalogId("");
     setConfigureModelCatalogId("");
-    setPreviewDatasetId("");
+    setExploreDatasetId("");
+    setExploreGraphId("");
+    setExploreGraphSummary(null);
+    setExploreNodeId("");
+    setExploreNodeVisible(null);
     setPreviewFeatureId("");
     setPreviewEmbeddingId("");
     setPreviewModelId("");
+    setRoute({ topTab: "embeddings", command: "embeddings" });
   }, []);
 
   const handleEmbeddingCreated = useCallback((embeddingId: string) => {
@@ -594,7 +743,11 @@ export default function App() {
     setConfigureFeatureCatalogId("");
     setConfigureEmbeddingCatalogId("");
     setConfigureModelCatalogId("");
-    setPreviewDatasetId("");
+    setExploreDatasetId("");
+    setExploreGraphId("");
+    setExploreGraphSummary(null);
+    setExploreNodeId("");
+    setExploreNodeVisible(null);
     setPreviewFeatureId("");
     setPreviewEmbeddingId("");
     setPreviewModelId("");
@@ -611,7 +764,11 @@ export default function App() {
     setSelectedModelId("");
     setSelectedModelCatalogId("");
     setPreviewEmbeddingId(embeddingId);
-    setPreviewDatasetId("");
+    setExploreDatasetId("");
+    setExploreGraphId("");
+    setExploreGraphSummary(null);
+    setExploreNodeId("");
+    setExploreNodeVisible(null);
     setPreviewFeatureId("");
     setPreviewModelId("");
     setRoute({ topTab: "embeddings", command: "embeddings" });
@@ -630,7 +787,11 @@ export default function App() {
     setConfigureFeatureCatalogId("");
     setConfigureEmbeddingCatalogId("");
     setConfigureModelCatalogId("");
-    setPreviewDatasetId("");
+    setExploreDatasetId("");
+    setExploreGraphId("");
+    setExploreGraphSummary(null);
+    setExploreNodeId("");
+    setExploreNodeVisible(null);
     setPreviewFeatureId("");
     setPreviewEmbeddingId("");
     setPreviewModelId("");
@@ -649,7 +810,11 @@ export default function App() {
     setConfigureFeatureCatalogId("");
     setConfigureEmbeddingCatalogId("");
     setConfigureModelCatalogId(catalogId);
-    setPreviewDatasetId("");
+    setExploreDatasetId("");
+    setExploreGraphId("");
+    setExploreGraphSummary(null);
+    setExploreNodeId("");
+    setExploreNodeVisible(null);
     setPreviewFeatureId("");
     setPreviewEmbeddingId("");
     setPreviewModelId("");
@@ -669,10 +834,15 @@ export default function App() {
     setConfigureFeatureCatalogId("");
     setConfigureEmbeddingCatalogId("");
     setConfigureModelCatalogId("");
-    setPreviewDatasetId("");
+    setExploreDatasetId("");
+    setExploreGraphId("");
+    setExploreGraphSummary(null);
+    setExploreNodeId("");
+    setExploreNodeVisible(null);
     setPreviewFeatureId("");
     setPreviewEmbeddingId("");
     setPreviewModelId("");
+    setRoute({ topTab: "models", command: "models" });
   }, []);
 
   const handleModelCreated = useCallback((modelId: string) => {
@@ -688,7 +858,11 @@ export default function App() {
     setConfigureFeatureCatalogId("");
     setConfigureEmbeddingCatalogId("");
     setConfigureModelCatalogId("");
-    setPreviewDatasetId("");
+    setExploreDatasetId("");
+    setExploreGraphId("");
+    setExploreGraphSummary(null);
+    setExploreNodeId("");
+    setExploreNodeVisible(null);
     setPreviewFeatureId("");
     setPreviewEmbeddingId("");
     setPreviewModelId("");
@@ -705,7 +879,11 @@ export default function App() {
     setSelectedEmbeddingCatalogId("");
     setSelectedModelCatalogId("");
     setPreviewModelId(modelId);
-    setPreviewDatasetId("");
+    setExploreDatasetId("");
+    setExploreGraphId("");
+    setExploreGraphSummary(null);
+    setExploreNodeId("");
+    setExploreNodeVisible(null);
     setPreviewFeatureId("");
     setPreviewEmbeddingId("");
     setRoute({ topTab: "models", command: "models" });
@@ -722,7 +900,7 @@ export default function App() {
           workspacePath={workspaceQuery.data?.path || ""}
           projects={projectsQuery.data || []}
           activeProjectId={activeProjectId}
-          onSelectProject={setActiveProjectId}
+          onSelectProject={handleSelectProject}
         />
       );
     }
@@ -748,8 +926,22 @@ export default function App() {
         />
       );
     }
-    if (route.topTab === "datasets" && route.command === "datasets" && previewDatasetId) {
-      return <DatasetPreviewView activeProjectId={activeProjectId} dataset={previewDataset} />;
+    if (route.topTab === "datasets" && route.command === "explore") {
+      return (
+        <DatasetExploreView
+          activeProjectId={activeProjectId}
+          datasets={datasets}
+          loading={projectDatasetsQuery.isLoading}
+          selectedDatasetId={selectedDatasetId}
+          exploreDatasetId={exploreDatasetId}
+          exploreGraphId={exploreGraphId}
+          exploreNodeId={exploreNodeId}
+          onExploreDataset={handleExploreDataset}
+          onExploreGraphChange={handleExploreGraphChange}
+          onExploreNodeChange={handleExploreNodeChange}
+          onExploreNodeVisualStateChange={setExploreNodeVisible}
+        />
+      );
     }
     if (route.topTab === "datasets" && route.command === "datasets") {
       return (
@@ -759,7 +951,7 @@ export default function App() {
           loading={projectDatasetsQuery.isLoading}
           selectedDatasetId={selectedDatasetId}
           onSelectDataset={handleSelectDataset}
-          onPreviewDataset={handlePreviewDataset}
+          onPreviewDataset={handleExploreDataset}
         />
       );
     }
@@ -910,10 +1102,12 @@ export default function App() {
           features={features}
           embeddings={embeddings}
           models={models}
+          isProjectSelected={isProjectSelected}
           selectedDatasetId={selectedDatasetId}
           selectedFeatureId={selectedFeatureId}
           selectedEmbeddingId={selectedEmbeddingId}
           selectedModelId={selectedModelId}
+          onSelectProject={handleSelectActiveProject}
           onSelectDataset={handleSelectDataset}
           onSelectFeature={handleSelectFeature}
           onSelectEmbedding={handleSelectEmbedding}
@@ -931,8 +1125,13 @@ export default function App() {
       right={
         <>
           <Inspector
+            activeProjectId={activeProjectId}
             project={project}
             dataset={selectedDataset}
+            exploreDataset={route.topTab === "datasets" && route.command === "explore" ? selectedDataset : undefined}
+            exploreGraphSummary={route.topTab === "datasets" && route.command === "explore" ? exploreGraphSummary : null}
+            exploreNodeId={route.topTab === "datasets" && route.command === "explore" ? exploreNodeId : ""}
+            exploreNodeVisible={route.topTab === "datasets" && route.command === "explore" ? exploreNodeVisible : null}
             catalogEntry={selectedCatalogEntry}
             catalogImportStatus={
               selectedCatalogEntry

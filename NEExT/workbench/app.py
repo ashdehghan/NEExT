@@ -5,7 +5,10 @@ from typing import Optional, Union
 
 from .paths import resolve_workspace_path
 from .schemas import (
+    DatasetAnalysis,
     DatasetCreateRequest,
+    DatasetGraphSearchResponse,
+    DatasetNodeDetail,
     EmbeddingCreateRequest,
     EmbeddingRunBatchRequest,
     FeatureCreateRequest,
@@ -125,6 +128,33 @@ def create_app(workspace_path: Optional[Union[str, Path]] = None):
     def preview_project_dataset(project_id: str, dataset_id: str, table: str, limit: int = 20, offset: int = 0):
         try:
             return store.preview_dataset(project_id, dataset_id, table, limit=limit, offset=offset)
+        except Exception as exc:
+            raise api_exception(exc) from exc
+
+    @app.get("/api/projects/{project_id}/datasets/{dataset_id}/analysis", response_model=DatasetAnalysis)
+    def analyze_project_dataset(
+        project_id: str,
+        dataset_id: str,
+        graph_id: Optional[str] = None,
+        max_nodes: int = 150,
+        max_edges: int = 300,
+    ) -> DatasetAnalysis:
+        try:
+            return store.analyze_dataset(project_id, dataset_id, graph_id=graph_id, max_nodes=max_nodes, max_edges=max_edges)
+        except Exception as exc:
+            raise api_exception(exc) from exc
+
+    @app.get("/api/projects/{project_id}/datasets/{dataset_id}/analysis/search", response_model=DatasetGraphSearchResponse)
+    def search_project_dataset_graphs(project_id: str, dataset_id: str, query: str = "", limit: int = 25) -> DatasetGraphSearchResponse:
+        try:
+            return store.search_dataset_graphs(project_id, dataset_id, query=query, limit=limit)
+        except Exception as exc:
+            raise api_exception(exc) from exc
+
+    @app.get("/api/projects/{project_id}/datasets/{dataset_id}/analysis/node", response_model=DatasetNodeDetail)
+    def inspect_project_dataset_node(project_id: str, dataset_id: str, graph_id: str, node_id: str) -> DatasetNodeDetail:
+        try:
+            return store.dataset_node_detail(project_id, dataset_id, graph_id=graph_id, node_id=node_id)
         except Exception as exc:
             raise api_exception(exc) from exc
 

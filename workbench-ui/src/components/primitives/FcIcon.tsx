@@ -1,6 +1,7 @@
 import type { IconType } from "react-icons";
 import {
   FcBarChart,
+  FcComboChart,
   FcDatabase,
   FcDataSheet,
   FcLibrary,
@@ -21,6 +22,7 @@ export const FC_ICONS = {
   features: FcDataSheet,
   embeddings: FcPackage,
   models: FcBarChart,
+  explore: FcComboChart,
   settings: FcSettings,
   help: FcReadingEbook
 } as const satisfies Record<string, IconType>;
