@@ -633,6 +633,19 @@ input:focus, textarea:focus, select:focus {
   color: var(--chrome-700);
 }
 .artifact-table-title { display: inline-flex; align-items: center; gap: 6px; }
+.artifact-table-head-actions {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  min-width: 0;
+  margin-left: auto;
+  text-transform: none;
+  letter-spacing: 0;
+}
+.artifact-table-head-actions .muted {
+  white-space: nowrap;
+}
 .artifact-table-scroll {
   flex: 1;
   min-height: 0;
@@ -768,6 +781,14 @@ input:focus, textarea:focus, select:focus {
 }
 .tab-btn:hover { background: var(--chrome-200); }
 .tab-btn.is-active { background: var(--select-bg); color: var(--text); }
+.tab-btn:disabled {
+  color: var(--chrome-500);
+  cursor: not-allowed;
+  opacity: .6;
+}
+.tab-btn:disabled:hover {
+  background: transparent;
+}
 
 .dataset-explore {
   min-height: 0;
@@ -790,6 +811,41 @@ input:focus, textarea:focus, select:focus {
 .dataset-graph-toolbar {
   flex-wrap: wrap;
   gap: var(--space-2);
+}
+.feature-pca-control-band {
+  display: grid;
+  grid-template-columns: auto minmax(260px, 1fr) minmax(150px, auto) minmax(220px, auto);
+  align-items: end;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  border-bottom: 1px solid var(--border);
+  background: var(--panel-alt);
+}
+.feature-pca-nav-group,
+.feature-pca-status-group,
+.feature-pca-meta-group {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+.feature-pca-nav-group {
+  padding: 2px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-2);
+  background: var(--panel);
+}
+.feature-pca-status-group,
+.feature-pca-meta-group {
+  min-height: 44px;
+  align-content: center;
+  flex-wrap: wrap;
+}
+.feature-pca-meta-group {
+  justify-content: flex-end;
+}
+.feature-pca-search-field {
+  max-width: none;
 }
 .graph-nav-btn {
   width: 28px;
@@ -877,8 +933,15 @@ input:focus, textarea:focus, select:focus {
   width: 100%;
   background: var(--panel);
 }
+.feature-pca-chart {
+  flex: 1;
+  min-height: 260px;
+  width: 100%;
+  background: var(--panel);
+}
 .graph-tab-panel:focus,
-.dataset-graph-chart:focus {
+.dataset-graph-chart:focus,
+.feature-pca-chart:focus {
   outline: 2px solid var(--select-border);
   outline-offset: -2px;
 }
@@ -1083,4 +1146,14 @@ input:focus, textarea:focus, select:focus {
 @media (max-width: 1180px) {
   .desktop { grid-template-columns: 240px minmax(0, 1fr); }
   .desktop-right { display: none; }
+  .feature-pca-control-band {
+    grid-template-columns: auto minmax(220px, 1fr);
+  }
+  .feature-pca-status-group,
+  .feature-pca-meta-group {
+    min-height: 0;
+  }
+  .feature-pca-meta-group {
+    justify-content: flex-start;
+  }
 }

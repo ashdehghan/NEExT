@@ -212,6 +212,105 @@ class FeatureOutputStats(BaseModel):
     column_count: int
 
 
+class FeatureColumnSummary(BaseModel):
+    column: str
+    min: Optional[float] = None
+    max: Optional[float] = None
+    mean: Optional[float] = None
+    std: Optional[float] = None
+    null_count: int
+
+
+class FeatureCoverage(BaseModel):
+    covered: int
+    total: int
+
+
+class FeatureAnalysisDataset(BaseModel):
+    id: str
+    name: str
+    status: Literal["planned", "running", "completed", "failed"]
+    prepared_stats: Optional[DatasetStats] = None
+
+
+class FeatureAnalysisMethod(BaseModel):
+    id: str
+    name: str
+
+
+class FeaturePcaPoint(BaseModel):
+    graph_id: str
+    x: float
+    y: float
+    graph_label: Optional[Any] = None
+    color_value: str
+    node_count: int
+
+
+class FeaturePcaPayload(BaseModel):
+    available: bool
+    reason: Optional[str] = None
+    plot_level: Literal["graph"] = "graph"
+    aggregation_method: Literal["mean"] = "mean"
+    projection_method: Literal["pca", "raw"] = "pca"
+    x_axis_label: str = "PC1"
+    y_axis_label: str = "PC2"
+    color_by: Literal["graph_label", "graph_id"]
+    numeric_columns: list[str]
+    source_row_count: int
+    total_graphs: int
+    total_rows: int
+    fit_row_count: int
+    point_count: int
+    max_fit_rows: int
+    max_points: int
+    fit_sampled: bool
+    points_sampled: bool
+    sampled: bool
+    sample_reason: Optional[str] = None
+    explained_variance_ratio: list[float] = Field(default_factory=list)
+    points: list[FeaturePcaPoint] = Field(default_factory=list)
+
+
+class FeatureAnalysis(BaseModel):
+    feature_id: str
+    feature_name: str
+    feature_status: Literal["completed"]
+    source_dataset: FeatureAnalysisDataset
+    method: FeatureAnalysisMethod
+    output_stats: FeatureOutputStats
+    feature_columns: list[str]
+    numeric_feature_columns: list[str]
+    column_summaries: list[FeatureColumnSummary]
+    graph_coverage: FeatureCoverage
+    node_coverage: FeatureCoverage
+    graph_label_distribution: dict[str, int]
+    pca: FeaturePcaPayload
+
+
+class FeatureGraphSearchResult(BaseModel):
+    kind: Literal["graph"] = "graph"
+    graph_id: str
+    graph_label: Optional[Any] = None
+    in_pca_sample: bool
+    node_count: int
+
+
+class FeatureGraphSearchResponse(BaseModel):
+    query: str
+    limit: int
+    total_matches: int
+    results: list[FeatureGraphSearchResult]
+
+
+class FeatureGraphDetail(BaseModel):
+    graph_id: str
+    graph_label: Optional[Any] = None
+    node_count: int
+    aggregation_method: Literal["mean"] = "mean"
+    feature_values: dict[str, Any] = Field(default_factory=dict)
+
+
 class FeatureManifest(BaseModel):
     schema_version: str = "1"
     manifest_type: Literal["feature"] = "feature"
@@ -262,6 +361,86 @@ class EmbeddingOutputFiles(BaseModel):
 class EmbeddingOutputStats(BaseModel):
     row_count: int
     column_count: int
+
+
+class EmbeddingAnalysisFeature(BaseModel):
+    id: str
+    name: str
+    status: Literal["planned", "running", "completed", "failed"]
+    method: FeatureAnalysisMethod
+
+
+class EmbeddingAnalysisAlgorithm(BaseModel):
+    id: str
+    name: str
+
+
+class EmbeddingPcaPoint(BaseModel):
+    graph_id: str
+    x: float
+    y: float
+    graph_label: Optional[Any] = None
+    color_value: str
+
+
+class EmbeddingPcaPayload(BaseModel):
+    available: bool
+    reason: Optional[str] = None
+    plot_level: Literal["graph"] = "graph"
+    projection_method: Literal["pca", "raw"] = "pca"
+    x_axis_label: str = "PC1"
+    y_axis_label: str = "PC2"
+    color_by: Literal["graph_label", "graph_id"]
+    numeric_columns: list[str]
+    source_row_count: int
+    total_graphs: int
+    total_rows: int
+    fit_row_count: int
+    point_count: int
+    max_fit_rows: int
+    max_points: int
+    fit_sampled: bool
+    points_sampled: bool
+    sampled: bool
+    sample_reason: Optional[str] = None
+    explained_variance_ratio: list[float] = Field(default_factory=list)
+    points: list[EmbeddingPcaPoint] = Field(default_factory=list)
+
+
+class EmbeddingAnalysis(BaseModel):
+    embedding_id: str
+    embedding_name: str
+    embedding_status: Literal["completed"]
+    source_dataset: FeatureAnalysisDataset
+    source_features: list[EmbeddingAnalysisFeature]
+    algorithm: EmbeddingAnalysisAlgorithm
+    output_stats: EmbeddingOutputStats
+    embedding_columns: list[str]
+    numeric_embedding_columns: list[str]
+    column_summaries: list[FeatureColumnSummary]
+    graph_label_distribution: dict[str, int]
+    pca: EmbeddingPcaPayload
+
+
+class EmbeddingGraphSearchResult(BaseModel):
+    kind: Literal["graph"] = "graph"
+    graph_id: str
+    graph_label: Optional[Any] = None
+    in_pca_sample: bool
+
+
+class EmbeddingGraphSearchResponse(BaseModel):
+    query: str
+    limit: int
+    total_matches: int
+    results: list[EmbeddingGraphSearchResult]
+
+
+class EmbeddingGraphDetail(BaseModel):
+    graph_id: str
+    graph_label: Optional[Any] = None
+    in_pca_sample: bool
+    embedding_values: dict[str, Any] = Field(default_factory=dict)
 
 
 class EmbeddingManifest(BaseModel):
@@ -344,6 +523,28 @@ class ModelOutputStats(BaseModel):
     graph_count: int
 
 
+class ModelAnalysisAlgorithm(BaseModel):
+    id: str
+    name: str
+
+
+class ModelAnalysisEmbedding(BaseModel):
+    id: str
+    name: str
+    status: Literal["planned", "running", "completed", "failed"]
+    algorithm: ModelAnalysisAlgorithm
+
+
+class ModelMetricPoint(BaseModel):
+    iteration: int
+    value: Optional[float] = None
+
+
+class ModelMetricSeries(BaseModel):
+    metric: str
+    points: list[ModelMetricPoint]
+
+
 class ModelManifest(BaseModel):
     schema_version: str = "1"
     manifest_type: Literal["model"] = "model"
@@ -369,6 +570,27 @@ class ModelPreview(BaseModel):
     metrics: list[dict[str, Any]]
     feature_columns: list[str]
     classes: Optional[list[str]] = None
+
+
+class ModelAnalysis(BaseModel):
+    model_id: str
+    model_name: str
+    model_status: Literal["completed"]
+    source_dataset: FeatureAnalysisDataset
+    source_embeddings: list[ModelAnalysisEmbedding]
+    source_features: list[EmbeddingAnalysisFeature]
+    algorithm: ModelAnalysisAlgorithm
+    task_type: Literal["classifier", "regressor"]
+    expected_metrics: list[str]
+    output_stats: ModelOutputStats
+    sample_size: int
+    test_size: float
+    random_state: Optional[int] = None
+    classes: Optional[list[str]] = None
+    feature_columns: list[str]
+    summary: dict[str, Union[float, int, str, list[str], None]]
+    metrics: list[dict[str, Any]]
+    metric_series: list[ModelMetricSeries]
 
 
 class JobArtifactRef(BaseModel):

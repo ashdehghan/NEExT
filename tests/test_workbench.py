@@ -905,6 +905,289 @@ def test_feature_batch_run_auto_prepares_planned_dataset_and_writes_outputs(monk
         assert jobs.json()[0]["id"] == job["id"]
 
 
+def test_feature_analysis_search_and_graph_detail(monkeypatch):
+    pytest.importorskip("fastapi")
+    pytest.importorskip("pyarrow")
+    pytest.importorskip("sklearn")
+
+    from fastapi.testclient import TestClient
+    import pandas as pd
+
+    import NEExT.workbench.dataset_library as dataset_library
+    from NEExT.workbench.app import create_app
+    from NEExT.workbench.dataset_library import CatalogDataset
+    from NEExT.workbench.schemas import FeatureOutputFiles, FeatureOutputStats
+    from NEExT.workbench.storage import utc_now
+
+    with TemporaryDirectory() as tmpdir:
+        source_files = write_dataset_source_bundle(Path(tmpdir) / "source")
+        monkeypatch.setattr(
+            dataset_library,
+            "DATASET_CATALOG",
+            (
+                CatalogDataset(
+                    id="TINY",
+                    name="Tiny Dataset",
+                    description="local test bundle",
+                    domain="Tests",
+                    files=source_files,
+                    graph_count=2,
+                    node_count=4,
+                    edge_count=2,
+                    source="Test catalog",
+                ),
+            ),
+        )
+
+        app = create_app(tmpdir)
+        client = TestClient(app)
+        project = client.post("/api/projects", json={"name": "Feature Analysis Project"}).json()
+        project_id = project["id"]
+        dataset = client.post(f"/api/projects/{project_id}/datasets", json={"catalog_id": "TINY"}).json()
+
+        blocked_feature = client.post(
+            f"/api/projects/{project_id}/features",
+            json={
+                "source_dataset_id": dataset["id"],
+                "source_feature_id": "degree_centrality",
+                "params": {
+                    "feature_vector_length": 2,
+                    "normalize_features": False,
+                    "n_jobs": 1,
+                    "parallel_backend": "loky",
+                },
+            },
+        ).json()
+        planned_analysis = client.get(f"/api/projects/{project_id}/features/{blocked_feature['id']}/analysis")
+        assert planned_analysis.status_code == 400
+        assert "available only after computation completes" in planned_analysis.json()["detail"]
+
+        store = app.state.store
+        for status in ["running", "failed"]:
+            manifest = store.read_feature(project_id, blocked_feature["id"])
+            manifest.status = status
+            store._write_json(store.feature_path(project_id, manifest.id) / "artifact.json", manifest.model_dump())
+            blocked_analysis = client.get(f"/api/projects/{project_id}/features/{blocked_feature['id']}/analysis")
+            assert blocked_analysis.status_code == 400
+            assert "available only after computation completes" in blocked_analysis.json()["detail"]
+
+        created = client.post(
+            f"/api/projects/{project_id}/features",
+            json={
+                "source_dataset_id": dataset["id"],
+                "source_feature_id": "page_rank",
+                "params": {
+                    "feature_vector_length": 2,
+                    "normalize_features": False,
+                    "n_jobs": 1,
+                    "parallel_backend": "loky",
+                },
+            },
+        )
+        assert created.status_code == 200
+        feature_id = created.json()["id"]
+
+        run = client.post(f"/api/projects/{project_id}/features/{feature_id}/run")
+        assert run.status_code == 200
+        assert wait_for_job(client, project_id, run.json()["id"])["status"] == "completed"
+
+        def complete_manual_feature(name_suffix: str, rows: list[dict[str, object]]) -> str:
+            created_manual = client.post(
+                f"/api/projects/{project_id}/features",
+                json={
+                    "source_dataset_id": dataset["id"],
+                    "source_feature_id": "page_rank",
+                    "params": {
+                        "feature_vector_length": max(1, len(rows[0]) - 2),
+                        "normalize_features": False,
+                        "n_jobs": 1,
+                        "parallel_backend": "loky",
+                    },
+                },
+            )
+            assert created_manual.status_code == 200
+            manual_id = created_manual.json()["id"]
+            manifest = store.read_feature(project_id, manual_id)
+            feature_path = store.feature_path(project_id, manual_id)
+            output_dir = feature_path / "output"
+            output_dir.mkdir(parents=True, exist_ok=False)
+            output = pd.DataFrame(rows)
+            output.to_parquet(output_dir / "features.parquet", index=False)
+            manifest.name = f"{manifest.name} {name_suffix}"
+            manifest.status = "completed"
+            manifest.output_files = FeatureOutputFiles(features="output/features.parquet")
+            manifest.output_stats = FeatureOutputStats(row_count=int(len(output)), column_count=int(len(output.columns)))
+            manifest.updated_at = utc_now()
+            store._write_json(feature_path / "artifact.json", manifest.model_dump())
+            return manual_id
+
+        one_column_feature_id = complete_manual_feature(
+            "One Column",
+            [
+                {"node_id": "0", "graph_id": "g1", "single_0": 1.0},
+                {"node_id": "1", "graph_id": "g1", "single_0": 2.0},
+                {"node_id": "0", "graph_id": "g2", "single_0": 3.0},
+            ],
+        )
+        three_column_feature_id = complete_manual_feature(
+            "Three Columns",
+            [
+                {"node_id": "0", "graph_id": "g1", "tri_0": 1.0, "tri_1": 0.0, "tri_2": 0.0},
+                {"node_id": "1", "graph_id": "g1", "tri_0": 0.0, "tri_1": 1.0, "tri_2": 0.0},
+                {"node_id": "0", "graph_id": "g2", "tri_0": 0.0, "tri_1": 0.0, "tri_2": 1.0},
+                {"node_id": "1", "graph_id": "g2", "tri_0": 1.0, "tri_1": 1.0, "tri_2": 1.0},
+            ],
+        )
+        large_feature_id = complete_manual_feature(
+            "Large",
+            [
+                {
+                    "node_id": "0",
+                    "graph_id": f"big{index:04d}",
+                    "large_0": float(index),
+                    "large_1": float(index % 7),
+                    "large_2": float(index % 11),
+                }
+                for index in range(5001)
+            ],
+        )
+
+        analysis = client.get(f"/api/projects/{project_id}/features/{feature_id}/analysis")
+        assert analysis.status_code == 200
+        payload = analysis.json()
+        assert str(Path(tmpdir).resolve()) not in json.dumps(payload)
+        assert payload["feature_id"] == feature_id
+        assert payload["feature_name"] == "Tiny Dataset - PageRank"
+        assert payload["feature_status"] == "completed"
+        assert payload["source_dataset"]["id"] == dataset["id"]
+        assert payload["source_dataset"]["name"] == "Tiny Dataset"
+        assert payload["method"] == {"id": "page_rank", "name": "PageRank"}
+        assert payload["output_stats"] == {"row_count": 4, "column_count": 4}
+        assert payload["feature_columns"] == ["page_rank_0", "page_rank_1"]
+        assert payload["numeric_feature_columns"] == ["page_rank_0", "page_rank_1"]
+        assert [summary["column"] for summary in payload["column_summaries"]] == ["page_rank_0", "page_rank_1"]
+        assert all({"min", "max", "mean", "std", "null_count"}.issubset(summary) for summary in payload["column_summaries"])
+        assert payload["graph_coverage"] == {"covered": 2, "total": 2}
+        assert payload["node_coverage"] == {"covered": 4, "total": 4}
+        assert payload["graph_label_distribution"] == {"0": 1, "1": 1}
+        assert payload["pca"]["available"] is True
+        assert payload["pca"]["plot_level"] == "graph"
+        assert payload["pca"]["aggregation_method"] == "mean"
+        assert payload["pca"]["projection_method"] == "raw"
+        assert payload["pca"]["x_axis_label"] == "page_rank_0"
+        assert payload["pca"]["y_axis_label"] == "page_rank_1"
+        assert payload["pca"]["color_by"] == "graph_label"
+        assert payload["pca"]["source_row_count"] == 4
+        assert payload["pca"]["total_graphs"] == 2
+        assert payload["pca"]["total_rows"] == 2
+        assert payload["pca"]["fit_row_count"] == 0
+        assert payload["pca"]["point_count"] == 2
+        assert payload["pca"]["sampled"] is False
+        assert payload["pca"]["explained_variance_ratio"] == []
+        assert len(payload["pca"]["points"]) == 2
+        assert {point["graph_label"] for point in payload["pca"]["points"]} == {0, 1}
+        assert {point["color_value"] for point in payload["pca"]["points"]} == {"0", "1"}
+        assert {point["node_count"] for point in payload["pca"]["points"]} == {2}
+        output_path = Path(tmpdir) / "projects" / project_id / "artifacts" / "features" / feature_id / "output" / "features.parquet"
+        output_df = pd.read_parquet(output_path)
+        graph_means = (
+            output_df.assign(_graph_id_str=output_df["graph_id"].map(str))
+            .groupby("_graph_id_str")[["page_rank_0", "page_rank_1"]]
+            .mean()
+            .sort_index()
+        )
+        points_by_graph = {point["graph_id"]: point for point in payload["pca"]["points"]}
+        assert [points_by_graph[graph_id]["x"] for graph_id in graph_means.index] == pytest.approx(graph_means["page_rank_0"].tolist())
+        assert [points_by_graph[graph_id]["y"] for graph_id in graph_means.index] == pytest.approx(graph_means["page_rank_1"].tolist())
+
+        unavailable = client.get(f"/api/projects/{project_id}/features/{one_column_feature_id}/analysis")
+        assert unavailable.status_code == 200
+        unavailable_payload = unavailable.json()
+        assert unavailable_payload["pca"]["available"] is False
+        assert "at least two numeric feature columns" in unavailable_payload["pca"]["reason"]
+
+        projected = client.get(f"/api/projects/{project_id}/features/{three_column_feature_id}/analysis")
+        assert projected.status_code == 200
+        projected_payload = projected.json()
+        assert projected_payload["pca"]["available"] is True
+        assert projected_payload["pca"]["projection_method"] == "pca"
+        assert projected_payload["pca"]["x_axis_label"] == "PC1"
+        assert projected_payload["pca"]["y_axis_label"] == "PC2"
+        assert len(projected_payload["pca"]["explained_variance_ratio"]) == 2
+
+        sampled = client.get(f"/api/projects/{project_id}/features/{feature_id}/analysis?max_fit_rows=2&max_points=1")
+        assert sampled.status_code == 200
+        sampled_payload = sampled.json()
+        assert sampled_payload["pca"]["projection_method"] == "raw"
+        assert sampled_payload["pca"]["fit_sampled"] is False
+        assert sampled_payload["pca"]["points_sampled"] is True
+        assert sampled_payload["pca"]["sampled"] is True
+        assert sampled_payload["pca"]["fit_row_count"] == 0
+        assert sampled_payload["pca"]["point_count"] == 1
+        assert len(sampled_payload["pca"]["points"]) == 1
+
+        sampled_pca = client.get(f"/api/projects/{project_id}/features/{three_column_feature_id}/analysis?max_fit_rows=2&max_points=1")
+        assert sampled_pca.status_code == 200
+        sampled_pca_payload = sampled_pca.json()
+        assert sampled_pca_payload["pca"]["projection_method"] == "pca"
+        assert sampled_pca_payload["pca"]["fit_sampled"] is False
+        assert sampled_pca_payload["pca"]["points_sampled"] is True
+        assert sampled_pca_payload["pca"]["sampled"] is True
+        assert sampled_pca_payload["pca"]["fit_row_count"] == 2
+        assert sampled_pca_payload["pca"]["point_count"] == 1
+
+        default_sampled = client.get(f"/api/projects/{project_id}/features/{large_feature_id}/analysis")
+        assert default_sampled.status_code == 200
+        default_sampled_payload = default_sampled.json()
+        assert default_sampled_payload["pca"]["projection_method"] == "pca"
+        assert default_sampled_payload["pca"]["max_points"] == 5000
+        assert default_sampled_payload["pca"]["max_fit_rows"] == 5000
+        assert default_sampled_payload["pca"]["total_graphs"] == 5001
+        assert default_sampled_payload["pca"]["fit_sampled"] is True
+        assert default_sampled_payload["pca"]["points_sampled"] is True
+        assert default_sampled_payload["pca"]["fit_row_count"] == 5000
+        assert default_sampled_payload["pca"]["point_count"] == 5000
+        assert len(default_sampled_payload["pca"]["points"]) == 5000
+
+        out_of_sample_search = client.get(f"/api/projects/{project_id}/features/{large_feature_id}/analysis/search?query=big5000")
+        assert out_of_sample_search.status_code == 200
+        out_of_sample_payload = out_of_sample_search.json()
+        assert out_of_sample_payload["results"]
+        assert out_of_sample_payload["results"][0]["graph_id"] == "big5000"
+        assert out_of_sample_payload["results"][0]["kind"] == "graph"
+        assert out_of_sample_payload["results"][0]["node_count"] == 1
+        assert out_of_sample_payload["results"][0]["in_pca_sample"] is False
+
+        graph_search = client.get(f"/api/projects/{project_id}/features/{feature_id}/analysis/search?query=g1")
+        assert graph_search.status_code == 200
+        graph_payload = graph_search.json()
+        assert graph_payload["total_matches"] >= 1
+        assert graph_payload["results"][0]["kind"] == "graph"
+        assert graph_payload["results"][0]["graph_id"] == "g1"
+        assert graph_payload["results"][0]["graph_label"] == 0
+        assert graph_payload["results"][0]["in_pca_sample"] is True
+
+        label_search = client.get(f"/api/projects/{project_id}/features/{feature_id}/analysis/search?query=0")
+        assert label_search.status_code == 200
+        label_payload = label_search.json()
+        assert label_payload["results"]
+        assert label_payload["results"][0]["kind"] == "graph"
+        assert label_payload["results"][0]["graph_label"] == 0
+        assert label_payload["results"][0]["in_pca_sample"] is True
+
+        graph_detail = client.get(f"/api/projects/{project_id}/features/{feature_id}/analysis/graph?graph_id=g1")
+        assert graph_detail.status_code == 200
+        graph_detail_payload = graph_detail.json()
+        assert str(Path(tmpdir).resolve()) not in json.dumps(graph_detail_payload)
+        assert graph_detail_payload["graph_id"] == "g1"
+        assert graph_detail_payload["graph_label"] == 0
+        assert graph_detail_payload["node_count"] == 2
+        assert graph_detail_payload["aggregation_method"] == "mean"
+        assert set(graph_detail_payload["feature_values"]) == {"page_rank_0", "page_rank_1"}
+        assert graph_detail_payload["feature_values"]["page_rank_0"] == pytest.approx(graph_means.loc["g1", "page_rank_0"])
+        assert graph_detail_payload["feature_values"]["page_rank_1"] == pytest.approx(graph_means.loc["g1", "page_rank_1"])
+
+
 def test_embedding_library_catalog_endpoint_exposes_built_ins_without_paths_or_code():
     pytest.importorskip("fastapi")
 
@@ -1344,6 +1627,260 @@ def test_failed_embedding_execution_sets_error_and_cleans_partial_output(monkeyp
         assert not (artifact_path / "output").exists()
 
 
+def test_embedding_analysis_search_and_graph_detail(monkeypatch):
+    pytest.importorskip("fastapi")
+    pytest.importorskip("pyarrow")
+    pytest.importorskip("sklearn")
+
+    import pandas as pd
+    from fastapi.testclient import TestClient
+
+    import NEExT.workbench.dataset_library as dataset_library
+    from NEExT.workbench.app import create_app
+    from NEExT.workbench.dataset_library import CatalogDataset
+    from NEExT.workbench.schemas import EmbeddingOutputFiles, EmbeddingOutputStats, FeatureOutputFiles, FeatureOutputStats
+    from NEExT.workbench.storage import utc_now
+
+    with TemporaryDirectory() as tmpdir:
+        source_files = write_dataset_source_bundle(Path(tmpdir) / "source")
+        monkeypatch.setattr(
+            dataset_library,
+            "DATASET_CATALOG",
+            (
+                CatalogDataset(
+                    id="TINY",
+                    name="Tiny Dataset",
+                    description="local test bundle",
+                    domain="Tests",
+                    files=source_files,
+                    graph_count=2,
+                    node_count=4,
+                    edge_count=2,
+                    source="Test catalog",
+                ),
+            ),
+        )
+
+        app = create_app(tmpdir)
+        client = TestClient(app)
+        project = client.post("/api/projects", json={"name": "Embedding Analysis Project"}).json()
+        project_id = project["id"]
+        dataset = client.post(f"/api/projects/{project_id}/datasets", json={"catalog_id": "TINY"}).json()
+        dataset_run = client.post(f"/api/projects/{project_id}/datasets/{dataset['id']}/run")
+        assert dataset_run.status_code == 200
+        assert wait_for_job(client, project_id, dataset_run.json()["id"])["status"] == "completed"
+
+        feature = client.post(
+            f"/api/projects/{project_id}/features",
+            json={
+                "source_dataset_id": dataset["id"],
+                "source_feature_id": "page_rank",
+                "params": {
+                    "feature_vector_length": 2,
+                    "normalize_features": False,
+                    "n_jobs": 1,
+                    "parallel_backend": "loky",
+                },
+            },
+        ).json()
+        store = app.state.store
+        feature_manifest = store.read_feature(project_id, feature["id"])
+        feature_path = store.feature_path(project_id, feature_manifest.id)
+        (feature_path / "output").mkdir(parents=True, exist_ok=False)
+        feature_output = pd.DataFrame(
+            [
+                {"node_id": "0", "graph_id": "g1", "page_rank_0": 0.1, "page_rank_1": 0.2},
+                {"node_id": "1", "graph_id": "g1", "page_rank_0": 0.2, "page_rank_1": 0.3},
+                {"node_id": "0", "graph_id": "g2", "page_rank_0": 0.3, "page_rank_1": 0.4},
+                {"node_id": "1", "graph_id": "g2", "page_rank_0": 0.4, "page_rank_1": 0.5},
+            ]
+        )
+        feature_output.to_parquet(feature_path / "output" / "features.parquet", index=False)
+        feature_manifest.status = "completed"
+        feature_manifest.output_files = FeatureOutputFiles(features="output/features.parquet")
+        feature_manifest.output_stats = FeatureOutputStats(row_count=int(len(feature_output)), column_count=int(len(feature_output.columns)))
+        feature_manifest.updated_at = utc_now()
+        store._write_json(feature_path / "artifact.json", feature_manifest.model_dump())
+
+        blocked_embedding = client.post(
+            f"/api/projects/{project_id}/embeddings",
+            json={
+                "source_embedding_id": "approx_wasserstein",
+                "source_feature_ids": [feature_manifest.id],
+                "params": {"embedding_dimension": 2},
+            },
+        ).json()
+        planned_analysis = client.get(f"/api/projects/{project_id}/embeddings/{blocked_embedding['id']}/analysis")
+        assert planned_analysis.status_code == 400
+        assert "available only after computation completes" in planned_analysis.json()["detail"]
+
+        for status in ["running", "failed"]:
+            manifest = store.read_embedding(project_id, blocked_embedding["id"])
+            manifest.status = status
+            store._write_json(store.embedding_path(project_id, manifest.id) / "artifact.json", manifest.model_dump())
+            blocked_analysis = client.get(f"/api/projects/{project_id}/embeddings/{blocked_embedding['id']}/analysis")
+            assert blocked_analysis.status_code == 400
+            assert "available only after computation completes" in blocked_analysis.json()["detail"]
+
+        def complete_manual_embedding(name_suffix: str, dimension: int, rows: list[dict[str, object]]) -> str:
+            created = client.post(
+                f"/api/projects/{project_id}/embeddings",
+                json={
+                    "source_embedding_id": "approx_wasserstein",
+                    "source_feature_ids": [feature_manifest.id],
+                    "params": {"embedding_dimension": dimension},
+                },
+            )
+            assert created.status_code == 200
+            embedding_id = created.json()["id"]
+            manifest = store.read_embedding(project_id, embedding_id)
+            embedding_path = store.embedding_path(project_id, embedding_id)
+            output_dir = embedding_path / "output"
+            output_dir.mkdir(parents=True, exist_ok=False)
+            output = pd.DataFrame(rows)
+            output.to_parquet(output_dir / "embeddings.parquet", index=False)
+            manifest.name = f"{manifest.name} {name_suffix}"
+            manifest.status = "completed"
+            manifest.output_files = EmbeddingOutputFiles(embeddings="output/embeddings.parquet")
+            manifest.output_stats = EmbeddingOutputStats(row_count=int(len(output)), column_count=int(len(output.columns)))
+            manifest.updated_at = utc_now()
+            store._write_json(embedding_path / "artifact.json", manifest.model_dump())
+            return embedding_id
+
+        one_dim_embedding_id = complete_manual_embedding(
+            "One Dimension",
+            1,
+            [{"graph_id": "g1", "emb_0": 1.0}, {"graph_id": "g2", "emb_0": 2.0}],
+        )
+        two_dim_embedding_id = complete_manual_embedding(
+            "Two Dimensions",
+            2,
+            [{"graph_id": "g1", "emb_0": 1.0, "emb_1": 2.0}, {"graph_id": "g2", "emb_0": 3.0, "emb_1": 4.0}],
+        )
+        three_dim_embedding_id = complete_manual_embedding(
+            "Three Dimensions",
+            3,
+            [
+                {"graph_id": "g1", "emb_0": 1.0, "emb_1": 0.0, "emb_2": 0.0},
+                {"graph_id": "g2", "emb_0": 0.0, "emb_1": 1.0, "emb_2": 1.0},
+            ],
+        )
+        large_embedding_id = complete_manual_embedding(
+            "Large",
+            3,
+            [
+                {"graph_id": f"big{index:04d}", "emb_0": float(index), "emb_1": float(index % 7), "emb_2": float(index % 11)}
+                for index in range(5001)
+            ],
+        )
+
+        analysis = client.get(f"/api/projects/{project_id}/embeddings/{two_dim_embedding_id}/analysis")
+        assert analysis.status_code == 200
+        payload = analysis.json()
+        assert str(Path(tmpdir).resolve()) not in json.dumps(payload)
+        assert payload["embedding_id"] == two_dim_embedding_id
+        assert payload["embedding_status"] == "completed"
+        assert payload["source_dataset"]["id"] == dataset["id"]
+        assert payload["source_dataset"]["name"] == "Tiny Dataset"
+        assert payload["source_features"][0]["id"] == feature_manifest.id
+        assert payload["source_features"][0]["method"] == {"id": "page_rank", "name": "PageRank"}
+        assert payload["algorithm"] == {"id": "approx_wasserstein", "name": "Approx Wasserstein"}
+        assert payload["output_stats"] == {"row_count": 2, "column_count": 3}
+        assert payload["embedding_columns"] == ["emb_0", "emb_1"]
+        assert payload["numeric_embedding_columns"] == ["emb_0", "emb_1"]
+        assert [summary["column"] for summary in payload["column_summaries"]] == ["emb_0", "emb_1"]
+        assert all({"min", "max", "mean", "std", "null_count"}.issubset(summary) for summary in payload["column_summaries"])
+        assert payload["graph_label_distribution"] == {"0": 1, "1": 1}
+        assert payload["pca"]["available"] is True
+        assert payload["pca"]["projection_method"] == "raw"
+        assert payload["pca"]["x_axis_label"] == "emb_0"
+        assert payload["pca"]["y_axis_label"] == "emb_1"
+        assert payload["pca"]["color_by"] == "graph_label"
+        assert payload["pca"]["total_graphs"] == 2
+        assert payload["pca"]["total_rows"] == 2
+        assert payload["pca"]["fit_row_count"] == 0
+        assert payload["pca"]["point_count"] == 2
+        assert payload["pca"]["sampled"] is False
+        assert payload["pca"]["explained_variance_ratio"] == []
+        points_by_graph = {point["graph_id"]: point for point in payload["pca"]["points"]}
+        assert points_by_graph["g1"]["x"] == pytest.approx(1.0)
+        assert points_by_graph["g1"]["y"] == pytest.approx(2.0)
+        assert {point["graph_label"] for point in payload["pca"]["points"]} == {0, 1}
+        assert {point["color_value"] for point in payload["pca"]["points"]} == {"0", "1"}
+
+        unavailable = client.get(f"/api/projects/{project_id}/embeddings/{one_dim_embedding_id}/analysis")
+        assert unavailable.status_code == 200
+        unavailable_payload = unavailable.json()
+        assert unavailable_payload["pca"]["available"] is False
+        assert "at least two numeric embedding columns" in unavailable_payload["pca"]["reason"]
+
+        projected = client.get(f"/api/projects/{project_id}/embeddings/{three_dim_embedding_id}/analysis")
+        assert projected.status_code == 200
+        projected_payload = projected.json()
+        assert projected_payload["pca"]["available"] is True
+        assert projected_payload["pca"]["projection_method"] == "pca"
+        assert projected_payload["pca"]["x_axis_label"] == "PC1"
+        assert projected_payload["pca"]["y_axis_label"] == "PC2"
+        assert len(projected_payload["pca"]["explained_variance_ratio"]) == 2
+
+        sampled = client.get(f"/api/projects/{project_id}/embeddings/{three_dim_embedding_id}/analysis?max_fit_rows=2&max_points=1")
+        assert sampled.status_code == 200
+        sampled_payload = sampled.json()
+        assert sampled_payload["pca"]["projection_method"] == "pca"
+        assert sampled_payload["pca"]["fit_sampled"] is False
+        assert sampled_payload["pca"]["points_sampled"] is True
+        assert sampled_payload["pca"]["sampled"] is True
+        assert sampled_payload["pca"]["fit_row_count"] == 2
+        assert sampled_payload["pca"]["point_count"] == 1
+
+        default_sampled = client.get(f"/api/projects/{project_id}/embeddings/{large_embedding_id}/analysis")
+        assert default_sampled.status_code == 200
+        default_sampled_payload = default_sampled.json()
+        assert default_sampled_payload["pca"]["projection_method"] == "pca"
+        assert default_sampled_payload["pca"]["max_points"] == 5000
+        assert default_sampled_payload["pca"]["max_fit_rows"] == 5000
+        assert default_sampled_payload["pca"]["total_graphs"] == 5001
+        assert default_sampled_payload["pca"]["fit_sampled"] is True
+        assert default_sampled_payload["pca"]["points_sampled"] is True
+        assert default_sampled_payload["pca"]["fit_row_count"] == 5000
+        assert default_sampled_payload["pca"]["point_count"] == 5000
+        assert len(default_sampled_payload["pca"]["points"]) == 5000
+
+        out_of_sample_search = client.get(f"/api/projects/{project_id}/embeddings/{large_embedding_id}/analysis/search?query=big5000")
+        assert out_of_sample_search.status_code == 200
+        out_of_sample_payload = out_of_sample_search.json()
+        assert out_of_sample_payload["results"]
+        assert out_of_sample_payload["results"][0]["graph_id"] == "big5000"
+        assert out_of_sample_payload["results"][0]["kind"] == "graph"
+        assert out_of_sample_payload["results"][0]["in_pca_sample"] is False
+
+        graph_search = client.get(f"/api/projects/{project_id}/embeddings/{two_dim_embedding_id}/analysis/search?query=g1")
+        assert graph_search.status_code == 200
+        graph_payload = graph_search.json()
+        assert graph_payload["total_matches"] >= 1
+        assert graph_payload["results"][0]["kind"] == "graph"
+        assert graph_payload["results"][0]["graph_id"] == "g1"
+        assert graph_payload["results"][0]["graph_label"] == 0
+        assert graph_payload["results"][0]["in_pca_sample"] is True
+
+        label_search = client.get(f"/api/projects/{project_id}/embeddings/{two_dim_embedding_id}/analysis/search?query=0")
+        assert label_search.status_code == 200
+        label_payload = label_search.json()
+        assert label_payload["results"]
+        assert label_payload["results"][0]["kind"] == "graph"
+        assert label_payload["results"][0]["graph_label"] == 0
+        assert label_payload["results"][0]["in_pca_sample"] is True
+
+        graph_detail = client.get(f"/api/projects/{project_id}/embeddings/{two_dim_embedding_id}/analysis/graph?graph_id=g1")
+        assert graph_detail.status_code == 200
+        graph_detail_payload = graph_detail.json()
+        assert str(Path(tmpdir).resolve()) not in json.dumps(graph_detail_payload)
+        assert graph_detail_payload["graph_id"] == "g1"
+        assert graph_detail_payload["graph_label"] == 0
+        assert graph_detail_payload["in_pca_sample"] is True
+        assert graph_detail_payload["embedding_values"] == {"emb_0": 1.0, "emb_1": 2.0}
+
+
 def test_model_library_catalog_endpoint_exposes_built_ins_without_paths_or_code():
     pytest.importorskip("fastapi")
 
@@ -1728,6 +2265,214 @@ def test_run_model_auto_runs_planned_upstream_artifacts_and_writes_preview(monke
         jobs = client.get(f"/api/projects/{project_id}/jobs").json()
         assert jobs[0]["id"] == job["id"]
         assert "Model Labeled Dataset - Random Forest Classifier completed" in "\n".join(jobs[0]["log"])
+
+
+def test_model_analysis_exposes_metrics_and_lineage_without_paths(monkeypatch):
+    pytest.importorskip("fastapi")
+    pytest.importorskip("pyarrow")
+
+    from fastapi.testclient import TestClient
+
+    import NEExT.workbench.dataset_library as dataset_library
+    from NEExT.workbench.app import create_app
+    from NEExT.workbench.dataset_library import CatalogDataset
+    from NEExT.workbench.schemas import ModelOutputFiles, ModelOutputStats
+    from NEExT.workbench.storage import utc_now
+
+    with TemporaryDirectory() as tmpdir:
+        source_files = write_labeled_graph_source_bundle(Path(tmpdir) / "source")
+        monkeypatch.setattr(
+            dataset_library,
+            "DATASET_CATALOG",
+            (
+                CatalogDataset(
+                    id="LABELED",
+                    name="Labeled Dataset",
+                    description="local labeled bundle",
+                    domain="Tests",
+                    files=source_files,
+                    graph_count=8,
+                    node_count=24,
+                    edge_count=16,
+                    source="Test catalog",
+                ),
+            ),
+        )
+
+        app = create_app(tmpdir)
+        client = TestClient(app)
+        store = app.state.store
+        project = client.post("/api/projects", json={"name": "Model Analysis Project"}).json()
+        project_id = project["id"]
+        dataset = client.post(f"/api/projects/{project_id}/datasets", json={"catalog_id": "LABELED"}).json()
+        dataset_run = client.post(f"/api/projects/{project_id}/datasets/{dataset['id']}/run")
+        assert dataset_run.status_code == 200
+        assert wait_for_job(client, project_id, dataset_run.json()["id"])["status"] == "completed"
+
+        feature = client.post(
+            f"/api/projects/{project_id}/features",
+            json={
+                "source_dataset_id": dataset["id"],
+                "source_feature_id": "page_rank",
+                "params": {
+                    "feature_vector_length": 2,
+                    "normalize_features": False,
+                    "n_jobs": 1,
+                    "parallel_backend": "loky",
+                },
+            },
+        ).json()
+        embedding = client.post(
+            f"/api/projects/{project_id}/embeddings",
+            json={
+                "source_embedding_id": "approx_wasserstein",
+                "source_feature_ids": [feature["id"]],
+                "params": {"embedding_dimension": 2},
+            },
+        ).json()
+
+        blocked_model = client.post(
+            f"/api/projects/{project_id}/models",
+            json={
+                "source_model_id": "random_forest",
+                "source_embedding_ids": [embedding["id"]],
+                "params": {
+                    "task_type": "classifier",
+                    "sample_size": 1,
+                    "test_size": 0.5,
+                    "balance_dataset": False,
+                    "n_jobs": 1,
+                    "parallel_backend": "thread",
+                },
+            },
+        ).json()
+        planned_analysis = client.get(f"/api/projects/{project_id}/models/{blocked_model['id']}/analysis")
+        assert planned_analysis.status_code == 400
+        assert "available only after training completes" in planned_analysis.json()["detail"]
+
+        for status in ["running", "failed"]:
+            manifest = store.read_model(project_id, blocked_model["id"])
+            manifest.status = status
+            store._write_json(store.model_path(project_id, manifest.id) / "artifact.json", manifest.model_dump())
+            blocked_analysis = client.get(f"/api/projects/{project_id}/models/{blocked_model['id']}/analysis")
+            assert blocked_analysis.status_code == 400
+            assert "available only after training completes" in blocked_analysis.json()["detail"]
+
+        def complete_manual_model(task_type: str, metrics_payload: dict[str, object]) -> str:
+            created = client.post(
+                f"/api/projects/{project_id}/models",
+                json={
+                    "source_model_id": "random_forest",
+                    "source_embedding_ids": [embedding["id"]],
+                    "params": {
+                        "task_type": task_type,
+                        "sample_size": len(metrics_payload["metrics"]),
+                        "test_size": metrics_payload["test_size"],
+                        "balance_dataset": False,
+                        "n_jobs": 1,
+                        "parallel_backend": "thread",
+                    },
+                },
+            )
+            assert created.status_code == 200
+            model_id = created.json()["id"]
+            manifest = store.read_model(project_id, model_id)
+            model_path = store.model_path(project_id, model_id)
+            output_dir = model_path / "output"
+            output_dir.mkdir(parents=True, exist_ok=False)
+            store._write_json(output_dir / "metrics.json", metrics_payload)
+            (output_dir / "model.joblib").write_bytes(b"placeholder")
+            manifest.status = "completed"
+            manifest.output_files = ModelOutputFiles(metrics="output/metrics.json", model="output/model.joblib")
+            manifest.output_stats = ModelOutputStats(
+                metric_count=len(manifest.expected_output.metrics),
+                sample_size=len(metrics_payload["metrics"]),
+                feature_count=len(metrics_payload["feature_columns"]),
+                graph_count=8,
+            )
+            manifest.updated_at = utc_now()
+            store._write_json(model_path / "artifact.json", manifest.model_dump())
+            return model_id
+
+        classifier_model_id = complete_manual_model(
+            "classifier",
+            {
+                "model_type": "classifier",
+                "model_name": "random_forest",
+                "sample_size": 2,
+                "test_size": 0.25,
+                "random_state": 42,
+                "feature_columns": ["emb_0", "emb_1"],
+                "classes": ["0", "1"],
+                "summary": {
+                    "accuracy_mean": 0.75,
+                    "accuracy_std": 0.25,
+                    "recall_mean": 0.5,
+                    "recall_std": 0.5,
+                    "precision_mean": 0.6,
+                    "precision_std": 0.4,
+                    "f1_score_mean": 0.55,
+                    "f1_score_std": 0.45,
+                },
+                "metrics": [
+                    {"iteration": 0, "accuracy": 1.0, "recall": 1.0, "precision": 1.0, "f1_score": 1.0},
+                    {"iteration": 1, "accuracy": 0.5, "recall": 0.0, "precision": 0.2, "f1_score": 0.1},
+                ],
+            },
+        )
+        regressor_model_id = complete_manual_model(
+            "regressor",
+            {
+                "model_type": "regressor",
+                "model_name": "random_forest",
+                "sample_size": 2,
+                "test_size": 0.25,
+                "random_state": 42,
+                "feature_columns": ["emb_0", "emb_1"],
+                "classes": None,
+                "summary": {"rmse_mean": 1.5, "rmse_std": 0.5, "mae_mean": 1.0, "mae_std": 0.25},
+                "metrics": [
+                    {"iteration": 0, "rmse": 1.0, "mae": 0.75},
+                    {"iteration": 1, "rmse": 2.0, "mae": 1.25},
+                ],
+            },
+        )
+
+        analysis = client.get(f"/api/projects/{project_id}/models/{classifier_model_id}/analysis")
+        assert analysis.status_code == 200
+        payload = analysis.json()
+        assert str(Path(tmpdir).resolve()) not in json.dumps(payload)
+        assert payload["model_id"] == classifier_model_id
+        assert payload["model_status"] == "completed"
+        assert payload["source_dataset"]["id"] == dataset["id"]
+        assert payload["source_dataset"]["name"] == "Labeled Dataset"
+        assert payload["source_embeddings"][0]["id"] == embedding["id"]
+        assert payload["source_embeddings"][0]["algorithm"] == {"id": "approx_wasserstein", "name": "Approx Wasserstein"}
+        assert payload["source_features"][0]["id"] == feature["id"]
+        assert payload["source_features"][0]["method"] == {"id": "page_rank", "name": "PageRank"}
+        assert payload["algorithm"] == {"id": "random_forest", "name": "Random Forest"}
+        assert payload["task_type"] == "classifier"
+        assert payload["expected_metrics"] == ["accuracy", "recall", "precision", "f1_score"]
+        assert payload["output_stats"] == {"metric_count": 4, "sample_size": 2, "feature_count": 2, "graph_count": 8}
+        assert payload["sample_size"] == 2
+        assert payload["test_size"] == 0.25
+        assert payload["random_state"] == 42
+        assert payload["classes"] == ["0", "1"]
+        assert payload["feature_columns"] == ["emb_0", "emb_1"]
+        assert payload["summary"]["accuracy_mean"] == 0.75
+        assert payload["metrics"][1]["iteration"] == 1
+        series_by_metric = {series["metric"]: series for series in payload["metric_series"]}
+        assert series_by_metric["accuracy"]["points"] == [{"iteration": 0, "value": 1.0}, {"iteration": 1, "value": 0.5}]
+        assert series_by_metric["f1_score"]["points"][1] == {"iteration": 1, "value": 0.1}
+
+        regressor_analysis = client.get(f"/api/projects/{project_id}/models/{regressor_model_id}/analysis")
+        assert regressor_analysis.status_code == 200
+        regressor_payload = regressor_analysis.json()
+        assert regressor_payload["task_type"] == "regressor"
+        assert regressor_payload["expected_metrics"] == ["rmse", "mae"]
+        assert regressor_payload["classes"] is None
+        regressor_series = {series["metric"]: series for series in regressor_payload["metric_series"]}
+        assert regressor_series["rmse"]["points"] == [{"iteration": 0, "value": 1.0}, {"iteration": 1, "value": 2.0}]
 
 
 def test_model_batch_run_completes_selected_outputs_in_one_job(monkeypatch):

@@ -5,9 +5,12 @@ import type {
   DatasetGraphSummary,
   DatasetManifest,
   EmbeddingCatalogEntry,
+  EmbeddingGraphDetail,
   EmbeddingManifest,
   FeatureCatalogEntry,
+  FeatureGraphDetail,
   FeatureManifest,
+  ModelAnalysis,
   ModelCatalogEntry,
   ModelManifest,
   ProjectManifest
@@ -28,16 +31,29 @@ interface InspectorProps {
   featureDataset?: DatasetManifest;
   featureCatalogEntry?: FeatureCatalogEntry;
   selectedFeatureCatalogEntry?: FeatureCatalogEntry;
+  exploreFeature?: FeatureManifest;
+  exploreFeatureDataset?: DatasetManifest;
+  exploreFeatureGraphId?: string;
+  exploreFeatureGraphVisible?: boolean | null;
   embedding?: EmbeddingManifest;
   embeddingDataset?: DatasetManifest;
   embeddingFeatures: FeatureManifest[];
   embeddingCatalogEntry?: EmbeddingCatalogEntry;
   selectedEmbeddingCatalogEntry?: EmbeddingCatalogEntry;
+  exploreEmbedding?: EmbeddingManifest;
+  exploreEmbeddingDataset?: DatasetManifest;
+  exploreEmbeddingFeatures: FeatureManifest[];
+  exploreEmbeddingGraphId?: string;
+  exploreEmbeddingGraphVisible?: boolean | null;
   model?: ModelManifest;
   modelDataset?: DatasetManifest;
   modelEmbeddings: EmbeddingManifest[];
   modelCatalogEntry?: ModelCatalogEntry;
   selectedModelCatalogEntry?: ModelCatalogEntry;
+  exploreModel?: ModelManifest;
+  exploreModelDataset?: DatasetManifest;
+  exploreModelEmbeddings: EmbeddingManifest[];
+  exploreModelIteration?: number | null;
 }
 
 function InspectorRow({ label, value, mono = false }: { label: string; value: string; mono?: boolean }) {
@@ -99,16 +115,29 @@ export function Inspector({
   featureDataset,
   featureCatalogEntry,
   selectedFeatureCatalogEntry,
+  exploreFeature,
+  exploreFeatureDataset,
+  exploreFeatureGraphId = "",
+  exploreFeatureGraphVisible = null,
   embedding,
   embeddingDataset,
   embeddingFeatures,
   embeddingCatalogEntry,
   selectedEmbeddingCatalogEntry,
+  exploreEmbedding,
+  exploreEmbeddingDataset,
+  exploreEmbeddingFeatures,
+  exploreEmbeddingGraphId = "",
+  exploreEmbeddingGraphVisible = null,
   model,
   modelDataset,
   modelEmbeddings,
   modelCatalogEntry,
-  selectedModelCatalogEntry
+  selectedModelCatalogEntry,
+  exploreModel,
+  exploreModelDataset,
+  exploreModelEmbeddings,
+  exploreModelIteration = null
 }: InspectorProps) {
   const description = project?.description.trim() || "None";
   const datasetDescription = dataset?.description.trim() || "None";
@@ -119,10 +148,16 @@ export function Inspector({
   const embeddingDescription = embedding?.description.trim() || "None";
   const embeddingAlgorithmName = embeddingCatalogEntry?.name || embedding?.source_embedding_id || "";
   const embeddingFeatureNames = embeddingFeatures.length ? embeddingFeatures.map((item) => item.name).join(", ") : "Unknown features";
+  const exploreEmbeddingFeatureNames = exploreEmbeddingFeatures.length
+    ? exploreEmbeddingFeatures.map((item) => item.name).join(", ")
+    : "Unknown features";
   const embeddingCatalogDescription = selectedEmbeddingCatalogEntry?.description.trim() || "None";
   const modelDescription = model?.description.trim() || "None";
   const modelAlgorithmName = modelCatalogEntry?.name || model?.source_model_id || "";
   const modelEmbeddingNames = modelEmbeddings.length ? modelEmbeddings.map((item) => item.name).join(", ") : "Unknown embeddings";
+  const exploreModelEmbeddingNames = exploreModelEmbeddings.length
+    ? exploreModelEmbeddings.map((item) => item.name).join(", ")
+    : "Unknown embeddings";
   const modelCatalogDescription = selectedModelCatalogEntry?.description.trim() || "None";
   const modelPreview = useQuery({
     queryKey: ["projects", model?.project_id, "models", model?.id, "preview", "inspector"],
@@ -144,6 +179,51 @@ export function Inspector({
     queryFn: () => api.datasetNodeDetail(activeProjectId, exploreDataset!.id, exploreGraphSummary!.graph_id, exploreNodeId),
     enabled: Boolean(activeProjectId && exploreDataset?.id && exploreGraphSummary?.graph_id && exploreNodeId)
   });
+  const exploreFeatureGraphDetail = useQuery<FeatureGraphDetail>({
+    queryKey: [
+      "projects",
+      activeProjectId,
+      "features",
+      exploreFeature?.id,
+      "analysis",
+      "graph",
+      exploreFeatureGraphId,
+      "inspector"
+    ],
+    queryFn: () => api.featureGraphDetail(activeProjectId, exploreFeature!.id, exploreFeatureGraphId),
+    enabled: Boolean(activeProjectId && exploreFeature?.id && exploreFeatureGraphId)
+  });
+  const exploreEmbeddingGraphDetail = useQuery<EmbeddingGraphDetail>({
+    queryKey: [
+      "projects",
+      activeProjectId,
+      "embeddings",
+      exploreEmbedding?.id,
+      "analysis",
+      "graph",
+      exploreEmbeddingGraphId,
+      "inspector"
+    ],
+    queryFn: () => api.embeddingGraphDetail(activeProjectId, exploreEmbedding!.id, exploreEmbeddingGraphId),
+    enabled: Boolean(activeProjectId && exploreEmbedding?.id && exploreEmbeddingGraphId)
+  });
+  const exploreModelAnalysis = useQuery<ModelAnalysis>({
+    queryKey: [
+      "projects",
+      activeProjectId,
+      "models",
+      exploreModel?.id,
+      "analysis",
+      "iteration",
+      exploreModelIteration,
+      "inspector"
+    ],
+    queryFn: () => api.modelAnalysis(activeProjectId, exploreModel!.id),
+    enabled: Boolean(activeProjectId && exploreModel?.id && exploreModel.status === "completed" && exploreModelIteration != null)
+  });
+  const exploreModelIterationRow = exploreModelAnalysis.data?.metrics.find(
+    (row, rowIndex) => Number(row.iteration ?? rowIndex) === exploreModelIteration
+  );
 
   return (
     <section className="panel inspector-panel">
@@ -151,7 +231,77 @@ export function Inspector({
         <span>Inspector</span>
       </div>
       <div className="panel-body">
-        {exploreDataset && exploreGraphSummary && exploreNodeId ? (
+        {exploreModel && exploreModelIteration != null ? (
+          <div className="inspector-details">
+            <h3>Model Iteration Details</h3>
+            <dl>
+              <InspectorRow label="Model" value={exploreModel.name} />
+              <InspectorRow label="Source Dataset" value={exploreModelDataset?.name || "Unknown dataset"} />
+              <InspectorRow label="Source Embeddings" value={exploreModelEmbeddingNames} />
+              <InspectorRow label="Iteration" value={String(exploreModelIteration)} mono />
+              <InspectorRow label="Task Type" value={taskLabel(String(exploreModel.operation.params.task_type))} />
+              {exploreModelAnalysis.isLoading ? <InspectorRow label="Status" value="Loading" /> : null}
+              {exploreModelAnalysis.error ? <InspectorRow label="Error" value={exploreModelAnalysis.error.message} /> : null}
+              {exploreModelIterationRow
+                ? exploreModel.expected_output.metrics.map((metric) => (
+                    <InspectorRow key={metric} label={metricLabel(metric)} value={metricValue(exploreModelIterationRow[metric])} />
+                  ))
+                : null}
+            </dl>
+          </div>
+        ) : exploreEmbedding && exploreEmbeddingGraphId ? (
+          <div className="inspector-details">
+            <h3>Embedding Graph Details</h3>
+            <dl>
+              <InspectorRow label="Embedding" value={exploreEmbedding.name} />
+              <InspectorRow label="Source Dataset" value={exploreEmbeddingDataset?.name || "Unknown dataset"} />
+              <InspectorRow label="Source Features" value={exploreEmbeddingFeatureNames} />
+              <InspectorRow label="Graph ID" value={exploreEmbeddingGraphId} mono />
+              <InspectorRow
+                label="Plotted In Chart"
+                value={exploreEmbeddingGraphVisible == null ? "Unknown" : boolText(Boolean(exploreEmbeddingGraphVisible))}
+              />
+              {exploreEmbeddingGraphVisible === false ? <InspectorRow label="Plot Sample" value="Graph is outside the plotted sample" /> : null}
+              {exploreEmbeddingGraphDetail.data ? (
+                <InspectorRow label="Graph Label" value={inspectorValue(exploreEmbeddingGraphDetail.data.graph_label)} />
+              ) : null}
+              {exploreEmbeddingGraphDetail.data
+                ? Object.entries(exploreEmbeddingGraphDetail.data.embedding_values).map(([name, value]) => (
+                    <InspectorRow key={name} label={name} value={inspectorValue(value)} />
+                  ))
+                : null}
+              {exploreEmbeddingGraphDetail.error ? <InspectorRow label="Error" value={exploreEmbeddingGraphDetail.error.message} /> : null}
+            </dl>
+          </div>
+        ) : exploreFeature && exploreFeatureGraphId ? (
+          <div className="inspector-details">
+            <h3>Feature Graph Details</h3>
+            <dl>
+              <InspectorRow label="Feature" value={exploreFeature.name} />
+              <InspectorRow label="Source Dataset" value={exploreFeatureDataset?.name || "Unknown dataset"} />
+              <InspectorRow label="Graph ID" value={exploreFeatureGraphId} mono />
+              <InspectorRow
+                label="Plotted In Chart"
+                value={exploreFeatureGraphVisible == null ? "Unknown" : boolText(Boolean(exploreFeatureGraphVisible))}
+              />
+              {exploreFeatureGraphVisible === false ? <InspectorRow label="Plot Sample" value="Graph is outside the plotted sample" /> : null}
+              {exploreFeatureGraphDetail.isLoading ? <InspectorRow label="Status" value="Loading" /> : null}
+              {exploreFeatureGraphDetail.error ? <InspectorRow label="Error" value={exploreFeatureGraphDetail.error.message} /> : null}
+              {exploreFeatureGraphDetail.data ? (
+                <InspectorRow label="Graph Label" value={inspectorValue(exploreFeatureGraphDetail.data.graph_label)} />
+              ) : null}
+              {exploreFeatureGraphDetail.data ? (
+                <InspectorRow label="Node Count" value={String(exploreFeatureGraphDetail.data.node_count)} />
+              ) : null}
+              {exploreFeatureGraphDetail.data ? <InspectorRow label="Aggregation" value="Mean" /> : null}
+              {exploreFeatureGraphDetail.data
+                ? Object.entries(exploreFeatureGraphDetail.data.feature_values).map(([name, value]) => (
+                    <InspectorRow key={name} label={`${name} mean`} value={inspectorValue(value)} />
+                  ))
+                : null}
+            </dl>
+          </div>
+        ) : exploreDataset && exploreGraphSummary && exploreNodeId ? (
           <div className="inspector-details">
             <h3>Dataset Node Details</h3>
             <dl>

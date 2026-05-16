@@ -9,16 +9,29 @@ from .schemas import (
     DatasetCreateRequest,
     DatasetGraphSearchResponse,
     DatasetNodeDetail,
+    EmbeddingAnalysis,
     EmbeddingCreateRequest,
+    EmbeddingGraphDetail,
+    EmbeddingGraphSearchResponse,
     EmbeddingRunBatchRequest,
+    FeatureAnalysis,
     FeatureCreateRequest,
+    FeatureGraphDetail,
+    FeatureGraphSearchResponse,
     FeatureRunBatchRequest,
+    ModelAnalysis,
     ModelCreateRequest,
     ModelRunBatchRequest,
     ProjectCreate,
     WorkspaceInfo,
 )
-from .storage import WorkbenchStore
+from .storage import (
+    EMBEDDING_ANALYSIS_DEFAULT_MAX_FIT_ROWS,
+    EMBEDDING_ANALYSIS_DEFAULT_MAX_POINTS,
+    FEATURE_ANALYSIS_DEFAULT_MAX_FIT_ROWS,
+    FEATURE_ANALYSIS_DEFAULT_MAX_POINTS,
+    WorkbenchStore,
+)
 
 
 def create_app(workspace_path: Optional[Union[str, Path]] = None):
@@ -200,6 +213,32 @@ def create_app(workspace_path: Optional[Union[str, Path]] = None):
         except Exception as exc:
             raise api_exception(exc) from exc
 
+    @app.get("/api/projects/{project_id}/features/{feature_id}/analysis", response_model=FeatureAnalysis)
+    def analyze_project_feature(
+        project_id: str,
+        feature_id: str,
+        max_fit_rows: int = FEATURE_ANALYSIS_DEFAULT_MAX_FIT_ROWS,
+        max_points: int = FEATURE_ANALYSIS_DEFAULT_MAX_POINTS,
+    ) -> FeatureAnalysis:
+        try:
+            return store.analyze_feature(project_id, feature_id, max_fit_rows=max_fit_rows, max_points=max_points)
+        except Exception as exc:
+            raise api_exception(exc) from exc
+
+    @app.get("/api/projects/{project_id}/features/{feature_id}/analysis/search", response_model=FeatureGraphSearchResponse)
+    def search_project_feature_graphs(project_id: str, feature_id: str, query: str = "", limit: int = 25) -> FeatureGraphSearchResponse:
+        try:
+            return store.search_feature_graphs(project_id, feature_id, query=query, limit=limit)
+        except Exception as exc:
+            raise api_exception(exc) from exc
+
+    @app.get("/api/projects/{project_id}/features/{feature_id}/analysis/graph", response_model=FeatureGraphDetail)
+    def inspect_project_feature_graph(project_id: str, feature_id: str, graph_id: str) -> FeatureGraphDetail:
+        try:
+            return store.feature_graph_detail(project_id, feature_id, graph_id=graph_id)
+        except Exception as exc:
+            raise api_exception(exc) from exc
+
     @app.get("/api/projects/{project_id}/embeddings")
     def list_project_embeddings(project_id: str):
         try:
@@ -242,6 +281,32 @@ def create_app(workspace_path: Optional[Union[str, Path]] = None):
         except Exception as exc:
             raise api_exception(exc) from exc
 
+    @app.get("/api/projects/{project_id}/embeddings/{embedding_id}/analysis", response_model=EmbeddingAnalysis)
+    def analyze_project_embedding(
+        project_id: str,
+        embedding_id: str,
+        max_fit_rows: int = EMBEDDING_ANALYSIS_DEFAULT_MAX_FIT_ROWS,
+        max_points: int = EMBEDDING_ANALYSIS_DEFAULT_MAX_POINTS,
+    ) -> EmbeddingAnalysis:
+        try:
+            return store.analyze_embedding(project_id, embedding_id, max_fit_rows=max_fit_rows, max_points=max_points)
+        except Exception as exc:
+            raise api_exception(exc) from exc
+
+    @app.get("/api/projects/{project_id}/embeddings/{embedding_id}/analysis/search", response_model=EmbeddingGraphSearchResponse)
+    def search_project_embedding_graphs(project_id: str, embedding_id: str, query: str = "", limit: int = 25) -> EmbeddingGraphSearchResponse:
+        try:
+            return store.search_embedding_graphs(project_id, embedding_id, query=query, limit=limit)
+        except Exception as exc:
+            raise api_exception(exc) from exc
+
+    @app.get("/api/projects/{project_id}/embeddings/{embedding_id}/analysis/graph", response_model=EmbeddingGraphDetail)
+    def inspect_project_embedding_graph(project_id: str, embedding_id: str, graph_id: str) -> EmbeddingGraphDetail:
+        try:
+            return store.embedding_graph_detail(project_id, embedding_id, graph_id=graph_id)
+        except Exception as exc:
+            raise api_exception(exc) from exc
+
     @app.get("/api/projects/{project_id}/models")
     def list_project_models(project_id: str):
         try:
@@ -281,6 +346,13 @@ def create_app(workspace_path: Optional[Union[str, Path]] = None):
     def preview_project_model(project_id: str, model_id: str):
         try:
             return store.preview_model(project_id, model_id)
+        except Exception as exc:
+            raise api_exception(exc) from exc
+
+    @app.get("/api/projects/{project_id}/models/{model_id}/analysis", response_model=ModelAnalysis)
+    def analyze_project_model(project_id: str, model_id: str) -> ModelAnalysis:
+        try:
+            return store.analyze_model(project_id, model_id)
         except Exception as exc:
             raise api_exception(exc) from exc
 

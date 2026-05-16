@@ -1,14 +1,18 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { BarChart3, Eye, Play, RotateCcw, Save, Settings2 } from "lucide-react";
+import * as echarts from "echarts";
+import type { EChartsOption } from "echarts";
+import { ArrowLeft, BarChart3, Eye, Play, RotateCcw, Save, Settings2 } from "lucide-react";
 import {
   api,
   type DatasetManifest,
   type EmbeddingManifest,
   type FeatureManifest,
+  type ModelAnalysis,
   type ModelCatalogEntry,
   type ModelCreatePayload,
-  type ModelManifest
+  type ModelManifest,
+  type ModelMetricSeries
 } from "../../api";
 import { EmptyState } from "../../components/primitives/EmptyState";
 import { FcIcon } from "../../components/primitives/FcIcon";
@@ -45,9 +49,20 @@ interface ProjectModelsViewProps {
   onPreviewModel: (modelId: string) => void;
 }
 
-interface ModelPreviewViewProps {
+interface ModelExploreViewProps {
   activeProjectId: string;
-  model?: ModelManifest;
+  models: ModelManifest[];
+  embeddings: EmbeddingManifest[];
+  features: FeatureManifest[];
+  datasets: DatasetManifest[];
+  catalog: ModelCatalogEntry[];
+  loading: boolean;
+  selectedModelId: string;
+  exploreModelId: string;
+  selectedIteration: number | null;
+  onExploreModel: (modelId: string) => void;
+  onClearExploreModel: () => void;
+  onSelectIteration: (iteration: number | null) => void;
 }
 
 export function embeddingFeatureIds(embedding: EmbeddingManifest): string[] {
@@ -605,81 +620,574 @@ function formatMetric(value: unknown): string {
   return typeof value === "number" ? value.toFixed(4) : value == null ? "" : String(value);
 }
 
-export function ModelPreviewView({ activeProjectId, model }: ModelPreviewViewProps) {
-  const preview = useQuery({
-    queryKey: ["projects", activeProjectId, "models", model?.id, "preview"],
-    queryFn: () => api.modelPreview(activeProjectId, model!.id),
+function formatCount(value: number): string {
+  return new Intl.NumberFormat("en-US").format(value);
+}
+
+function formatValue(value: unknown): string {
+  if (value == null) return "None";
+  if (typeof value === "number") return Number.isInteger(value) ? String(value) : value.toPrecision(5);
+  if (typeof value === "boolean") return value ? "Yes" : "No";
+  return String(value);
+}
+
+function modelDatasetId(model: ModelManifest, embeddings: EmbeddingManifest[], features: FeatureManifest[]): string {
+  const embeddingsById = new Map(embeddings.map((embedding) => [embedding.id, embedding]));
+  const sourceEmbedding = modelEmbeddingIds(model).map((embeddingId) => embeddingsById.get(embeddingId)).find(Boolean);
+  return sourceEmbedding ? embeddingDatasetId(sourceEmbedding, features) : "";
+}
+
+function modelFeatureIds(model: ModelManifest, embeddings: EmbeddingManifest[]): string[] {
+  const embeddingsById = new Map(embeddings.map((embedding) => [embedding.id, embedding]));
+  const featureIds: string[] = [];
+  for (const embeddingId of modelEmbeddingIds(model)) {
+    const embedding = embeddingsById.get(embeddingId);
+    if (!embedding) continue;
+    for (const featureId of embeddingFeatureIds(embedding)) {
+      if (!featureIds.includes(featureId)) featureIds.push(featureId);
+    }
+  }
+  return featureIds;
+}
+
+type ModelMetricsChartPoint = {
+  value: [number, number | null];
+  iteration: number;
+  metric: string;
+  symbolSize: number;
+};
+
+type ModelMetricsChartElement = HTMLDivElement & {
+  __modelMetricsChart?: ReturnType<typeof echarts.init>;
+};
+
+function ModelMetricsChart({
+  analysis,
+  selectedIteration,
+  onSelectIteration
+}: {
+  analysis: ModelAnalysis;
+  selectedIteration: number | null;
+  onSelectIteration: (iteration: number | null) => void;
+}) {
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const chartRef = useRef<ReturnType<typeof echarts.init> | null>(null);
+  const onSelectIterationRef = useRef(onSelectIteration);
+
+  useEffect(() => {
+    onSelectIterationRef.current = onSelectIteration;
+  }, [onSelectIteration]);
+
+  useEffect(() => {
+    if (!containerRef.current) return;
+    const chart = echarts.init(containerRef.current);
+    chartRef.current = chart;
+    (containerRef.current as ModelMetricsChartElement).__modelMetricsChart = chart;
+    const handleClick = (params: { data?: unknown }) => {
+      const data = params.data as ModelMetricsChartPoint | undefined;
+      if (typeof data?.iteration !== "number") return;
+      onSelectIterationRef.current(data.iteration);
+    };
+    chart.on("click", handleClick);
+    const resizeObserver = new ResizeObserver(() => chart.resize());
+    resizeObserver.observe(containerRef.current);
+    return () => {
+      chart.off("click", handleClick);
+      resizeObserver.disconnect();
+      chart.dispose();
+      if (containerRef.current) delete (containerRef.current as ModelMetricsChartElement).__modelMetricsChart;
+      chartRef.current = null;
+    };
+  }, []);
+
+  useEffect(() => {
+    const chart = chartRef.current;
+    if (!chart) return;
+
+    const palette = ["#176ea9", "#d86c1f", "#2d8754", "#8d5db8", "#a4513d", "#4f758b"];
+    const series = analysis.metric_series.map((metricSeries: ModelMetricSeries, seriesIndex) => ({
+      name: metricLabel(metricSeries.metric),
+      type: "line" as const,
+      showSymbol: true,
+      symbolSize: 8,
+      data: metricSeries.points.map((point) => ({
+        value: [point.iteration, point.value ?? null] as [number, number | null],
+        iteration: point.iteration,
+        metric: metricSeries.metric,
+        symbolSize: selectedIteration === point.iteration ? 14 : 8,
+        itemStyle: {
+          color: palette[seriesIndex % palette.length],
+          borderColor: selectedIteration === point.iteration ? "#111820" : palette[seriesIndex % palette.length],
+          borderWidth: selectedIteration === point.iteration ? 2 : 0
+        }
+      }))
+    }));
+
+    const option: EChartsOption = {
+      animation: false,
+      color: palette,
+      grid: { left: 50, right: 24, top: 32, bottom: 44 },
+      legend: { top: 4, type: "scroll" },
+      xAxis: {
+        type: "value",
+        name: "Iteration",
+        nameLocation: "middle",
+        nameGap: 28,
+        minInterval: 1,
+        splitLine: { lineStyle: { color: "#dfe5e9" } }
+      },
+      yAxis: {
+        type: "value",
+        name: "Metric",
+        nameLocation: "middle",
+        nameGap: 34,
+        splitLine: { lineStyle: { color: "#dfe5e9" } }
+      },
+      tooltip: {
+        trigger: "item",
+        formatter: (params: unknown) => {
+          const item = Array.isArray(params) ? params[0] : params;
+          const dataPoint = (item as { data?: ModelMetricsChartPoint }).data;
+          if (!dataPoint) return "";
+          return [
+            `Iteration ${dataPoint.iteration}`,
+            `${metricLabel(dataPoint.metric)} ${formatMetric(dataPoint.value[1])}`
+          ].join("<br/>");
+        }
+      },
+      series
+    };
+
+    chart.setOption(option, { notMerge: true });
+  }, [analysis, selectedIteration]);
+
+  return (
+    <div
+      ref={containerRef}
+      className="feature-pca-chart model-metrics-chart"
+      role="img"
+      aria-label={`${analysis.model_name} metric results`}
+      tabIndex={0}
+    />
+  );
+}
+
+function ModelOverviewTab({ analysis }: { analysis: ModelAnalysis }) {
+  return (
+    <div className="dataset-tab-panel">
+      <div className="stat-grid">
+        <div className="stat-tile">
+          <span>Graphs</span>
+          <strong>{formatCount(analysis.output_stats.graph_count)}</strong>
+          <small>{analysis.source_dataset.name}</small>
+        </div>
+        <div className="stat-tile">
+          <span>Features</span>
+          <strong>{formatCount(analysis.output_stats.feature_count)}</strong>
+          <small>{formatCount(analysis.feature_columns.length)} columns</small>
+        </div>
+        <div className="stat-tile">
+          <span>Iterations</span>
+          <strong>{formatCount(analysis.output_stats.sample_size)}</strong>
+          <small>test size {formatValue(analysis.test_size)}</small>
+        </div>
+        <div className="stat-tile">
+          <span>Task</span>
+          <strong>{taskLabel(analysis.task_type)}</strong>
+          <small>{analysis.expected_metrics.map(metricLabel).join(", ")}</small>
+        </div>
+        <div className="stat-tile">
+          <span>Algorithm</span>
+          <strong>{analysis.algorithm.name}</strong>
+          <small>{analysis.algorithm.id}</small>
+        </div>
+        <div className="stat-tile">
+          <span>Embeddings</span>
+          <strong>{formatCount(analysis.source_embeddings.length)}</strong>
+          <small>{analysis.source_embeddings.map((embedding) => embedding.name).join(", ")}</small>
+        </div>
+      </div>
+      <div className="dataset-detail-grid">
+        <section>
+          <h3>Metric Summary</h3>
+          <table className="tbl compact-tbl">
+            <thead>
+              <tr>
+                <th>Metric</th>
+                <th>Mean</th>
+                <th>Std</th>
+              </tr>
+            </thead>
+            <tbody>
+              {analysis.expected_metrics.map((metricName) => (
+                <tr key={metricName}>
+                  <td>{metricLabel(metricName)}</td>
+                  <td>{formatMetric(analysis.summary[`${metricName}_mean`])}</td>
+                  <td>{formatMetric(analysis.summary[`${metricName}_std`])}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </section>
+        <section>
+          <h3>Sources</h3>
+          <table className="tbl compact-tbl">
+            <thead>
+              <tr>
+                <th>Kind</th>
+                <th>Name</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>Dataset</td>
+                <td>{analysis.source_dataset.name}</td>
+                <td>{analysis.source_dataset.status}</td>
+              </tr>
+              {analysis.source_embeddings.map((embedding) => (
+                <tr key={embedding.id}>
+                  <td>Embedding</td>
+                  <td>{embedding.name}</td>
+                  <td>{embedding.status}</td>
+                </tr>
+              ))}
+              {analysis.source_features.map((feature) => (
+                <tr key={feature.id}>
+                  <td>Feature</td>
+                  <td>{feature.name}</td>
+                  <td>{feature.status}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </section>
+        <section>
+          <h3>Classes</h3>
+          {analysis.classes?.length ? <p>{analysis.classes.join(", ")}</p> : <p className="muted">No classes for this task.</p>}
+        </section>
+      </div>
+    </div>
+  );
+}
+
+function ModelMetricsTab({
+  analysis,
+  selectedIteration,
+  onSelectIteration
+}: {
+  analysis: ModelAnalysis;
+  selectedIteration: number | null;
+  onSelectIteration: (iteration: number | null) => void;
+}) {
+  if (analysis.metric_series.every((series) => series.points.length === 0)) {
+    return (
+      <div className="dataset-tab-panel">
+        <div className="artifact-table-empty">
+          <EmptyState compact>No metric rows are available.</EmptyState>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="dataset-tab-panel graph-tab-panel">
+      <div className="feature-pca-control-band">
+        <div className="feature-pca-status-group">
+          {analysis.expected_metrics.map((metricName) => (
+            <span className="status-pill is-ready" key={metricName}>
+              {metricLabel(metricName)} {formatMetric(analysis.summary[`${metricName}_mean`])} +/-{" "}
+              {formatMetric(analysis.summary[`${metricName}_std`])}
+            </span>
+          ))}
+        </div>
+        <div className="feature-pca-meta-group">
+          <span className="muted dataset-page-count">{formatCount(analysis.metrics.length)} iterations</span>
+          {selectedIteration == null ? (
+            <span className="muted dataset-page-count">No iteration selected</span>
+          ) : (
+            <span className="muted dataset-page-count">Iteration {selectedIteration} selected</span>
+          )}
+        </div>
+      </div>
+      <ModelMetricsChart analysis={analysis} selectedIteration={selectedIteration} onSelectIteration={onSelectIteration} />
+    </div>
+  );
+}
+
+function ModelDataTab({
+  analysis,
+  selectedIteration,
+  onSelectIteration
+}: {
+  analysis: ModelAnalysis;
+  selectedIteration: number | null;
+  onSelectIteration: (iteration: number | null) => void;
+}) {
+  return (
+    <div className="dataset-tab-panel">
+      <div className="artifact-table-scroll dataset-data-scroll">
+        <table className="tbl">
+          <thead>
+            <tr>
+              <th>Iteration</th>
+              {analysis.expected_metrics.map((metricName) => (
+                <th key={metricName}>{metricLabel(metricName)}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {analysis.metrics.map((row, rowIndex) => {
+              const iteration = Number(row.iteration ?? rowIndex);
+              return (
+                <tr
+                  key={rowIndex}
+                  className={selectedIteration === iteration ? "is-selected" : ""}
+                  onClick={() => onSelectIteration(iteration)}
+                >
+                  <td>{String(row.iteration ?? rowIndex)}</td>
+                  {analysis.expected_metrics.map((metricName) => (
+                    <td key={metricName}>{formatMetric(row[metricName])}</td>
+                  ))}
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+      <div className="dataset-detail-grid">
+        <section>
+          <h3>Feature Columns</h3>
+          {analysis.feature_columns.length ? (
+            <table className="tbl compact-tbl">
+              <thead>
+                <tr>
+                  <th>Column</th>
+                </tr>
+              </thead>
+              <tbody>
+                {analysis.feature_columns.map((column) => (
+                  <tr key={column}>
+                    <td>{column}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          ) : (
+            <p className="muted">No feature columns.</p>
+          )}
+        </section>
+        <section>
+          <h3>Classes</h3>
+          {analysis.classes?.length ? <p>{analysis.classes.join(", ")}</p> : <p className="muted">No classes for this task.</p>}
+        </section>
+      </div>
+    </div>
+  );
+}
+
+export function ModelExploreView({
+  activeProjectId,
+  models,
+  embeddings,
+  features,
+  datasets,
+  catalog,
+  loading,
+  selectedModelId,
+  exploreModelId,
+  selectedIteration,
+  onExploreModel,
+  onClearExploreModel,
+  onSelectIteration
+}: ModelExploreViewProps) {
+  const [tab, setTab] = useState<"overview" | "metrics" | "data">("overview");
+  const embeddingsById = useMemo(() => new Map(embeddings.map((embedding) => [embedding.id, embedding])), [embeddings]);
+  const featuresById = useMemo(() => new Map(features.map((feature) => [feature.id, feature])), [features]);
+  const datasetsById = useMemo(() => new Map(datasets.map((dataset) => [dataset.id, dataset])), [datasets]);
+  const catalogById = useMemo(() => new Map(catalog.map((entry) => [entry.id, entry])), [catalog]);
+  const model = useMemo(
+    () => models.find((item) => item.id === exploreModelId) || models.find((item) => item.id === selectedModelId),
+    [exploreModelId, models, selectedModelId]
+  );
+
+  useEffect(() => {
+    setTab("overview");
+    onSelectIteration(null);
+  }, [model?.id, onSelectIteration]);
+
+  const analysis = useQuery({
+    queryKey: ["projects", activeProjectId, "models", model?.id, "analysis"],
+    queryFn: () => api.modelAnalysis(activeProjectId, model!.id),
     enabled: Boolean(activeProjectId && model?.id && model.status === "completed")
   });
-  const metricNames = model?.expected_output.metrics || [];
 
-  if (!model) {
+  if (!activeProjectId) {
     return (
       <div className="workflow">
         <section className="artifact-table">
           <div className="artifact-table-empty">
-            <EmptyState compact>Select a model.</EmptyState>
+            <EmptyState compact>No active project.</EmptyState>
           </div>
         </section>
       </div>
     );
   }
 
-  return (
-    <div className="workflow">
-      <section className="artifact-table">
-        <header className="artifact-table-head">
-          <span className="artifact-table-title">
-            <FcIcon name="models" size={16} />
-            {model.name} Results
-          </span>
-          <span className="muted">{model.output_stats ? `${model.output_stats.sample_size} iterations` : model.status}</span>
-        </header>
-        {preview.error ? <p className="table-error">{preview.error.message}</p> : null}
-        {preview.isLoading || !preview.data ? (
-          <div className="artifact-table-empty">
-            <EmptyState compact>Loading model results.</EmptyState>
-          </div>
-        ) : (
-          <>
-            <div className="table-toolbar">
-              {metricNames.map((metricName) => (
-                <span className="status-pill is-ready" key={metricName}>
-                  {metricLabel(metricName)} {formatMetric(preview.data.summary[`${metricName}_mean`])} +/-{" "}
-                  {formatMetric(preview.data.summary[`${metricName}_std`])}
-                </span>
-              ))}
-              {model.output_stats ? <span className="muted">{model.output_stats.feature_count} features</span> : null}
-              {model.output_stats ? <span className="muted">{model.output_stats.graph_count} graphs</span> : null}
+  if (!model) {
+    return (
+      <div className="workflow">
+        <section className="artifact-table">
+          <header className="artifact-table-head">
+            <span className="artifact-table-title">
+              <FcIcon name="explore" size={16} />
+              Model Explore
+            </span>
+            <span className="muted">{loading ? "Loading" : `${models.length} models`}</span>
+          </header>
+          {loading ? (
+            <div className="artifact-table-empty">
+              <EmptyState compact>Loading models.</EmptyState>
             </div>
+          ) : models.length === 0 ? (
+            <div className="artifact-table-empty">
+              <EmptyState compact>No models.</EmptyState>
+            </div>
+          ) : (
             <div className="artifact-table-scroll">
               <table className="tbl">
                 <thead>
                   <tr>
-                    <th>Iteration</th>
-                    {metricNames.map((metricName) => (
-                      <th key={metricName}>{metricLabel(metricName)}</th>
-                    ))}
+                    <th>Name</th>
+                    <th>Dataset</th>
+                    <th>Algorithm</th>
+                    <th>Task</th>
+                    <th>Embeddings</th>
+                    <th>Status</th>
+                    <th className="actions-col">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {preview.data.metrics.map((row, rowIndex) => (
-                    <tr key={rowIndex}>
-                      <td>{String(row.iteration ?? rowIndex)}</td>
-                      {metricNames.map((metricName) => (
-                        <td key={metricName}>{formatMetric(row[metricName])}</td>
-                      ))}
-                    </tr>
-                  ))}
+                  {models.map((item) => {
+                    const sourceEmbeddingIds = modelEmbeddingIds(item);
+                    const sourceEmbeddings = sourceEmbeddingIds.map((embeddingId) => embeddingsById.get(embeddingId)).filter(Boolean) as EmbeddingManifest[];
+                    const datasetName = datasetsById.get(modelDatasetId(item, embeddings, features))?.name || "Unknown dataset";
+                    const embeddingNames = sourceEmbeddings.map((embedding) => embedding.name).join(", ") || `${sourceEmbeddingIds.length} embeddings`;
+                    const algorithm = algorithmLabel(catalogById.get(item.source_model_id), item.source_model_id);
+                    return (
+                      <tr key={item.id} onClick={() => onExploreModel(item.id)}>
+                        <td>
+                          <span className="table-name-with-icon">
+                            <BarChart3 />
+                            <strong>{item.name}</strong>
+                          </span>
+                        </td>
+                        <td>{datasetName}</td>
+                        <td>{algorithm}</td>
+                        <td>{taskLabel(String(item.operation.params.task_type))}</td>
+                        <td>{embeddingNames}</td>
+                        <td>
+                          <span className={`status-pill ${item.status === "completed" ? "is-ready" : "is-idle"}`}>{item.status}</span>
+                        </td>
+                        <td className="actions-cell actions-cell-wide">
+                          <button
+                            type="button"
+                            className="btn"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              onExploreModel(item.id);
+                            }}
+                          >
+                            <Eye />
+                            {item.status === "completed" ? "Explore" : "Run First"}
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
-            <div className="table-toolbar">
-              <span className="muted">{preview.data.feature_columns.length} feature columns</span>
-              {preview.data.classes?.length ? <span className="muted">Classes: {preview.data.classes.join(", ")}</span> : null}
+          )}
+        </section>
+      </div>
+    );
+  }
+
+  if (model.status !== "completed") {
+    return (
+      <div className="workflow">
+        <section className="artifact-table">
+          <header className="artifact-table-head">
+            <span className="artifact-table-title">
+              <FcIcon name="explore" size={16} />
+              {model.name} Explore
+            </span>
+            <div className="artifact-table-head-actions">
+              <span className="muted">{model.status}</span>
+              <button type="button" className="btn" onClick={onClearExploreModel}>
+                <ArrowLeft />
+                Choose Model
+              </button>
             </div>
-          </>
-        )}
+          </header>
+          <div className="artifact-table-empty">
+            <EmptyState compact>Run model training before exploring this model.</EmptyState>
+          </div>
+        </section>
+      </div>
+    );
+  }
+
+  const sourceFeatureNames = modelFeatureIds(model, embeddings)
+    .map((featureId) => featuresById.get(featureId)?.name)
+    .filter(Boolean)
+    .join(", ");
+
+  return (
+    <div className="workflow workflow-fill">
+      <section className="artifact-table dataset-explore model-explore">
+        <header className="artifact-table-head">
+          <span className="artifact-table-title">
+            <FcIcon name="explore" size={16} />
+            {model.name} Explore
+          </span>
+          <div className="artifact-table-head-actions">
+            <span className="muted">
+              {model.output_stats ? `${formatCount(model.output_stats.sample_size)} iterations` : model.status}
+              {sourceFeatureNames ? ` · ${sourceFeatureNames}` : ""}
+            </span>
+            <button type="button" className="btn" onClick={onClearExploreModel}>
+              <ArrowLeft />
+              Choose Model
+            </button>
+          </div>
+        </header>
+        <div className="tab-strip">
+          {(["overview", "metrics", "data"] as const).map((item) => (
+            <button
+              key={item}
+              type="button"
+              className={`tab-btn ${tab === item ? "is-active" : ""}`}
+              onClick={() => setTab(item)}
+            >
+              {item === "overview" ? "Overview" : item === "metrics" ? "Metrics" : "Data"}
+            </button>
+          ))}
+        </div>
+        {analysis.error ? <p className="table-error">{analysis.error.message}</p> : null}
+        {analysis.isLoading || !analysis.data ? (
+          <div className="artifact-table-empty">
+            <EmptyState compact>Loading analysis.</EmptyState>
+          </div>
+        ) : null}
+        {tab === "overview" && analysis.data ? <ModelOverviewTab analysis={analysis.data} /> : null}
+        {tab === "metrics" && analysis.data ? (
+          <ModelMetricsTab analysis={analysis.data} selectedIteration={selectedIteration} onSelectIteration={onSelectIteration} />
+        ) : null}
+        {tab === "data" && analysis.data ? (
+          <ModelDataTab analysis={analysis.data} selectedIteration={selectedIteration} onSelectIteration={onSelectIteration} />
+        ) : null}
       </section>
     </div>
   );

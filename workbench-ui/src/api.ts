@@ -199,6 +199,105 @@ export interface FeatureManifest {
   error?: ArtifactError | null;
 }
 
+export interface FeatureColumnSummary {
+  column: string;
+  min?: number | null;
+  max?: number | null;
+  mean?: number | null;
+  std?: number | null;
+  null_count: number;
+}
+
+export interface FeatureCoverage {
+  covered: number;
+  total: number;
+}
+
+export interface FeatureAnalysisDataset {
+  id: string;
+  name: string;
+  status: "planned" | "running" | "completed" | "failed";
+  prepared_stats?: DatasetStats | null;
+}
+
+export interface FeatureAnalysisMethod {
+  id: string;
+  name: string;
+}
+
+export interface FeaturePcaPoint {
+  graph_id: string;
+  x: number;
+  y: number;
+  graph_label?: unknown;
+  color_value: string;
+  node_count: number;
+}
+
+export interface FeaturePcaPayload {
+  available: boolean;
+  reason?: string | null;
+  plot_level: "graph";
+  aggregation_method: "mean";
+  projection_method: "pca" | "raw";
+  x_axis_label: string;
+  y_axis_label: string;
+  color_by: "graph_label" | "graph_id";
+  numeric_columns: string[];
+  source_row_count: number;
+  total_graphs: number;
+  total_rows: number;
+  fit_row_count: number;
+  point_count: number;
+  max_fit_rows: number;
+  max_points: number;
+  fit_sampled: boolean;
+  points_sampled: boolean;
+  sampled: boolean;
+  sample_reason?: string | null;
+  explained_variance_ratio: number[];
+  points: FeaturePcaPoint[];
+}
+
+export interface FeatureAnalysis {
+  feature_id: string;
+  feature_name: string;
+  feature_status: "completed";
+  source_dataset: FeatureAnalysisDataset;
+  method: FeatureAnalysisMethod;
+  output_stats: { row_count: number; column_count: number };
+  feature_columns: string[];
+  numeric_feature_columns: string[];
+  column_summaries: FeatureColumnSummary[];
+  graph_coverage: FeatureCoverage;
+  node_coverage: FeatureCoverage;
+  graph_label_distribution: Record<string, number>;
+  pca: FeaturePcaPayload;
+}
+
+export interface FeatureGraphSearchResult {
+  kind: "graph";
+  graph_id: string;
+  graph_label?: unknown;
+  in_pca_sample: boolean;
+  node_count: number;
+}
+
+export interface FeatureGraphSearchResponse {
+  query: string;
+  limit: number;
+  total_matches: number;
+  results: FeatureGraphSearchResult[];
+}
+
+export interface FeatureGraphDetail {
+  graph_id: string;
+  graph_label?: unknown;
+  node_count: number;
+  aggregation_method: "mean";
+  feature_values: Record<string, unknown>;
+}
+
 export interface EmbeddingExpectedOutput {
   artifact_kind: "embedding";
   storage_format: "neext-embedding-parquet-v1";
@@ -212,6 +311,86 @@ export interface EmbeddingOutputFiles {
 export interface EmbeddingOutputStats {
   row_count: number;
   column_count: number;
+}
+
+export interface EmbeddingAnalysisFeature {
+  id: string;
+  name: string;
+  status: "planned" | "running" | "completed" | "failed";
+  method: FeatureAnalysisMethod;
+}
+
+export interface EmbeddingAnalysisAlgorithm {
+  id: string;
+  name: string;
+}
+
+export interface EmbeddingPcaPoint {
+  graph_id: string;
+  x: number;
+  y: number;
+  graph_label?: unknown;
+  color_value: string;
+}
+
+export interface EmbeddingPcaPayload {
+  available: boolean;
+  reason?: string | null;
+  plot_level: "graph";
+  projection_method: "pca" | "raw";
+  x_axis_label: string;
+  y_axis_label: string;
+  color_by: "graph_label" | "graph_id";
+  numeric_columns: string[];
+  source_row_count: number;
+  total_graphs: number;
+  total_rows: number;
+  fit_row_count: number;
+  point_count: number;
+  max_fit_rows: number;
+  max_points: number;
+  fit_sampled: boolean;
+  points_sampled: boolean;
+  sampled: boolean;
+  sample_reason?: string | null;
+  explained_variance_ratio: number[];
+  points: EmbeddingPcaPoint[];
+}
+
+export interface EmbeddingAnalysis {
+  embedding_id: string;
+  embedding_name: string;
+  embedding_status: "completed";
+  source_dataset: FeatureAnalysisDataset;
+  source_features: EmbeddingAnalysisFeature[];
+  algorithm: EmbeddingAnalysisAlgorithm;
+  output_stats: EmbeddingOutputStats;
+  embedding_columns: string[];
+  numeric_embedding_columns: string[];
+  column_summaries: FeatureColumnSummary[];
+  graph_label_distribution: Record<string, number>;
+  pca: EmbeddingPcaPayload;
+}
+
+export interface EmbeddingGraphSearchResult {
+  kind: "graph";
+  graph_id: string;
+  graph_label?: unknown;
+  in_pca_sample: boolean;
+}
+
+export interface EmbeddingGraphSearchResponse {
+  query: string;
+  limit: number;
+  total_matches: number;
+  results: EmbeddingGraphSearchResult[];
+}
+
+export interface EmbeddingGraphDetail {
+  graph_id: string;
+  graph_label?: unknown;
+  in_pca_sample: boolean;
+  embedding_values: Record<string, unknown>;
 }
 
 export interface EmbeddingManifest {
@@ -250,6 +429,28 @@ export interface ModelOutputStats {
   sample_size: number;
   feature_count: number;
   graph_count: number;
+}
+
+export interface ModelAnalysisAlgorithm {
+  id: string;
+  name: string;
+}
+
+export interface ModelAnalysisEmbedding {
+  id: string;
+  name: string;
+  status: "planned" | "running" | "completed" | "failed";
+  algorithm: ModelAnalysisAlgorithm;
+}
+
+export interface ModelMetricPoint {
+  iteration: number;
+  value?: number | null;
+}
+
+export interface ModelMetricSeries {
+  metric: string;
+  points: ModelMetricPoint[];
 }
 
 export interface ModelManifest {
@@ -383,6 +584,27 @@ export interface ModelPreview {
   classes?: string[] | null;
 }
 
+export interface ModelAnalysis {
+  model_id: string;
+  model_name: string;
+  model_status: "completed";
+  source_dataset: FeatureAnalysisDataset;
+  source_embeddings: ModelAnalysisEmbedding[];
+  source_features: EmbeddingAnalysisFeature[];
+  algorithm: ModelAnalysisAlgorithm;
+  task_type: "classifier" | "regressor";
+  expected_metrics: string[];
+  output_stats: ModelOutputStats;
+  sample_size: number;
+  test_size: number;
+  random_state?: number | null;
+  classes?: string[] | null;
+  feature_columns: string[];
+  summary: Record<string, number | string | string[] | null>;
+  metrics: Record<string, unknown>[];
+  metric_series: ModelMetricSeries[];
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, init);
   if (!response.ok) {
@@ -464,6 +686,24 @@ export const api = {
     }),
   featurePreview: (projectId: string, featureId: string, limit = 20, offset = 0) =>
     request<TabularPreview>(`/api/projects/${projectId}/features/${featureId}/preview?limit=${limit}&offset=${offset}`),
+  featureAnalysis: (projectId: string, featureId: string, params: { max_fit_rows?: number; max_points?: number } = {}) => {
+    const search = new URLSearchParams();
+    if (params.max_fit_rows != null) search.set("max_fit_rows", String(params.max_fit_rows));
+    if (params.max_points != null) search.set("max_points", String(params.max_points));
+    const suffix = search.toString() ? `?${search.toString()}` : "";
+    return request<FeatureAnalysis>(`/api/projects/${projectId}/features/${featureId}/analysis${suffix}`);
+  },
+  featureGraphSearch: (projectId: string, featureId: string, query: string, limit = 25) => {
+    const search = new URLSearchParams();
+    search.set("query", query);
+    search.set("limit", String(limit));
+    return request<FeatureGraphSearchResponse>(`/api/projects/${projectId}/features/${featureId}/analysis/search?${search.toString()}`);
+  },
+  featureGraphDetail: (projectId: string, featureId: string, graphId: string) => {
+    const search = new URLSearchParams();
+    search.set("graph_id", graphId);
+    return request<FeatureGraphDetail>(`/api/projects/${projectId}/features/${featureId}/analysis/graph?${search.toString()}`);
+  },
   createEmbedding: (projectId: string, payload: EmbeddingCreatePayload) =>
     request<EmbeddingManifest>(`/api/projects/${projectId}/embeddings`, {
       method: "POST",
@@ -480,6 +720,24 @@ export const api = {
     }),
   embeddingPreview: (projectId: string, embeddingId: string, limit = 20, offset = 0) =>
     request<TabularPreview>(`/api/projects/${projectId}/embeddings/${embeddingId}/preview?limit=${limit}&offset=${offset}`),
+  embeddingAnalysis: (projectId: string, embeddingId: string, params: { max_fit_rows?: number; max_points?: number } = {}) => {
+    const search = new URLSearchParams();
+    if (params.max_fit_rows != null) search.set("max_fit_rows", String(params.max_fit_rows));
+    if (params.max_points != null) search.set("max_points", String(params.max_points));
+    const suffix = search.toString() ? `?${search.toString()}` : "";
+    return request<EmbeddingAnalysis>(`/api/projects/${projectId}/embeddings/${embeddingId}/analysis${suffix}`);
+  },
+  embeddingGraphSearch: (projectId: string, embeddingId: string, query: string, limit = 25) => {
+    const search = new URLSearchParams();
+    search.set("query", query);
+    search.set("limit", String(limit));
+    return request<EmbeddingGraphSearchResponse>(`/api/projects/${projectId}/embeddings/${embeddingId}/analysis/search?${search.toString()}`);
+  },
+  embeddingGraphDetail: (projectId: string, embeddingId: string, graphId: string) => {
+    const search = new URLSearchParams();
+    search.set("graph_id", graphId);
+    return request<EmbeddingGraphDetail>(`/api/projects/${projectId}/embeddings/${embeddingId}/analysis/graph?${search.toString()}`);
+  },
   createModel: (projectId: string, payload: ModelCreatePayload) =>
     request<ModelManifest>(`/api/projects/${projectId}/models`, {
       method: "POST",
@@ -496,6 +754,8 @@ export const api = {
     }),
   modelPreview: (projectId: string, modelId: string) =>
     request<ModelPreview>(`/api/projects/${projectId}/models/${modelId}/preview`),
+  modelAnalysis: (projectId: string, modelId: string) =>
+    request<ModelAnalysis>(`/api/projects/${projectId}/models/${modelId}/analysis`),
   createProject: (payload: { name: string; description: string }) =>
     request<ProjectManifest>("/api/projects", {
       method: "POST",

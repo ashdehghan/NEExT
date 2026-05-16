@@ -66,6 +66,10 @@ const GROUPS: Record<MainTab, GroupDef[]> = {
         STRUCTURAL_TOOLS.create,
         { label: "Features", icon: "features", command: "features" }
       ]
+    },
+    {
+      label: "Feature Analysis",
+      tools: [{ label: "Explore", icon: "explore", command: "explore" }]
     }
   ],
   embeddings: [
@@ -77,6 +81,10 @@ const GROUPS: Record<MainTab, GroupDef[]> = {
         STRUCTURAL_TOOLS.create,
         { label: "Embeddings", icon: "embeddings", command: "embeddings" }
       ]
+    },
+    {
+      label: "Embedding Analysis",
+      tools: [{ label: "Explore", icon: "explore", command: "explore" }]
     }
   ],
   models: [
@@ -88,6 +96,10 @@ const GROUPS: Record<MainTab, GroupDef[]> = {
         STRUCTURAL_TOOLS.create,
         { label: "Models", icon: "models", command: "models" }
       ]
+    },
+    {
+      label: "Model Analysis",
+      tools: [{ label: "Explore", icon: "explore", command: "explore" }]
     }
   ]
 };

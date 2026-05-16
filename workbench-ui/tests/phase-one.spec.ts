@@ -126,6 +126,327 @@ print(json.dumps({"project_id": project.id, "dataset_id": dataset_id, "feature_i
   };
 }
 
+function seedTinyFeatureExploreProject(name: string) {
+  const repoRoot = path.resolve(process.cwd(), "..");
+  const workspacePath = path.join(repoRoot, "sandbox", "workbench-e2e");
+  const script = String.raw`
+import json
+import sys
+from pathlib import Path
+
+import pandas as pd
+
+from NEExT.workbench.schemas import (
+    DatasetDataFiles,
+    DatasetManifest,
+    DatasetMappingFiles,
+    DatasetStats,
+    FeatureCreateParams,
+    FeatureCreateRequest,
+    FeatureOutputFiles,
+    FeatureOutputStats,
+    OperationSpec,
+    ProjectCreate,
+)
+from NEExT.workbench.storage import WorkbenchStore, utc_now
+
+workspace_path = Path(sys.argv[1])
+project_name = sys.argv[2]
+store = WorkbenchStore(workspace_path)
+project = store.create_project(ProjectCreate(name=project_name, description="feature explore project"))
+
+dataset_id = store._new_dataset_id(project.id)
+dataset_path = store.dataset_path(project.id, dataset_id)
+(dataset_path / "prepared").mkdir(parents=True, exist_ok=False)
+(dataset_path / "mappings").mkdir(parents=True, exist_ok=False)
+
+nodes = pd.DataFrame(
+    [
+        {"graph_id": "g1", "node_id": 0},
+        {"graph_id": "g1", "node_id": 1},
+        {"graph_id": "g1", "node_id": 2},
+        {"graph_id": "g2", "node_id": 0},
+        {"graph_id": "g2", "node_id": 1},
+        {"graph_id": "g2", "node_id": 2},
+    ]
+)
+edges = pd.DataFrame(
+    [
+        {"graph_id": "g1", "src_node_id": 0, "dest_node_id": 1},
+        {"graph_id": "g1", "src_node_id": 1, "dest_node_id": 2},
+        {"graph_id": "g2", "src_node_id": 0, "dest_node_id": 1},
+        {"graph_id": "g2", "src_node_id": 1, "dest_node_id": 2},
+    ]
+)
+graph_labels = pd.DataFrame([{"graph_id": "g1", "graph_label": 0}, {"graph_id": "g2", "graph_label": 1}])
+mapping = pd.DataFrame(
+    [
+        {
+            "source_graph_id": row["graph_id"],
+            "source_node_id": f"{row['graph_id']}-source-{row['node_id']}",
+            "internal_graph_id": row["graph_id"],
+            "internal_node_id": row["node_id"],
+            "included": True,
+            "drop_reason": None,
+        }
+        for row in nodes.to_dict(orient="records")
+    ]
+)
+nodes.to_parquet(dataset_path / "prepared" / "nodes.parquet", index=False)
+edges.to_parquet(dataset_path / "prepared" / "edges.parquet", index=False)
+graph_labels.to_parquet(dataset_path / "prepared" / "graph_labels.parquet", index=False)
+mapping.to_parquet(dataset_path / "mappings" / "node_mapping.parquet", index=False)
+pd.DataFrame([{"source_graph_id": "g1", "internal_graph_id": "g1"}, {"source_graph_id": "g2", "internal_graph_id": "g2"}]).to_parquet(
+    dataset_path / "mappings" / "graph_mapping.parquet",
+    index=False,
+)
+
+now = utc_now()
+stats = DatasetStats(
+    graph_count=2,
+    node_count=6,
+    edge_count=4,
+    has_graph_labels=True,
+    has_node_features=False,
+    has_edge_features=False,
+)
+prepared_files = DatasetDataFiles(
+    nodes="prepared/nodes.parquet",
+    edges="prepared/edges.parquet",
+    graph_labels="prepared/graph_labels.parquet",
+)
+mapping_files = DatasetMappingFiles(node_mapping="mappings/node_mapping.parquet", graph_mapping="mappings/graph_mapping.parquet")
+dataset = DatasetManifest(
+    id=dataset_id,
+    project_id=project.id,
+    name="Tiny Feature Explore",
+    description="tiny feature explore graph collection",
+    status="completed",
+    created_at=now,
+    updated_at=now,
+    source_catalog_id="TINY_FEATURE_EXPLORE",
+    source_name="Tiny Feature Explore",
+    source="E2E fixture",
+    source_domain="Tests",
+    operation=OperationSpec(
+        operation_id="neext.prepare_graph_collection",
+        operation_version="1",
+        params={"graph_type": "networkx", "reindex_nodes": True, "filter_largest_component": False},
+    ),
+    source_stats=stats,
+    prepared_stats=stats,
+    prepared_data_files=prepared_files,
+    mapping_files=mapping_files,
+    data_files=prepared_files,
+    stats=stats,
+)
+store._write_json(dataset_path / "artifact.json", dataset.model_dump())
+
+params = FeatureCreateParams(feature_vector_length=2, normalize_features=False, n_jobs=1, parallel_backend="threading")
+feature = store.create_feature(project.id, FeatureCreateRequest(source_dataset_id=dataset_id, source_feature_id="page_rank", params=params))
+feature_path = store.feature_path(project.id, feature.id)
+(feature_path / "output").mkdir(parents=True, exist_ok=False)
+features = pd.DataFrame(
+    [
+        {"node_id": 0, "graph_id": "g1", "page_rank_0": -1.0, "page_rank_1": 0.0},
+        {"node_id": 1, "graph_id": "g1", "page_rank_0": 0.0, "page_rank_1": 0.0},
+        {"node_id": 2, "graph_id": "g1", "page_rank_0": 1.0, "page_rank_1": 0.0},
+        {"node_id": 0, "graph_id": "g2", "page_rank_0": 0.0, "page_rank_1": -1.0},
+        {"node_id": 1, "graph_id": "g2", "page_rank_0": 0.0, "page_rank_1": 0.0},
+        {"node_id": 2, "graph_id": "g2", "page_rank_0": 0.0, "page_rank_1": 1.0},
+    ]
+)
+features.to_parquet(feature_path / "output" / "features.parquet", index=False)
+feature.status = "completed"
+feature.output_files = FeatureOutputFiles(features="output/features.parquet")
+feature.output_stats = FeatureOutputStats(row_count=6, column_count=4)
+feature.updated_at = utc_now()
+store._write_json(feature_path / "artifact.json", feature.model_dump())
+
+one_column = store.create_feature(project.id, FeatureCreateRequest(source_dataset_id=dataset_id, source_feature_id="page_rank", params=params))
+one_column_path = store.feature_path(project.id, one_column.id)
+(one_column_path / "output").mkdir(parents=True, exist_ok=False)
+one_column_features = pd.DataFrame(
+    [
+        {"node_id": 0, "graph_id": "g1", "single_0": -1.0},
+        {"node_id": 1, "graph_id": "g1", "single_0": 0.0},
+        {"node_id": 2, "graph_id": "g1", "single_0": 1.0},
+        {"node_id": 0, "graph_id": "g2", "single_0": -2.0},
+        {"node_id": 1, "graph_id": "g2", "single_0": 0.0},
+        {"node_id": 2, "graph_id": "g2", "single_0": 2.0},
+    ]
+)
+one_column_features.to_parquet(one_column_path / "output" / "features.parquet", index=False)
+one_column.name = "Tiny Feature Explore - One Column"
+one_column.status = "completed"
+one_column.output_files = FeatureOutputFiles(features="output/features.parquet")
+one_column.output_stats = FeatureOutputStats(row_count=6, column_count=3)
+one_column.updated_at = utc_now()
+store._write_json(one_column_path / "artifact.json", one_column.model_dump())
+
+print(json.dumps({"project_id": project.id, "dataset_id": dataset_id, "feature_ids": [feature.id, one_column.id]}))
+`;
+  return JSON.parse(execFileSync("python", ["-c", script, workspacePath, name], { cwd: repoRoot, encoding: "utf-8" })) as {
+    project_id: string;
+    dataset_id: string;
+    feature_ids: string[];
+  };
+}
+
+function seedTinyEmbeddingExploreProject(name: string) {
+  const repoRoot = path.resolve(process.cwd(), "..");
+  const workspacePath = path.join(repoRoot, "sandbox", "workbench-e2e");
+  const script = String.raw`
+import json
+import sys
+from pathlib import Path
+
+import pandas as pd
+
+from NEExT.workbench.schemas import (
+    DatasetDataFiles,
+    DatasetManifest,
+    DatasetStats,
+    EmbeddingCreateParams,
+    EmbeddingCreateRequest,
+    EmbeddingOutputFiles,
+    EmbeddingOutputStats,
+    FeatureCreateParams,
+    FeatureCreateRequest,
+    FeatureOutputFiles,
+    FeatureOutputStats,
+    OperationSpec,
+    ProjectCreate,
+)
+from NEExT.workbench.storage import WorkbenchStore, utc_now
+
+workspace_path = Path(sys.argv[1])
+project_name = sys.argv[2]
+store = WorkbenchStore(workspace_path)
+project = store.create_project(ProjectCreate(name=project_name, description="embedding explore project"))
+
+dataset_id = store._new_dataset_id(project.id)
+dataset_path = store.dataset_path(project.id, dataset_id)
+(dataset_path / "prepared").mkdir(parents=True, exist_ok=False)
+
+nodes = pd.DataFrame(
+    [
+        {"graph_id": "g1", "node_id": 0},
+        {"graph_id": "g1", "node_id": 1},
+        {"graph_id": "g2", "node_id": 0},
+        {"graph_id": "g2", "node_id": 1},
+    ]
+)
+edges = pd.DataFrame(
+    [
+        {"graph_id": "g1", "src_node_id": 0, "dest_node_id": 1},
+        {"graph_id": "g2", "src_node_id": 0, "dest_node_id": 1},
+    ]
+)
+graph_labels = pd.DataFrame([{"graph_id": "g1", "graph_label": 0}, {"graph_id": "g2", "graph_label": 1}])
+nodes.to_parquet(dataset_path / "prepared" / "nodes.parquet", index=False)
+edges.to_parquet(dataset_path / "prepared" / "edges.parquet", index=False)
+graph_labels.to_parquet(dataset_path / "prepared" / "graph_labels.parquet", index=False)
+
+now = utc_now()
+stats = DatasetStats(
+    graph_count=2,
+    node_count=4,
+    edge_count=2,
+    has_graph_labels=True,
+    has_node_features=False,
+    has_edge_features=False,
+)
+prepared_files = DatasetDataFiles(
+    nodes="prepared/nodes.parquet",
+    edges="prepared/edges.parquet",
+    graph_labels="prepared/graph_labels.parquet",
+)
+dataset = DatasetManifest(
+    id=dataset_id,
+    project_id=project.id,
+    name="Tiny Embedding Explore",
+    description="tiny embedding explore graph collection",
+    status="completed",
+    created_at=now,
+    updated_at=now,
+    source_catalog_id="TINY_EMBEDDING_EXPLORE",
+    source_name="Tiny Embedding Explore",
+    source="E2E fixture",
+    source_domain="Tests",
+    operation=OperationSpec(
+        operation_id="neext.prepare_graph_collection",
+        operation_version="1",
+        params={"graph_type": "networkx", "reindex_nodes": True, "filter_largest_component": False},
+    ),
+    source_stats=stats,
+    prepared_stats=stats,
+    prepared_data_files=prepared_files,
+    data_files=prepared_files,
+    stats=stats,
+)
+store._write_json(dataset_path / "artifact.json", dataset.model_dump())
+
+feature_params = FeatureCreateParams(feature_vector_length=2, normalize_features=False, n_jobs=1, parallel_backend="threading")
+feature = store.create_feature(project.id, FeatureCreateRequest(source_dataset_id=dataset_id, source_feature_id="page_rank", params=feature_params))
+feature_path = store.feature_path(project.id, feature.id)
+(feature_path / "output").mkdir(parents=True, exist_ok=False)
+features = pd.DataFrame(
+    [
+        {"node_id": 0, "graph_id": "g1", "page_rank_0": 0.1, "page_rank_1": 0.2},
+        {"node_id": 1, "graph_id": "g1", "page_rank_0": 0.2, "page_rank_1": 0.3},
+        {"node_id": 0, "graph_id": "g2", "page_rank_0": 0.3, "page_rank_1": 0.4},
+        {"node_id": 1, "graph_id": "g2", "page_rank_0": 0.4, "page_rank_1": 0.5},
+    ]
+)
+features.to_parquet(feature_path / "output" / "features.parquet", index=False)
+feature.status = "completed"
+feature.output_files = FeatureOutputFiles(features="output/features.parquet")
+feature.output_stats = FeatureOutputStats(row_count=4, column_count=4)
+feature.updated_at = utc_now()
+store._write_json(feature_path / "artifact.json", feature.model_dump())
+
+def complete_embedding(label, dimension, rows):
+    embedding = store.create_embedding(
+        project.id,
+        EmbeddingCreateRequest(
+            source_embedding_id="approx_wasserstein",
+            source_feature_ids=[feature.id],
+            params=EmbeddingCreateParams(embedding_dimension=dimension),
+        ),
+    )
+    embedding_path = store.embedding_path(project.id, embedding.id)
+    (embedding_path / "output").mkdir(parents=True, exist_ok=False)
+    output = pd.DataFrame(rows)
+    output.to_parquet(embedding_path / "output" / "embeddings.parquet", index=False)
+    embedding.name = f"Tiny Embedding Explore - {label}"
+    embedding.status = "completed"
+    embedding.output_files = EmbeddingOutputFiles(embeddings="output/embeddings.parquet")
+    embedding.output_stats = EmbeddingOutputStats(row_count=len(output), column_count=len(output.columns))
+    embedding.updated_at = utc_now()
+    store._write_json(embedding_path / "artifact.json", embedding.model_dump())
+    return embedding.id
+
+two_dim_id = complete_embedding(
+    "Two Dimensions",
+    2,
+    [{"graph_id": "g1", "emb_0": 1.0, "emb_1": 2.0}, {"graph_id": "g2", "emb_0": 3.0, "emb_1": 4.0}],
+)
+one_dim_id = complete_embedding(
+    "One Dimension",
+    1,
+    [{"graph_id": "g1", "emb_0": 1.0}, {"graph_id": "g2", "emb_0": 2.0}],
+)
+
+print(json.dumps({"project_id": project.id, "dataset_id": dataset_id, "embedding_ids": [two_dim_id, one_dim_id]}))
+`;
+  return JSON.parse(execFileSync("python", ["-c", script, workspacePath, name], { cwd: repoRoot, encoding: "utf-8" })) as {
+    project_id: string;
+    dataset_id: string;
+    embedding_ids: string[];
+  };
+}
+
 function seedTinyModelProject(name: string) {
   const repoRoot = path.resolve(process.cwd(), "..");
   const workspacePath = path.join(repoRoot, "sandbox", "workbench-e2e");
@@ -431,6 +752,181 @@ test("Dataset Explore graph search and navigation update Inspector", async ({ pa
   await expect(inspector).toContainText("Visible In Visual");
 });
 
+test("Feature Explore shows statistics, PCA, data, and node inspector details", async ({ page }) => {
+  const projectName = `Feature Explore Project ${Date.now()}`;
+  seedTinyFeatureExploreProject(projectName);
+
+  await page.goto("/");
+  await expect(page.locator(".selection-panel .sel-item-name", { hasText: projectName })).toBeVisible();
+  await page.getByRole("button", { name: "FEATURES" }).click();
+
+  const ribbon = page.locator(".ribbon");
+  const featureAnalysisGroup = ribbon.locator(".tool-group", { hasText: "Feature Analysis" });
+  await expect(featureAnalysisGroup.getByRole("button", { name: "Explore" })).toBeVisible();
+
+  await featureAnalysisGroup.getByRole("button", { name: "Explore" }).click();
+  await expect(page.locator(".artifact-table-title")).toContainText("Feature Explore");
+  await expect(page.locator("table tbody tr", { hasText: "Tiny Feature Explore - PageRank" })).toBeVisible();
+
+  await ribbon.getByRole("button", { name: "Features" }).click();
+  const featureRow = page.locator("table tbody tr", { hasText: "Tiny Feature Explore - PageRank" }).first();
+  await expect(featureRow).toBeVisible();
+  await featureRow.getByRole("button", { name: "Preview" }).click();
+
+  const exploreView = page.locator(".feature-explore");
+  const inspector = page.locator(".inspector-panel");
+  await expect(page.locator(".artifact-table-title")).toContainText("Tiny Feature Explore - PageRank Explore");
+  await expect(ribbon.getByRole("button", { name: "Explore" })).toHaveClass(/is-active/);
+  await expect(exploreView.getByRole("button", { name: "Choose Feature" })).toBeVisible();
+  await expect(exploreView.getByRole("button", { name: "Statistics", exact: true })).toHaveClass(/is-active/);
+  await expect(exploreView.getByRole("button", { name: "PCA", exact: true })).toBeVisible();
+  await expect(exploreView.getByRole("button", { name: "Data", exact: true })).toBeVisible();
+  await expect(exploreView).toContainText("Rows");
+  await expect(exploreView).toContainText("Graph Labels");
+
+  await exploreView.getByRole("button", { name: "PCA", exact: true }).click();
+  await expect(exploreView.locator(".feature-pca-control-band")).toBeVisible();
+  await expect(exploreView.locator(".feature-pca-control-band")).toContainText("Direct 2D");
+  const chart = exploreView.locator(".feature-pca-chart");
+  await expect(chart).toBeVisible();
+  await expect(chart.locator("canvas")).toBeVisible();
+  const pointPosition = await chart.evaluate((element) => {
+    const chartElement = element as HTMLDivElement & {
+      __featurePcaChart?: {
+        getOption: () => {
+          xAxis?: { name?: string }[];
+          yAxis?: { name?: string }[];
+          series?: { data?: { graph_id: string; value: [number, number] }[] }[];
+        };
+        convertToPixel: (finder: { seriesIndex: number }, value: [number, number]) => [number, number];
+      };
+    };
+    const chartInstance = chartElement.__featurePcaChart;
+    if (!chartInstance) throw new Error("Feature PCA chart instance is not attached.");
+    const option = chartInstance.getOption();
+    if (option.xAxis?.[0]?.name !== "page_rank_0") throw new Error("Raw 2D x-axis label was not applied.");
+    if (option.yAxis?.[0]?.name !== "page_rank_1") throw new Error("Raw 2D y-axis label was not applied.");
+    const datum = option.series?.[0]?.data?.find((point) => point.graph_id === "g1") || option.series?.[0]?.data?.[0];
+    if (!datum) throw new Error("Feature PCA chart has no plotted points.");
+    const [x, y] = chartInstance.convertToPixel({ seriesIndex: 0 }, datum.value);
+    return { x, y };
+  });
+  await chart.click({ position: pointPosition });
+  await expect(inspector).toContainText("Feature Graph Details");
+  await expect(inspector).toContainText("Plotted In Chart");
+  await expect(inspector).toContainText("Node Count");
+  await expect(inspector).toContainText("page_rank_0");
+
+  await exploreView.getByLabel("Search feature graph IDs and labels").fill("g1");
+  const graphResult = exploreView.locator(".graph-search-result", { hasText: "g1" }).first();
+  await expect(graphResult).toBeVisible();
+  await graphResult.click();
+  await expect(inspector).toContainText("Feature Graph Details");
+  await expect(inspector).toContainText("Graph ID");
+  await expect(inspector).toContainText("g1");
+  await expect(inspector).toContainText("Aggregation");
+  await expect(inspector).toContainText("Mean");
+
+  await exploreView.getByRole("button", { name: "Data", exact: true }).click();
+  await expect(page.locator(".artifact-table .tbl thead")).toContainText("page_rank_0");
+  await expect(page.locator(".artifact-table .tbl tbody tr")).toHaveCount(6);
+
+  await exploreView.getByRole("button", { name: "Choose Feature" }).click();
+  await expect(page.locator(".artifact-table-title")).toContainText("Feature Explore");
+  await expect(page.locator("table tbody tr", { hasText: "Tiny Feature Explore - One Column" })).toBeVisible();
+  await page.locator("table tbody tr", { hasText: "Tiny Feature Explore - One Column" }).getByRole("button", { name: "Explore" }).click();
+  await expect(page.locator(".artifact-table-title")).toContainText("Tiny Feature Explore - One Column Explore");
+  await expect(exploreView.getByRole("button", { name: "PCA", exact: true })).toBeDisabled();
+  await expect(exploreView).toContainText("Feature Columns");
+});
+
+test("Embedding Explore shows statistics, PCA, data, and graph inspector details", async ({ page }) => {
+  const projectName = `Embedding Explore Project ${Date.now()}`;
+  seedTinyEmbeddingExploreProject(projectName);
+
+  await page.goto("/");
+  await expect(page.locator(".selection-panel .sel-item-name", { hasText: projectName })).toBeVisible();
+  await page.getByRole("button", { name: "EMBEDDINGS" }).click();
+
+  const ribbon = page.locator(".ribbon");
+  const embeddingAnalysisGroup = ribbon.locator(".tool-group", { hasText: "Embedding Analysis" });
+  await expect(embeddingAnalysisGroup.getByRole("button", { name: "Explore" })).toBeVisible();
+
+  await embeddingAnalysisGroup.getByRole("button", { name: "Explore" }).click();
+  await expect(page.locator(".artifact-table-title")).toContainText("Embedding Explore");
+  await expect(page.locator("table tbody tr", { hasText: "Tiny Embedding Explore - Two Dimensions" })).toBeVisible();
+
+  await ribbon.getByRole("button", { name: "Embeddings" }).click();
+  const embeddingRow = page.locator("table tbody tr", { hasText: "Tiny Embedding Explore - Two Dimensions" }).first();
+  await expect(embeddingRow).toBeVisible();
+  await embeddingRow.getByRole("button", { name: "Preview" }).click();
+
+  const exploreView = page.locator(".embedding-explore");
+  const inspector = page.locator(".inspector-panel");
+  await expect(page.locator(".artifact-table-title")).toContainText("Tiny Embedding Explore - Two Dimensions Explore");
+  await expect(ribbon.getByRole("button", { name: "Explore" })).toHaveClass(/is-active/);
+  await expect(exploreView.getByRole("button", { name: "Choose Embedding" })).toBeVisible();
+  await expect(exploreView.getByRole("button", { name: "Statistics", exact: true })).toHaveClass(/is-active/);
+  await expect(exploreView.getByRole("button", { name: "PCA", exact: true })).toBeVisible();
+  await expect(exploreView.getByRole("button", { name: "Data", exact: true })).toBeVisible();
+  await expect(exploreView).toContainText("Graphs");
+  await expect(exploreView).toContainText("Graph Labels");
+
+  await exploreView.getByRole("button", { name: "PCA", exact: true }).click();
+  await expect(exploreView.locator(".feature-pca-control-band")).toBeVisible();
+  await expect(exploreView.locator(".feature-pca-control-band")).toContainText("Direct 2D");
+  const chart = exploreView.locator(".embedding-pca-chart");
+  await expect(chart).toBeVisible();
+  await expect(chart.locator("canvas")).toBeVisible();
+  const pointPosition = await chart.evaluate((element) => {
+    const chartElement = element as HTMLDivElement & {
+      __embeddingPcaChart?: {
+        getOption: () => {
+          xAxis?: { name?: string }[];
+          yAxis?: { name?: string }[];
+          series?: { data?: { graph_id: string; value: [number, number] }[] }[];
+        };
+        convertToPixel: (finder: { seriesIndex: number }, value: [number, number]) => [number, number];
+      };
+    };
+    const chartInstance = chartElement.__embeddingPcaChart;
+    if (!chartInstance) throw new Error("Embedding PCA chart instance is not attached.");
+    const option = chartInstance.getOption();
+    if (option.xAxis?.[0]?.name !== "emb_0") throw new Error("Raw 2D x-axis label was not applied.");
+    if (option.yAxis?.[0]?.name !== "emb_1") throw new Error("Raw 2D y-axis label was not applied.");
+    const datum = option.series?.[0]?.data?.find((point) => point.graph_id === "g1") || option.series?.[0]?.data?.[0];
+    if (!datum) throw new Error("Embedding PCA chart has no plotted points.");
+    const [x, y] = chartInstance.convertToPixel({ seriesIndex: 0 }, datum.value);
+    return { x, y };
+  });
+  await chart.click({ position: pointPosition });
+  await expect(inspector).toContainText("Embedding Graph Details");
+  await expect(inspector).toContainText("Plotted In Chart");
+  await expect(inspector).toContainText("emb_0");
+
+  await exploreView.getByLabel("Search embedding graph IDs and labels").fill("g1");
+  const graphResult = exploreView.locator(".graph-search-result", { hasText: "g1" }).first();
+  await expect(graphResult).toBeVisible();
+  await graphResult.click();
+  await expect(inspector).toContainText("Embedding Graph Details");
+  await expect(inspector).toContainText("Graph ID");
+  await expect(inspector).toContainText("g1");
+  await expect(inspector).toContainText("Graph Label");
+
+  await exploreView.getByRole("button", { name: "Data", exact: true }).click();
+  await expect(page.locator(".artifact-table .tbl thead")).toContainText("emb_0");
+  await expect(page.locator(".artifact-table .tbl tbody tr")).toHaveCount(2);
+  await expect(exploreView).toContainText("1-2 of 2");
+
+  await exploreView.getByRole("button", { name: "Choose Embedding" }).click();
+  await expect(page.locator(".artifact-table-title")).toContainText("Embedding Explore");
+  await expect(page.locator("table tbody tr", { hasText: "Tiny Embedding Explore - One Dimension" })).toBeVisible();
+  await page.locator("table tbody tr", { hasText: "Tiny Embedding Explore - One Dimension" }).getByRole("button", { name: "Explore" }).click();
+  await expect(page.locator(".artifact-table-title")).toContainText("Tiny Embedding Explore - One Dimension Explore");
+  await expect(exploreView.getByRole("button", { name: "PCA", exact: true })).toBeDisabled();
+  await expect(exploreView).toContainText("Dimensions");
+});
+
 test("Datasets and Features run through planned artifacts and jobs", async ({ page }) => {
   test.setTimeout(120_000);
   await page.goto("/");
@@ -604,7 +1100,13 @@ test("Datasets and Features run through planned artifacts and jobs", async ({ pa
   await expect(page.locator(".cmd")).toContainText("Computing features: page_rank", { timeout: 20_000 });
   await expect(featureRow.locator(".status-pill")).toHaveText("completed", { timeout: 90_000 });
   await featureRow.getByRole("button", { name: "Preview" }).click();
-  await expect(page.locator(".artifact-table-title")).toContainText("MUTAG - PageRank Preview");
+  await expect(page.locator(".artifact-table-title")).toContainText("MUTAG - PageRank Explore");
+  await expect(ribbon.getByRole("button", { name: "Explore" })).toHaveClass(/is-active/);
+  const featureExploreView = page.locator(".feature-explore");
+  await expect(featureExploreView.getByRole("button", { name: "Statistics", exact: true })).toBeVisible();
+  await expect(featureExploreView.getByRole("button", { name: "PCA", exact: true })).toBeVisible();
+  await expect(featureExploreView.getByRole("button", { name: "Data", exact: true })).toBeVisible();
+  await featureExploreView.getByRole("button", { name: "Data", exact: true }).click();
   await expect(page.locator(".artifact-table .tbl thead")).toContainText("page_rank_0");
 });
 
@@ -682,7 +1184,9 @@ test("Embeddings library configures, batches, runs, and previews persisted artif
   await expect(approxEmbeddingRows.nth(0).locator(".status-pill")).toHaveText("completed", { timeout: 60_000 });
   await expect(approxEmbeddingRows.nth(1).locator(".status-pill")).toHaveText("completed", { timeout: 60_000 });
   await approxEmbeddingRows.nth(0).getByRole("button", { name: "Preview" }).click();
-  await expect(page.locator(".artifact-table-title")).toContainText("Tiny Embedding - Approx Wasserstein Embedding Preview");
+  await expect(page.locator(".artifact-table-title")).toContainText("Tiny Embedding - Approx Wasserstein Embedding Explore");
+  await expect(ribbon.getByRole("button", { name: "Explore" })).toHaveClass(/is-active/);
+  await page.locator(".embedding-explore").getByRole("button", { name: "Data", exact: true }).click();
   await expect(page.locator(".artifact-table .tbl thead")).toContainText("graph_id");
   await expect(page.locator(".artifact-table .tbl thead")).toContainText("emb_0");
   await expect(page.locator(".artifact-table .tbl tbody tr")).toHaveCount(2);
@@ -698,10 +1202,16 @@ test("Models library configures, runs, batches, and previews persisted artifacts
   await page.getByRole("button", { name: "MODELS" }).click();
   const ribbon = page.locator(".ribbon");
   const inspector = page.locator(".inspector-panel");
+  const modelAnalysisGroup = ribbon.locator(".tool-group", { hasText: "Model Analysis" });
+  await expect(modelAnalysisGroup.getByRole("button", { name: "Explore" })).toBeVisible();
 
   await expect(page.locator(".artifact-table-title")).toContainText("Models");
   await expect(page.locator(".artifact-table-empty")).toContainText("No models.");
   await expect(page.locator(".selection-panel .sel-section", { hasText: "Embeddings" }).locator(".sel-count")).toHaveText("2");
+
+  await modelAnalysisGroup.getByRole("button", { name: "Explore" }).click();
+  await expect(page.locator(".artifact-table-title")).toContainText("Model Explore");
+  await expect(page.locator(".artifact-table-empty")).toContainText("No models.");
 
   await ribbon.getByRole("button", { name: "Library" }).click();
   await expect(page.locator(".artifact-table .tbl thead th")).toHaveText(["Name", "Algorithm", "Output", "Actions"]);
@@ -744,6 +1254,11 @@ test("Models library configures, runs, batches, and previews persisted artifacts
   await expect(inspector).toContainText("Sample Size");
   await expect(inspector).toContainText("Expected Metrics");
 
+  await modelAnalysisGroup.getByRole("button", { name: "Explore" }).click();
+  await expect(page.locator(".artifact-table-title")).toContainText("Tiny Model - Random Forest Classifier Explore");
+  await expect(page.locator(".artifact-table-empty")).toContainText("Run model training before exploring this model.");
+  await ribbon.getByRole("button", { name: "Models" }).click();
+
   await modelRow.getByRole("button", { name: "Run" }).click();
   await expect(page.locator(".jobs-panel")).toContainText("neext.train_graph_model", { timeout: 20_000 });
   await expect(page.locator(".cmd")).toContainText("Computing upstream embeddings for model", { timeout: 20_000 });
@@ -752,11 +1267,56 @@ test("Models library configures, runs, batches, and previews persisted artifacts
   await expect(modelRow.locator(".status-pill")).toHaveText("completed", { timeout: 120_000 });
   await expect(modelRow.getByRole("button", { name: "Preview" })).toBeVisible();
   await modelRow.getByRole("button", { name: "Preview" }).click();
-  await expect(page.locator(".artifact-table-title")).toContainText("Tiny Model - Random Forest Classifier Results");
-  await expect(page.locator(".artifact-table .tbl thead")).toContainText("Accuracy");
-  await expect(page.locator(".artifact-table .tbl tbody tr")).toHaveCount(1);
+  const exploreView = page.locator(".model-explore");
+  await expect(page.locator(".artifact-table-title")).toContainText("Tiny Model - Random Forest Classifier Explore");
+  await expect(ribbon.getByRole("button", { name: "Explore" })).toHaveClass(/is-active/);
+  await expect(exploreView.getByRole("button", { name: "Choose Model" })).toBeVisible();
+  await expect(exploreView.getByRole("button", { name: "Overview", exact: true })).toHaveClass(/is-active/);
+  await expect(exploreView.getByRole("button", { name: "Metrics", exact: true })).toBeVisible();
+  await expect(exploreView.getByRole("button", { name: "Data", exact: true })).toBeVisible();
+  await expect(exploreView).toContainText("Metric Summary");
+  await expect(exploreView).toContainText("Random Forest");
   await expect(inspector).toContainText("Metrics File");
   await expect(inspector).toContainText("Model File");
+
+  await exploreView.getByRole("button", { name: "Metrics", exact: true }).click();
+  const chart = exploreView.locator(".model-metrics-chart");
+  await expect(chart).toBeVisible();
+  await expect(chart.locator("canvas")).toBeVisible();
+  const metricPointPosition = await chart.evaluate((element) => {
+    const chartElement = element as HTMLDivElement & {
+      __modelMetricsChart?: {
+        getOption: () => {
+          series?: { data?: { iteration: number; metric: string; value: [number, number] }[] }[];
+        };
+        convertToPixel: (finder: { seriesIndex: number }, value: [number, number]) => [number, number];
+      };
+    };
+    const chartInstance = chartElement.__modelMetricsChart;
+    if (!chartInstance) throw new Error("Model metrics chart instance is not attached.");
+    const option = chartInstance.getOption();
+    const datum = option.series?.[0]?.data?.[0];
+    if (!datum) throw new Error("Model metrics chart has no plotted points.");
+    if (datum.iteration !== 0) throw new Error("Model metrics chart did not preserve iteration metadata.");
+    const [x, y] = chartInstance.convertToPixel({ seriesIndex: 0 }, datum.value);
+    return { x, y };
+  });
+  await chart.click({ position: metricPointPosition });
+  await expect(inspector).toContainText("Model Iteration Details");
+  await expect(inspector).toContainText("Iteration");
+  await expect(inspector).toContainText("Accuracy");
+
+  await exploreView.getByRole("button", { name: "Data", exact: true }).click();
+  await expect(exploreView.locator(".artifact-table-scroll .tbl thead")).toContainText("Accuracy");
+  const metricsDataRow = exploreView.locator(".artifact-table-scroll .tbl tbody tr").first();
+  await expect(metricsDataRow).toBeVisible();
+  await metricsDataRow.click();
+  await expect(inspector).toContainText("Model Iteration Details");
+
+  await exploreView.getByRole("button", { name: "Choose Model" }).click();
+  await expect(page.locator(".artifact-table-title")).toContainText("Model Explore");
+  await expect(page.locator("table tbody tr", { hasText: "Tiny Model - Random Forest Classifier" })).toBeVisible();
+  await ribbon.getByRole("button", { name: "Models" }).click();
 
   for (let index = 0; index < 2; index += 1) {
     const response = await page.request.post(`/api/projects/${seeded.project_id}/models`, {

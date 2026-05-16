@@ -41,29 +41,52 @@ from .schemas import (
     DatasetVisualEdge,
     DatasetVisualNode,
     EmbeddingCatalogEntry,
+    EmbeddingAnalysis,
+    EmbeddingAnalysisAlgorithm,
+    EmbeddingAnalysisFeature,
     EmbeddingCreateParams,
     EmbeddingCreateRequest,
     EmbeddingExpectedOutput,
+    EmbeddingGraphDetail,
+    EmbeddingGraphSearchResponse,
+    EmbeddingGraphSearchResult,
     EmbeddingManifest,
     EmbeddingOutputFiles,
     EmbeddingOutputStats,
+    EmbeddingPcaPayload,
+    EmbeddingPcaPoint,
     EmbeddingRunBatchRequest,
     FeatureCatalogEntry,
+    FeatureAnalysis,
+    FeatureAnalysisDataset,
+    FeatureAnalysisMethod,
+    FeatureColumnSummary,
+    FeatureCoverage,
     FeatureCreateParams,
     FeatureCreateRequest,
     FeatureExpectedOutput,
+    FeatureGraphDetail,
+    FeatureGraphSearchResponse,
+    FeatureGraphSearchResult,
     FeatureManifest,
     FeatureOutputFiles,
     FeatureOutputStats,
+    FeaturePcaPayload,
+    FeaturePcaPoint,
     FeatureRunBatchRequest,
     JobArtifactRef,
     JobEvent,
     JobManifest,
+    ModelAnalysis,
+    ModelAnalysisAlgorithm,
+    ModelAnalysisEmbedding,
     ModelCatalogEntry,
     ModelCreateParams,
     ModelCreateRequest,
     ModelExpectedOutput,
     ModelManifest,
+    ModelMetricPoint,
+    ModelMetricSeries,
     ModelOutputFiles,
     ModelOutputStats,
     ModelPreview,
@@ -86,6 +109,10 @@ JOB_MANIFEST_TYPE = "job"
 ARTIFACT_KINDS = ("datasets", "features", "embeddings", "models")
 DATASET_PREP_OPERATION_ID = "neext.prepare_graph_collection"
 DATASET_PREP_OPERATION_VERSION = "1"
+FEATURE_ANALYSIS_DEFAULT_MAX_FIT_ROWS = 5000
+FEATURE_ANALYSIS_DEFAULT_MAX_POINTS = 5000
+EMBEDDING_ANALYSIS_DEFAULT_MAX_FIT_ROWS = 5000
+EMBEDDING_ANALYSIS_DEFAULT_MAX_POINTS = 5000
 
 
 def utc_now() -> str:
@@ -1838,6 +1865,676 @@ class WorkbenchStore:
             edges=[DatasetVisualEdge(source=source, target=target) for source, target in included_edges],
         )
 
+    def analyze_feature(
+        self,
+        project_id: str,
+        feature_id: str,
+        *,
+        max_fit_rows: int = FEATURE_ANALYSIS_DEFAULT_MAX_FIT_ROWS,
+        max_points: int = FEATURE_ANALYSIS_DEFAULT_MAX_POINTS,
+    ) -> FeatureAnalysis:
+        import pandas as pd
+
+        if max_fit_rows < 2 or max_fit_rows > 100000:
+            raise ValueError("Feature PCA max_fit_rows must be between 2 and 100000")
+        if max_points < 1 or max_points > 100000:
+            raise ValueError("Feature PCA max_points must be between 1 and 100000")
+
+        feature = self.read_feature(project_id, feature_id)
+        if feature.status != "completed" or feature.output_files is None:
+            raise ValueError("Feature analysis is available only after computation completes")
+
+        dataset = self.read_dataset(project_id, self._feature_dataset_id(feature))
+        if dataset.status != "completed" or dataset.prepared_stats is None:
+            raise ValueError("Feature analysis requires a completed source dataset")
+
+        feature_path = self.feature_path(project_id, feature.id) / feature.output_files.features
+        if not feature_path.exists():
+            raise ValueError("Feature output is missing")
+
+        features = pd.read_parquet(feature_path)
+        feature_columns = [column for column in features.columns if column not in {"graph_id", "node_id"}]
+        numeric_feature_columns = [column for column in feature_columns if pd.api.types.is_numeric_dtype(features[column])]
+        label_by_graph, graph_label_distribution = self._dataset_graph_label_maps(project_id, dataset)
+        catalog = get_feature_catalog_item(feature.source_feature_id)
+
+        output_stats = feature.output_stats or FeatureOutputStats(row_count=int(len(features)), column_count=int(len(features.columns)))
+        graph_coverage = FeatureCoverage(
+            covered=int(features["graph_id"].map(str).nunique(dropna=False)) if "graph_id" in features.columns else 0,
+            total=dataset.prepared_stats.graph_count,
+        )
+        node_coverage = FeatureCoverage(
+            covered=int(features.loc[:, ["graph_id", "node_id"]].drop_duplicates().shape[0])
+            if {"graph_id", "node_id"}.issubset(features.columns)
+            else int(len(features)),
+            total=dataset.prepared_stats.node_count,
+        )
+
+        return FeatureAnalysis(
+            feature_id=feature.id,
+            feature_name=feature.name,
+            feature_status="completed",
+            source_dataset=FeatureAnalysisDataset(
+                id=dataset.id,
+                name=dataset.name,
+                status=dataset.status,
+                prepared_stats=dataset.prepared_stats,
+            ),
+            method=FeatureAnalysisMethod(id=feature.source_feature_id, name=catalog.name if catalog else feature.source_feature_id),
+            output_stats=output_stats,
+            feature_columns=feature_columns,
+            numeric_feature_columns=numeric_feature_columns,
+            column_summaries=self._feature_column_summaries(features, numeric_feature_columns),
+            graph_coverage=graph_coverage,
+            node_coverage=node_coverage,
+            graph_label_distribution=graph_label_distribution,
+            pca=self._feature_pca_payload(
+                features,
+                numeric_feature_columns,
+                label_by_graph,
+                max_fit_rows=max_fit_rows,
+                max_points=max_points,
+            ),
+        )
+
+    def search_feature_graphs(self, project_id: str, feature_id: str, *, query: str = "", limit: int = 25) -> FeatureGraphSearchResponse:
+        import pandas as pd
+
+        if limit < 1 or limit > 100:
+            raise ValueError("Feature graph search limit must be between 1 and 100")
+
+        query_text = query.strip()
+        if not query_text:
+            return FeatureGraphSearchResponse(query=query_text, limit=limit, total_matches=0, results=[])
+
+        feature = self.read_feature(project_id, feature_id)
+        if feature.status != "completed" or feature.output_files is None:
+            raise ValueError("Feature analysis is available only after computation completes")
+
+        dataset = self.read_dataset(project_id, self._feature_dataset_id(feature))
+        feature_path = self.feature_path(project_id, feature.id) / feature.output_files.features
+        if not feature_path.exists():
+            raise ValueError("Feature output is missing")
+
+        features = pd.read_parquet(feature_path)
+        label_by_graph, _ = self._dataset_graph_label_maps(project_id, dataset)
+        feature_columns = [column for column in features.columns if column not in {"graph_id", "node_id"}]
+        numeric_feature_columns = [column for column in feature_columns if pd.api.types.is_numeric_dtype(features[column])]
+        graph_vectors = self._feature_graph_vectors(features, numeric_feature_columns, label_by_graph)
+        sampled_graphs = set(graph_vectors.head(FEATURE_ANALYSIS_DEFAULT_MAX_POINTS)["graph_id"].tolist())
+        graph_order = {str(row["graph_id"]): index for index, row in enumerate(graph_vectors.to_dict(orient="records"))}
+
+        def match_rank(value: str) -> int:
+            value_lower = value.lower()
+            query_lower = query_text.lower()
+            if value_lower == query_lower:
+                return 0
+            if value_lower.startswith(query_lower):
+                return 1
+            return 2
+
+        matches_by_graph: dict[str, tuple[int, int, str, FeatureGraphSearchResult]] = {}
+        query_lower = query_text.lower()
+        for row in graph_vectors.to_dict(orient="records"):
+            graph_id = str(row["graph_id"])
+            graph_label = row.get("graph_label")
+            graph_label_text = "" if graph_label is None else str(graph_label)
+            graph_id_match = query_lower in graph_id.lower()
+            label_match = bool(graph_label_text) and query_lower in graph_label_text.lower()
+            if not graph_id_match and not label_match:
+                continue
+            matched_value = graph_id if graph_id_match else graph_label_text
+            result = FeatureGraphSearchResult(
+                graph_id=graph_id,
+                graph_label=graph_label,
+                in_pca_sample=graph_id in sampled_graphs,
+                node_count=int(row["node_count"]),
+            )
+            matches_by_graph[graph_id] = (
+                match_rank(matched_value),
+                graph_order.get(graph_id, len(graph_order)),
+                graph_id,
+                result,
+            )
+
+        matches = sorted(matches_by_graph.values(), key=lambda item: (item[0], item[1], item[2]))
+        return FeatureGraphSearchResponse(query=query_text, limit=limit, total_matches=len(matches), results=[item[3] for item in matches[:limit]])
+
+    def feature_graph_detail(self, project_id: str, feature_id: str, *, graph_id: str) -> FeatureGraphDetail:
+        import pandas as pd
+
+        feature = self.read_feature(project_id, feature_id)
+        if feature.status != "completed" or feature.output_files is None:
+            raise ValueError("Feature analysis is available only after computation completes")
+
+        dataset = self.read_dataset(project_id, self._feature_dataset_id(feature))
+        feature_path = self.feature_path(project_id, feature.id) / feature.output_files.features
+        if not feature_path.exists():
+            raise ValueError("Feature output is missing")
+
+        graph_id = str(graph_id)
+        features = pd.read_parquet(feature_path)
+        label_by_graph, _ = self._dataset_graph_label_maps(project_id, dataset)
+        feature_columns = [column for column in features.columns if column not in {"graph_id", "node_id"}]
+        numeric_feature_columns = [column for column in feature_columns if pd.api.types.is_numeric_dtype(features[column])]
+        graph_vectors = self._feature_graph_vectors(features, numeric_feature_columns, label_by_graph)
+        graph_rows = graph_vectors[graph_vectors["graph_id"] == graph_id]
+        if graph_rows.empty:
+            raise ValueError(f"Feature graph not found: {graph_id}")
+
+        graph_row = graph_rows.iloc[0]
+        feature_values = {column: self._json_scalar(graph_row[column]) for column in numeric_feature_columns}
+        return FeatureGraphDetail(
+            graph_id=graph_id,
+            graph_label=label_by_graph.get(graph_id),
+            node_count=int(graph_row["node_count"]),
+            feature_values=feature_values,
+        )
+
+    def analyze_embedding(
+        self,
+        project_id: str,
+        embedding_id: str,
+        *,
+        max_fit_rows: int = EMBEDDING_ANALYSIS_DEFAULT_MAX_FIT_ROWS,
+        max_points: int = EMBEDDING_ANALYSIS_DEFAULT_MAX_POINTS,
+    ) -> EmbeddingAnalysis:
+        import pandas as pd
+
+        if max_fit_rows < 2 or max_fit_rows > 100000:
+            raise ValueError("Embedding PCA max_fit_rows must be between 2 and 100000")
+        if max_points < 1 or max_points > 100000:
+            raise ValueError("Embedding PCA max_points must be between 1 and 100000")
+
+        embedding = self.read_embedding(project_id, embedding_id)
+        if embedding.status != "completed" or embedding.output_files is None:
+            raise ValueError("Embedding analysis is available only after computation completes")
+
+        feature_ids = self._embedding_feature_ids(embedding)
+        features = [self.read_feature(project_id, feature_id) for feature_id in feature_ids]
+        dataset = self.read_dataset(project_id, self._embedding_dataset_id(project_id, embedding))
+        if dataset.status != "completed" or dataset.prepared_stats is None:
+            raise ValueError("Embedding analysis requires a completed source dataset")
+
+        embedding_path = self.embedding_path(project_id, embedding.id) / embedding.output_files.embeddings
+        if not embedding_path.exists():
+            raise ValueError("Embedding output is missing")
+
+        embeddings = pd.read_parquet(embedding_path)
+        embedding_columns = [column for column in embeddings.columns if column != "graph_id"]
+        numeric_embedding_columns = [column for column in embedding_columns if pd.api.types.is_numeric_dtype(embeddings[column])]
+        label_by_graph, graph_label_distribution = self._dataset_graph_label_maps(project_id, dataset)
+        catalog = get_embedding_catalog_item(embedding.source_embedding_id)
+        output_stats = embedding.output_stats or EmbeddingOutputStats(row_count=int(len(embeddings)), column_count=int(len(embeddings.columns)))
+
+        source_features = []
+        for feature in features:
+            feature_catalog = get_feature_catalog_item(feature.source_feature_id)
+            source_features.append(
+                EmbeddingAnalysisFeature(
+                    id=feature.id,
+                    name=feature.name,
+                    status=feature.status,
+                    method=FeatureAnalysisMethod(
+                        id=feature.source_feature_id,
+                        name=feature_catalog.name if feature_catalog else feature.source_feature_id,
+                    ),
+                )
+            )
+
+        return EmbeddingAnalysis(
+            embedding_id=embedding.id,
+            embedding_name=embedding.name,
+            embedding_status="completed",
+            source_dataset=FeatureAnalysisDataset(
+                id=dataset.id,
+                name=dataset.name,
+                status=dataset.status,
+                prepared_stats=dataset.prepared_stats,
+            ),
+            source_features=source_features,
+            algorithm=EmbeddingAnalysisAlgorithm(
+                id=embedding.source_embedding_id,
+                name=catalog.name if catalog else embedding.source_embedding_id,
+            ),
+            output_stats=output_stats,
+            embedding_columns=embedding_columns,
+            numeric_embedding_columns=numeric_embedding_columns,
+            column_summaries=self._feature_column_summaries(embeddings, numeric_embedding_columns),
+            graph_label_distribution=graph_label_distribution,
+            pca=self._embedding_pca_payload(
+                embeddings,
+                numeric_embedding_columns,
+                label_by_graph,
+                max_fit_rows=max_fit_rows,
+                max_points=max_points,
+            ),
+        )
+
+    def search_embedding_graphs(self, project_id: str, embedding_id: str, *, query: str = "", limit: int = 25) -> EmbeddingGraphSearchResponse:
+        import pandas as pd
+
+        if limit < 1 or limit > 100:
+            raise ValueError("Embedding graph search limit must be between 1 and 100")
+
+        query_text = query.strip()
+        if not query_text:
+            return EmbeddingGraphSearchResponse(query=query_text, limit=limit, total_matches=0, results=[])
+
+        embedding = self.read_embedding(project_id, embedding_id)
+        if embedding.status != "completed" or embedding.output_files is None:
+            raise ValueError("Embedding analysis is available only after computation completes")
+
+        dataset = self.read_dataset(project_id, self._embedding_dataset_id(project_id, embedding))
+        embedding_path = self.embedding_path(project_id, embedding.id) / embedding.output_files.embeddings
+        if not embedding_path.exists():
+            raise ValueError("Embedding output is missing")
+
+        embeddings = pd.read_parquet(embedding_path)
+        label_by_graph, _ = self._dataset_graph_label_maps(project_id, dataset)
+        embedding_columns = [column for column in embeddings.columns if column != "graph_id"]
+        numeric_embedding_columns = [column for column in embedding_columns if pd.api.types.is_numeric_dtype(embeddings[column])]
+        graph_vectors = self._embedding_graph_vectors(embeddings, numeric_embedding_columns, label_by_graph)
+        sampled_graphs = set(graph_vectors.head(EMBEDDING_ANALYSIS_DEFAULT_MAX_POINTS)["graph_id"].tolist())
+        graph_order = {str(row["graph_id"]): index for index, row in enumerate(graph_vectors.to_dict(orient="records"))}
+
+        def match_rank(value: str) -> int:
+            value_lower = value.lower()
+            query_lower = query_text.lower()
+            if value_lower == query_lower:
+                return 0
+            if value_lower.startswith(query_lower):
+                return 1
+            return 2
+
+        matches_by_graph: dict[str, tuple[int, int, str, EmbeddingGraphSearchResult]] = {}
+        query_lower = query_text.lower()
+        for row in graph_vectors.to_dict(orient="records"):
+            graph_id = str(row["graph_id"])
+            graph_label = row.get("graph_label")
+            graph_label_text = "" if graph_label is None else str(graph_label)
+            graph_id_match = query_lower in graph_id.lower()
+            label_match = bool(graph_label_text) and query_lower in graph_label_text.lower()
+            if not graph_id_match and not label_match:
+                continue
+            matched_value = graph_id if graph_id_match else graph_label_text
+            result = EmbeddingGraphSearchResult(
+                graph_id=graph_id,
+                graph_label=graph_label,
+                in_pca_sample=graph_id in sampled_graphs,
+            )
+            matches_by_graph[graph_id] = (
+                match_rank(matched_value),
+                graph_order.get(graph_id, len(graph_order)),
+                graph_id,
+                result,
+            )
+
+        matches = sorted(matches_by_graph.values(), key=lambda item: (item[0], item[1], item[2]))
+        return EmbeddingGraphSearchResponse(query=query_text, limit=limit, total_matches=len(matches), results=[item[3] for item in matches[:limit]])
+
+    def embedding_graph_detail(self, project_id: str, embedding_id: str, *, graph_id: str) -> EmbeddingGraphDetail:
+        import pandas as pd
+
+        embedding = self.read_embedding(project_id, embedding_id)
+        if embedding.status != "completed" or embedding.output_files is None:
+            raise ValueError("Embedding analysis is available only after computation completes")
+
+        dataset = self.read_dataset(project_id, self._embedding_dataset_id(project_id, embedding))
+        embedding_path = self.embedding_path(project_id, embedding.id) / embedding.output_files.embeddings
+        if not embedding_path.exists():
+            raise ValueError("Embedding output is missing")
+
+        graph_id = str(graph_id)
+        embeddings = pd.read_parquet(embedding_path)
+        label_by_graph, _ = self._dataset_graph_label_maps(project_id, dataset)
+        embedding_columns = [column for column in embeddings.columns if column != "graph_id"]
+        numeric_embedding_columns = [column for column in embedding_columns if pd.api.types.is_numeric_dtype(embeddings[column])]
+        graph_vectors = self._embedding_graph_vectors(embeddings, numeric_embedding_columns, label_by_graph)
+        graph_rows = graph_vectors[graph_vectors["graph_id"] == graph_id]
+        if graph_rows.empty:
+            raise ValueError(f"Embedding graph not found: {graph_id}")
+
+        graph_row = graph_rows.iloc[0]
+        embedding_values = {column: self._json_scalar(graph_row[column]) for column in numeric_embedding_columns}
+        sampled_graphs = set(graph_vectors.head(EMBEDDING_ANALYSIS_DEFAULT_MAX_POINTS)["graph_id"].tolist())
+        return EmbeddingGraphDetail(
+            graph_id=graph_id,
+            graph_label=label_by_graph.get(graph_id),
+            in_pca_sample=graph_id in sampled_graphs,
+            embedding_values=embedding_values,
+        )
+
+    def _dataset_graph_label_maps(self, project_id: str, dataset: DatasetManifest) -> tuple[dict[str, object], dict[str, int]]:
+        import pandas as pd
+
+        if dataset.prepared_data_files is None or not dataset.prepared_data_files.graph_labels:
+            return {}, {}
+
+        labels_path = self.dataset_path(project_id, dataset.id) / dataset.prepared_data_files.graph_labels
+        if not labels_path.exists():
+            return {}, {}
+
+        graph_labels = pd.read_parquet(labels_path)
+        if graph_labels.empty:
+            return {}, {}
+
+        label_by_graph: dict[str, object] = {}
+        graph_label_distribution: dict[str, int] = {}
+        for row in graph_labels.to_dict(orient="records"):
+            label_by_graph[str(row["graph_id"])] = self._json_scalar(row["graph_label"])
+        for label, count in graph_labels["graph_label"].map(self._json_scalar).value_counts(dropna=False).items():
+            graph_label_distribution[str(label)] = int(count)
+        return label_by_graph, graph_label_distribution
+
+    def _feature_column_summaries(self, features, numeric_columns: list[str]) -> list[FeatureColumnSummary]:
+        import pandas as pd
+
+        summaries = []
+        for column in numeric_columns:
+            series = pd.to_numeric(features[column], errors="coerce")
+            summaries.append(
+                FeatureColumnSummary(
+                    column=column,
+                    min=self._finite_float(series.min(skipna=True)),
+                    max=self._finite_float(series.max(skipna=True)),
+                    mean=self._finite_float(series.mean(skipna=True)),
+                    std=self._finite_float(series.std(skipna=True)),
+                    null_count=int(series.isna().sum()),
+                )
+            )
+        return summaries
+
+    def _feature_graph_vectors(self, features, numeric_columns: list[str], label_by_graph: dict[str, object]):
+        import pandas as pd
+
+        ordered = self._ordered_feature_rows(features)
+        graph_counts = (
+            ordered.groupby("_graph_id_str", sort=False)["_node_id_str"]
+            .nunique()
+            .rename("node_count")
+            .to_frame()
+        )
+        if numeric_columns:
+            numeric_values = ordered.loc[:, ["_graph_id_str", *numeric_columns]].copy()
+            for column in numeric_columns:
+                numeric_values[column] = pd.to_numeric(numeric_values[column], errors="coerce")
+            graph_means = numeric_values.groupby("_graph_id_str", sort=False)[numeric_columns].mean()
+            graph_vectors = graph_counts.join(graph_means)
+        else:
+            graph_vectors = graph_counts
+
+        graph_vectors = graph_vectors.reset_index().rename(columns={"_graph_id_str": "graph_id"})
+        graph_vectors["graph_label"] = graph_vectors["graph_id"].map(lambda graph_id: label_by_graph.get(str(graph_id)))
+        graph_vectors["color_value"] = graph_vectors.apply(
+            lambda row: str(row["graph_label"]) if label_by_graph else str(row["graph_id"]),
+            axis=1,
+        )
+        return graph_vectors.sort_values("graph_id", kind="mergesort").reset_index(drop=True)
+
+    def _feature_pca_payload(
+        self,
+        features,
+        numeric_columns: list[str],
+        label_by_graph: dict[str, object],
+        *,
+        max_fit_rows: int,
+        max_points: int,
+    ) -> FeaturePcaPayload:
+        import numpy as np
+        import pandas as pd
+
+        graph_vectors = self._feature_graph_vectors(features, numeric_columns, label_by_graph)
+        source_row_count = int(len(features))
+        total_graphs = int(len(graph_vectors))
+        fit_row_count = min(total_graphs, max_fit_rows)
+        point_count = min(total_graphs, max_points)
+        fit_sampled = total_graphs > max_fit_rows
+        points_sampled = total_graphs > max_points
+        sample_reasons = []
+        if fit_sampled:
+            sample_reasons.append(f"PCA fit graphs limited to {max_fit_rows}")
+        if points_sampled:
+            sample_reasons.append(f"plotted graphs limited to {max_points}")
+
+        base_payload = {
+            "color_by": "graph_label" if label_by_graph else "graph_id",
+            "numeric_columns": numeric_columns,
+            "source_row_count": source_row_count,
+            "total_graphs": total_graphs,
+            "total_rows": total_graphs,
+            "fit_row_count": fit_row_count,
+            "point_count": point_count,
+            "max_fit_rows": max_fit_rows,
+            "max_points": max_points,
+            "fit_sampled": fit_sampled,
+            "points_sampled": points_sampled,
+            "sampled": fit_sampled or points_sampled,
+            "sample_reason": ", ".join(sample_reasons) if sample_reasons else None,
+        }
+        if total_graphs < 1:
+            return FeaturePcaPayload(available=False, reason="2D plotting requires at least one graph", **base_payload)
+        if len(numeric_columns) < 2:
+            return FeaturePcaPayload(available=False, reason="2D plotting requires at least two numeric feature columns", **base_payload)
+
+        fit_rows = graph_vectors.head(max_fit_rows)
+        point_rows = graph_vectors.head(max_points)
+
+        def graph_points(coordinates) -> list[FeaturePcaPoint]:
+            points = []
+            for index, row in enumerate(point_rows.to_dict(orient="records")):
+                graph_id = str(row["graph_id"])
+                points.append(
+                    FeaturePcaPoint(
+                        graph_id=graph_id,
+                        x=float(coordinates[index, 0]),
+                        y=float(coordinates[index, 1]),
+                        graph_label=row.get("graph_label"),
+                        color_value=str(row["color_value"]),
+                        node_count=int(row["node_count"]),
+                    )
+                )
+            return points
+
+        if len(numeric_columns) == 2:
+            point_frame = point_rows.loc[:, numeric_columns].apply(pd.to_numeric, errors="coerce").astype(float)
+            coordinates = np.nan_to_num(point_frame.to_numpy(dtype=float), nan=0.0, posinf=0.0, neginf=0.0)
+            raw_payload = {
+                **base_payload,
+                "fit_row_count": 0,
+                "fit_sampled": False,
+                "sampled": points_sampled,
+                "sample_reason": f"plotted graphs limited to {max_points}" if points_sampled else None,
+            }
+            return FeaturePcaPayload(
+                available=True,
+                projection_method="raw",
+                x_axis_label=numeric_columns[0],
+                y_axis_label=numeric_columns[1],
+                explained_variance_ratio=[],
+                points=graph_points(coordinates),
+                **raw_payload,
+            )
+
+        from sklearn.decomposition import PCA
+
+        if total_graphs < 2:
+            return FeaturePcaPayload(available=False, reason="PCA requires at least two graphs", **base_payload)
+
+        fit_frame = fit_rows.loc[:, numeric_columns].apply(pd.to_numeric, errors="coerce").astype(float)
+        fill_values = fit_frame.mean(axis=0, skipna=True).fillna(0.0)
+        fit_matrix = np.nan_to_num(fit_frame.fillna(fill_values).to_numpy(dtype=float), nan=0.0, posinf=0.0, neginf=0.0)
+        point_matrix = np.nan_to_num(
+            point_rows.loc[:, numeric_columns].apply(pd.to_numeric, errors="coerce").astype(float).fillna(fill_values).to_numpy(dtype=float),
+            nan=0.0,
+            posinf=0.0,
+            neginf=0.0,
+        )
+
+        if min(fit_matrix.shape[0], fit_matrix.shape[1]) < 2:
+            return FeaturePcaPayload(available=False, reason="PCA requires at least two fit graphs and columns", **base_payload)
+
+        pca = PCA(n_components=2, svd_solver="full")
+        coordinates = np.nan_to_num(pca.fit(fit_matrix).transform(point_matrix), nan=0.0, posinf=0.0, neginf=0.0)
+        explained_variance_ratio = [float(value) for value in np.nan_to_num(pca.explained_variance_ratio_, nan=0.0).tolist()]
+
+        return FeaturePcaPayload(
+            available=True,
+            projection_method="pca",
+            x_axis_label="PC1",
+            y_axis_label="PC2",
+            explained_variance_ratio=explained_variance_ratio,
+            points=graph_points(coordinates),
+            **base_payload,
+        )
+
+    def _embedding_graph_vectors(self, embeddings, numeric_columns: list[str], label_by_graph: dict[str, object]):
+        import pandas as pd
+
+        if "graph_id" not in embeddings.columns:
+            raise ValueError("Embedding output is missing graph_id")
+
+        graph_vectors = embeddings.copy()
+        graph_vectors["graph_id"] = graph_vectors["graph_id"].map(str)
+        for column in numeric_columns:
+            graph_vectors[column] = pd.to_numeric(graph_vectors[column], errors="coerce")
+        graph_vectors["graph_label"] = graph_vectors["graph_id"].map(lambda graph_id: label_by_graph.get(str(graph_id)))
+        graph_vectors["color_value"] = graph_vectors.apply(
+            lambda row: str(row["graph_label"]) if label_by_graph else str(row["graph_id"]),
+            axis=1,
+        )
+        return graph_vectors.sort_values("graph_id", kind="mergesort").reset_index(drop=True)
+
+    def _embedding_pca_payload(
+        self,
+        embeddings,
+        numeric_columns: list[str],
+        label_by_graph: dict[str, object],
+        *,
+        max_fit_rows: int,
+        max_points: int,
+    ) -> EmbeddingPcaPayload:
+        import numpy as np
+        import pandas as pd
+
+        graph_vectors = self._embedding_graph_vectors(embeddings, numeric_columns, label_by_graph)
+        source_row_count = int(len(embeddings))
+        total_graphs = int(len(graph_vectors))
+        fit_row_count = min(total_graphs, max_fit_rows)
+        point_count = min(total_graphs, max_points)
+        fit_sampled = total_graphs > max_fit_rows
+        points_sampled = total_graphs > max_points
+        sample_reasons = []
+        if fit_sampled:
+            sample_reasons.append(f"PCA fit graphs limited to {max_fit_rows}")
+        if points_sampled:
+            sample_reasons.append(f"plotted graphs limited to {max_points}")
+
+        base_payload = {
+            "color_by": "graph_label" if label_by_graph else "graph_id",
+            "numeric_columns": numeric_columns,
+            "source_row_count": source_row_count,
+            "total_graphs": total_graphs,
+            "total_rows": total_graphs,
+            "fit_row_count": fit_row_count,
+            "point_count": point_count,
+            "max_fit_rows": max_fit_rows,
+            "max_points": max_points,
+            "fit_sampled": fit_sampled,
+            "points_sampled": points_sampled,
+            "sampled": fit_sampled or points_sampled,
+            "sample_reason": ", ".join(sample_reasons) if sample_reasons else None,
+        }
+        if total_graphs < 1:
+            return EmbeddingPcaPayload(available=False, reason="2D plotting requires at least one graph", **base_payload)
+        if len(numeric_columns) < 2:
+            return EmbeddingPcaPayload(available=False, reason="2D plotting requires at least two numeric embedding columns", **base_payload)
+
+        fit_rows = graph_vectors.head(max_fit_rows)
+        point_rows = graph_vectors.head(max_points)
+
+        def graph_points(coordinates) -> list[EmbeddingPcaPoint]:
+            points = []
+            for index, row in enumerate(point_rows.to_dict(orient="records")):
+                graph_id = str(row["graph_id"])
+                points.append(
+                    EmbeddingPcaPoint(
+                        graph_id=graph_id,
+                        x=float(coordinates[index, 0]),
+                        y=float(coordinates[index, 1]),
+                        graph_label=row.get("graph_label"),
+                        color_value=str(row["color_value"]),
+                    )
+                )
+            return points
+
+        if len(numeric_columns) == 2:
+            point_frame = point_rows.loc[:, numeric_columns].apply(pd.to_numeric, errors="coerce").astype(float)
+            coordinates = np.nan_to_num(point_frame.to_numpy(dtype=float), nan=0.0, posinf=0.0, neginf=0.0)
+            raw_payload = {
+                **base_payload,
+                "fit_row_count": 0,
+                "fit_sampled": False,
+                "sampled": points_sampled,
+                "sample_reason": f"plotted graphs limited to {max_points}" if points_sampled else None,
+            }
+            return EmbeddingPcaPayload(
+                available=True,
+                projection_method="raw",
+                x_axis_label=numeric_columns[0],
+                y_axis_label=numeric_columns[1],
+                explained_variance_ratio=[],
+                points=graph_points(coordinates),
+                **raw_payload,
+            )
+
+        from sklearn.decomposition import PCA
+
+        if total_graphs < 2:
+            return EmbeddingPcaPayload(available=False, reason="PCA requires at least two graphs", **base_payload)
+
+        fit_frame = fit_rows.loc[:, numeric_columns].apply(pd.to_numeric, errors="coerce").astype(float)
+        fill_values = fit_frame.mean(axis=0, skipna=True).fillna(0.0)
+        fit_matrix = np.nan_to_num(fit_frame.fillna(fill_values).to_numpy(dtype=float), nan=0.0, posinf=0.0, neginf=0.0)
+        point_matrix = np.nan_to_num(
+            point_rows.loc[:, numeric_columns].apply(pd.to_numeric, errors="coerce").astype(float).fillna(fill_values).to_numpy(dtype=float),
+            nan=0.0,
+            posinf=0.0,
+            neginf=0.0,
+        )
+
+        if min(fit_matrix.shape[0], fit_matrix.shape[1]) < 2:
+            return EmbeddingPcaPayload(available=False, reason="PCA requires at least two fit graphs and columns", **base_payload)
+
+        pca = PCA(n_components=2, svd_solver="full")
+        coordinates = np.nan_to_num(pca.fit(fit_matrix).transform(point_matrix), nan=0.0, posinf=0.0, neginf=0.0)
+        explained_variance_ratio = [float(value) for value in np.nan_to_num(pca.explained_variance_ratio_, nan=0.0).tolist()]
+
+        return EmbeddingPcaPayload(
+            available=True,
+            projection_method="pca",
+            x_axis_label="PC1",
+            y_axis_label="PC2",
+            explained_variance_ratio=explained_variance_ratio,
+            points=graph_points(coordinates),
+            **base_payload,
+        )
+
+    def _ordered_feature_rows(self, features):
+        ordered = features.copy()
+        ordered["_graph_id_str"] = ordered["graph_id"].map(str)
+        ordered["_node_id_str"] = ordered["node_id"].map(str)
+        return ordered.sort_values(["_graph_id_str", "_node_id_str"], kind="mergesort").reset_index(drop=True)
+
+    def _finite_float(self, value) -> float | None:
+        import math
+
+        try:
+            number = float(value)
+        except (TypeError, ValueError):
+            return None
+        return number if math.isfinite(number) else None
+
     def _json_scalar(self, value):
         import pandas as pd
 
@@ -1888,6 +2585,113 @@ class WorkbenchStore:
         if embedding.status != "completed" or embedding.output_files is None:
             raise ValueError("Embedding preview is available only after computation completes")
         return self._preview_parquet(self.embedding_path(project_id, embedding.id) / embedding.output_files.embeddings, limit=limit, offset=offset)
+
+    def analyze_model(self, project_id: str, model_id: str) -> ModelAnalysis:
+        model = self.read_model(project_id, model_id)
+        if model.status != "completed" or model.output_files is None:
+            raise ValueError("Model analysis is available only after training completes")
+
+        metrics_path = self.model_path(project_id, model.id) / model.output_files.metrics
+        if not metrics_path.exists():
+            raise ValueError("Model metrics output is missing")
+
+        payload = self._read_json(metrics_path)
+        embedding_ids = self._model_embedding_ids(model)
+        embeddings = [self.read_embedding(project_id, embedding_id) for embedding_id in embedding_ids]
+        dataset_ids = {self._embedding_dataset_id(project_id, embedding) for embedding in embeddings}
+        if len(dataset_ids) != 1:
+            raise ValueError("Model source embeddings must reference the same dataset")
+        dataset = self.read_dataset(project_id, next(iter(dataset_ids)))
+
+        source_embeddings = []
+        for embedding in embeddings:
+            embedding_catalog = get_embedding_catalog_item(embedding.source_embedding_id)
+            source_embeddings.append(
+                ModelAnalysisEmbedding(
+                    id=embedding.id,
+                    name=embedding.name,
+                    status=embedding.status,
+                    algorithm=ModelAnalysisAlgorithm(
+                        id=embedding.source_embedding_id,
+                        name=embedding_catalog.name if embedding_catalog else embedding.source_embedding_id,
+                    ),
+                )
+            )
+
+        source_features = []
+        seen_feature_ids: set[str] = set()
+        for embedding in embeddings:
+            for feature_id in self._embedding_feature_ids(embedding):
+                if feature_id in seen_feature_ids:
+                    continue
+                seen_feature_ids.add(feature_id)
+                feature = self.read_feature(project_id, feature_id)
+                feature_catalog = get_feature_catalog_item(feature.source_feature_id)
+                source_features.append(
+                    EmbeddingAnalysisFeature(
+                        id=feature.id,
+                        name=feature.name,
+                        status=feature.status,
+                        method=FeatureAnalysisMethod(
+                            id=feature.source_feature_id,
+                            name=feature_catalog.name if feature_catalog else feature.source_feature_id,
+                        ),
+                    )
+                )
+
+        metric_rows = payload.get("metrics", [])
+        expected_metrics = list(model.expected_output.metrics)
+        metric_series = []
+        for metric_name in expected_metrics:
+            points = []
+            for row_index, row in enumerate(metric_rows):
+                try:
+                    iteration = int(row.get("iteration", row_index))
+                except (TypeError, ValueError):
+                    iteration = row_index
+                points.append(ModelMetricPoint(iteration=iteration, value=self._finite_float(row.get(metric_name))))
+            metric_series.append(ModelMetricSeries(metric=metric_name, points=points))
+
+        task_type = str(model.operation.params.get("task_type", payload.get("model_type", "")))
+        if task_type not in {"classifier", "regressor"}:
+            raise ValueError(f"Unsupported model task type: {task_type}")
+
+        feature_columns = list(payload.get("feature_columns", []))
+        output_stats = model.output_stats or ModelOutputStats(
+            metric_count=len(expected_metrics),
+            sample_size=len(metric_rows),
+            feature_count=len(feature_columns),
+            graph_count=dataset.prepared_stats.graph_count if dataset.prepared_stats else 0,
+        )
+        catalog = get_model_catalog_item(model.source_model_id)
+        return ModelAnalysis(
+            model_id=model.id,
+            model_name=model.name,
+            model_status="completed",
+            source_dataset=FeatureAnalysisDataset(
+                id=dataset.id,
+                name=dataset.name,
+                status=dataset.status,
+                prepared_stats=dataset.prepared_stats,
+            ),
+            source_embeddings=source_embeddings,
+            source_features=source_features,
+            algorithm=ModelAnalysisAlgorithm(
+                id=model.source_model_id,
+                name=catalog.name if catalog else model.source_model_id,
+            ),
+            task_type=task_type,
+            expected_metrics=expected_metrics,
+            output_stats=output_stats,
+            sample_size=int(payload.get("sample_size", model.operation.params.get("sample_size", len(metric_rows)))),
+            test_size=float(payload.get("test_size", model.operation.params.get("test_size", 0.0))),
+            random_state=payload.get("random_state", model.operation.params.get("random_state")),
+            classes=payload.get("classes"),
+            feature_columns=feature_columns,
+            summary=payload.get("summary", {}),
+            metrics=metric_rows,
+            metric_series=metric_series,
+        )
 
     def preview_model(self, project_id: str, model_id: str) -> ModelPreview:
         model = self.read_model(project_id, model_id)
