@@ -155,7 +155,7 @@ Approved Workbench project foundation:
 - Workbench persists Model manifests, trained model files, metrics JSON, jobs, readable job logs, and metrics previews.
 - Future artifacts are immutable once saved. Edits create new artifact IDs.
 - Workbench canonical dataset storage is Parquet plus `artifact.json`; CSV is an import/source format, not the canonical Workbench dataset format.
-- Dataset Library v1 uses curated NEExT CSV bundles as source templates. Dataset preparation downloads/loads those sources and normalizes them into Workbench Parquet artifacts.
+- Dataset Library v1 uses curated NEExT CSV bundles as graph-collection source templates and may also include curated single-graph CSV source templates. Dataset preparation downloads/loads graph collections directly and prepares single graphs into downstream graph collections through k-hop egonets.
 - Dataset manifests and APIs must expose only artifact/workspace/project-relative paths. Do not expose on-disk absolute project paths.
 - Feature execution depends on configured Dataset artifacts, never directly on Dataset Library catalog entries or source-shaped imported data. If a Feature run targets a planned Dataset, Workbench prepares the Dataset first.
 - Workbench persists raw snapshots, prepared graph data, mappings, jobs, readable job logs, preview metadata, and output files. Browser previews must stay limited/paginated and must not load complete large mapping or output files by default.
