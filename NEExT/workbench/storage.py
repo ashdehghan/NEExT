@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import hashlib
+import hmac
 import json
 import queue
+import secrets
 import shutil
 import threading
 import uuid
@@ -15,14 +18,10 @@ from pydantic import ValidationError
 
 from .dataset_library import get_catalog_dataset, list_catalog_entries
 from .embedding_library import get_embedding_catalog_item, list_embedding_catalog_entries
-from .embedding_library import (
-    get_operation_definition as get_embedding_operation_definition,
-)
+from .embedding_library import get_operation_definition as get_embedding_operation_definition
 from .feature_library import get_feature_catalog_item, get_operation_definition, list_feature_catalog_entries
 from .model_library import get_model_catalog_item, list_model_catalog_entries
-from .model_library import (
-    get_operation_definition as get_model_operation_definition,
-)
+from .model_library import get_operation_definition as get_model_operation_definition
 from .schemas import (
     ArtifactError,
     ArtifactInputRef,
@@ -40,10 +39,10 @@ from .schemas import (
     DatasetStats,
     DatasetVisualEdge,
     DatasetVisualNode,
-    EmbeddingCatalogEntry,
     EmbeddingAnalysis,
     EmbeddingAnalysisAlgorithm,
     EmbeddingAnalysisFeature,
+    EmbeddingCatalogEntry,
     EmbeddingCreateParams,
     EmbeddingCreateRequest,
     EmbeddingExpectedOutput,
@@ -56,10 +55,10 @@ from .schemas import (
     EmbeddingPcaPayload,
     EmbeddingPcaPoint,
     EmbeddingRunBatchRequest,
-    FeatureCatalogEntry,
     FeatureAnalysis,
     FeatureAnalysisDataset,
     FeatureAnalysisMethod,
+    FeatureCatalogEntry,
     FeatureColumnSummary,
     FeatureCoverage,
     FeatureCreateParams,
@@ -77,6 +76,7 @@ from .schemas import (
     JobArtifactRef,
     JobEvent,
     JobManifest,
+    McpSettingsManifest,
     ModelAnalysis,
     ModelAnalysisAlgorithm,
     ModelAnalysisEmbedding,
@@ -106,6 +106,7 @@ FEATURE_MANIFEST_TYPE = "feature"
 EMBEDDING_MANIFEST_TYPE = "embedding"
 MODEL_MANIFEST_TYPE = "model"
 JOB_MANIFEST_TYPE = "job"
+MCP_SETTINGS_MANIFEST_TYPE = "mcp_settings"
 ARTIFACT_KINDS = ("datasets", "features", "embeddings", "models")
 DATASET_PREP_OPERATION_ID = "neext.prepare_graph_collection"
 DATASET_PREP_OPERATION_VERSION = "1"
@@ -127,6 +128,7 @@ class WorkbenchStore:
         self.projects_path = self.workspace_path / "projects"
         self.trash_projects_path = self.workspace_path / "trash" / "projects"
         self.workspace_file = self.workspace_path / "workspace.json"
+        self.mcp_settings_file = self.workspace_path / "mcp.json"
         self._job_queue: queue.Queue[tuple[str, str, Callable[[], None]]] = queue.Queue()
         self._job_lock = threading.Lock()
         self._job_worker = threading.Thread(target=self._job_worker_loop, daemon=True)
@@ -374,6 +376,91 @@ class WorkbenchStore:
 
     def read_workspace_meta(self) -> dict[str, Any]:
         return self._read_json(self.workspace_file)
+
+    def _default_mcp_settings(self) -> McpSettingsManifest:
+        now = utc_now()
+        return McpSettingsManifest(
+            enabled=False,
+            token_hash=None,
+            token_preview=None,
+            created_at=now,
+            updated_at=now,
+        )
+
+    def _read_mcp_settings_manifest(self) -> McpSettingsManifest:
+        if not self.mcp_settings_file.exists():
+            return self._default_mcp_settings()
+        payload = self._read_json(self.mcp_settings_file)
+        if payload.get("schema_version") != SCHEMA_VERSION or payload.get("manifest_type") != MCP_SETTINGS_MANIFEST_TYPE:
+            raise ValueError("Unsupported MCP settings manifest")
+        return McpSettingsManifest.model_validate(payload)
+
+    def read_mcp_settings(self) -> McpSettingsManifest:
+        return self._read_mcp_settings_manifest()
+
+    def _write_mcp_settings(self, settings: McpSettingsManifest) -> None:
+        self._write_json(self.mcp_settings_file, settings.model_dump())
+
+    def _new_mcp_token(self) -> str:
+        return f"nxt_mcp_{secrets.token_urlsafe(32)}"
+
+    def _mcp_token_hash(self, token: str) -> str:
+        return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+    def _mcp_token_preview(self, token: str) -> str:
+        return f"{token[:12]}...{token[-6:]}"
+
+    def enable_mcp(self) -> tuple[McpSettingsManifest, str]:
+        existing = self._read_mcp_settings_manifest()
+        token = self._new_mcp_token()
+        now = utc_now()
+        settings = McpSettingsManifest(
+            enabled=True,
+            token_hash=self._mcp_token_hash(token),
+            token_preview=self._mcp_token_preview(token),
+            created_at=existing.created_at,
+            updated_at=now,
+        )
+        self._write_mcp_settings(settings)
+        return settings, token
+
+    def regenerate_mcp_token(self) -> tuple[McpSettingsManifest, str]:
+        existing = self._read_mcp_settings_manifest()
+        if not existing.enabled:
+            raise ValueError("MCP is disabled")
+        token = self._new_mcp_token()
+        settings = McpSettingsManifest(
+            enabled=True,
+            token_hash=self._mcp_token_hash(token),
+            token_preview=self._mcp_token_preview(token),
+            created_at=existing.created_at,
+            updated_at=utc_now(),
+        )
+        self._write_mcp_settings(settings)
+        return settings, token
+
+    def disable_mcp(self) -> McpSettingsManifest:
+        existing = self._read_mcp_settings_manifest()
+        settings = McpSettingsManifest(
+            enabled=False,
+            token_hash=None,
+            token_preview=None,
+            created_at=existing.created_at,
+            updated_at=utc_now(),
+        )
+        self._write_mcp_settings(settings)
+        return settings
+
+    def verify_mcp_token(self, token: str) -> bool:
+        if not token:
+            return False
+        try:
+            settings = self._read_mcp_settings_manifest()
+        except (ValueError, json.JSONDecodeError, ValidationError):
+            return False
+        if not settings.enabled or not settings.token_hash:
+            return False
+        return hmac.compare_digest(self._mcp_token_hash(token), settings.token_hash)
 
     def list_dataset_catalog(self) -> list[DatasetCatalogEntry]:
         return list_catalog_entries()

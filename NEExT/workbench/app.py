@@ -1,5 +1,8 @@
 """FastAPI application for the local NEExT Workbench."""
 
+import json
+import os
+import sysconfig
 from pathlib import Path
 from typing import Optional, Union
 
@@ -19,6 +22,9 @@ from .schemas import (
     FeatureGraphDetail,
     FeatureGraphSearchResponse,
     FeatureRunBatchRequest,
+    McpClientConfigSnippet,
+    McpSettingsManifest,
+    McpSettingsResponse,
     ModelAnalysis,
     ModelCreateRequest,
     ModelRunBatchRequest,
@@ -55,6 +61,64 @@ def create_app(workspace_path: Optional[Union[str, Path]] = None):
             return HTTPException(status_code=400, detail=str(exc))
         return HTTPException(status_code=500, detail=str(exc))
 
+    def mcp_client_config_snippets(settings: McpSettingsManifest, one_time_token: Optional[str]) -> list[McpClientConfigSnippet]:
+        if not settings.enabled:
+            return []
+
+        token_value = one_time_token or "<regenerate-token-in-workbench-settings>"
+        scripts_dir = Path(sysconfig.get_path("scripts") or "")
+        command_name = "neext-workbench-mcp.exe" if os.name == "nt" else "neext-workbench-mcp"
+        server_config = {
+            "command": str(scripts_dir / command_name),
+            "args": [
+                "--workspace",
+                str(store.workspace_path),
+            ],
+            "env": {
+                "NEEXT_WORKBENCH_MCP_TOKEN": token_value,
+            },
+        }
+        mcp_servers_config = {"mcpServers": {"neext-workbench": server_config}}
+        config_json = json.dumps(mcp_servers_config, indent=2)
+        return [
+            McpClientConfigSnippet(
+                client="claude_desktop",
+                label="Claude Desktop",
+                target="claude_desktop_config.json",
+                content=config_json,
+            ),
+            McpClientConfigSnippet(
+                client="claude_code",
+                label="Claude Code",
+                target="MCP server JSON",
+                content=config_json,
+            ),
+            McpClientConfigSnippet(
+                client="cursor",
+                label="Cursor",
+                target=".cursor/mcp.json",
+                content=config_json,
+            ),
+            McpClientConfigSnippet(
+                client="windsurf",
+                label="Windsurf",
+                target="mcp_config.json",
+                content=config_json,
+            ),
+        ]
+
+    def mcp_settings_response(settings: McpSettingsManifest, one_time_token: Optional[str] = None) -> McpSettingsResponse:
+        created_at = settings.created_at if settings.created_at else None
+        updated_at = settings.updated_at if settings.updated_at else None
+        return McpSettingsResponse(
+            enabled=settings.enabled,
+            token_preview=settings.token_preview,
+            created_at=created_at,
+            updated_at=updated_at,
+            one_time_token=one_time_token,
+            client_configs=mcp_client_config_snippets(settings, one_time_token),
+        )
+
     @app.get("/api/health")
     def health() -> dict[str, str]:
         return {"status": "ok"}
@@ -67,6 +131,36 @@ def create_app(workspace_path: Optional[Union[str, Path]] = None):
             version=str(meta.get("schema_version", meta.get("version", "1"))),
             projects=len(store.list_projects()),
         )
+
+    @app.get("/api/mcp-settings", response_model=McpSettingsResponse)
+    def get_mcp_settings() -> McpSettingsResponse:
+        try:
+            return mcp_settings_response(store.read_mcp_settings())
+        except Exception as exc:
+            raise api_exception(exc) from exc
+
+    @app.post("/api/mcp-settings/enable", response_model=McpSettingsResponse)
+    def enable_mcp_settings() -> McpSettingsResponse:
+        try:
+            settings, token = store.enable_mcp()
+            return mcp_settings_response(settings, one_time_token=token)
+        except Exception as exc:
+            raise api_exception(exc) from exc
+
+    @app.post("/api/mcp-settings/regenerate", response_model=McpSettingsResponse)
+    def regenerate_mcp_settings() -> McpSettingsResponse:
+        try:
+            settings, token = store.regenerate_mcp_token()
+            return mcp_settings_response(settings, one_time_token=token)
+        except Exception as exc:
+            raise api_exception(exc) from exc
+
+    @app.post("/api/mcp-settings/disable", response_model=McpSettingsResponse)
+    def disable_mcp_settings() -> McpSettingsResponse:
+        try:
+            return mcp_settings_response(store.disable_mcp())
+        except Exception as exc:
+            raise api_exception(exc) from exc
 
     @app.get("/api/projects")
     def list_projects():

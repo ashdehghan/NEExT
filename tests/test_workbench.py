@@ -1,4 +1,6 @@
 import json
+import os
+import sysconfig
 import time
 import uuid
 from pathlib import Path
@@ -169,6 +171,74 @@ def test_existing_workspace_manifest_is_normalized():
         assert workspace_manifest["manifest_type"] == "workspace"
         assert workspace_manifest["created_at"] == "2026-01-01T00:00:00+00:00"
         assert workspace_manifest["updated_at"]
+
+
+def test_mcp_settings_lifecycle_hashes_tokens_and_hides_full_token():
+    pytest.importorskip("fastapi")
+
+    from fastapi.testclient import TestClient
+
+    from NEExT.workbench.app import create_app
+
+    with TemporaryDirectory() as tmpdir:
+        app = create_app(tmpdir)
+        client = TestClient(app)
+
+        initial = client.get("/api/mcp-settings")
+        assert initial.status_code == 200
+        assert initial.json()["enabled"] is False
+        assert initial.json()["one_time_token"] is None
+        assert "token_hash" not in initial.json()
+
+        enabled = client.post("/api/mcp-settings/enable")
+        assert enabled.status_code == 200
+        enabled_payload = enabled.json()
+        first_token = enabled_payload["one_time_token"]
+        assert enabled_payload["enabled"] is True
+        assert first_token.startswith("nxt_mcp_")
+        assert enabled_payload["token_preview"].startswith(first_token[:12])
+        assert enabled_payload["token_preview"].endswith(first_token[-6:])
+        assert "token_hash" not in enabled_payload
+        assert app.state.store.verify_mcp_token(first_token)
+        snippet_payload = json.loads(enabled_payload["client_configs"][0]["content"])
+        snippet_server = snippet_payload["mcpServers"]["neext-workbench"]
+        command_name = "neext-workbench-mcp.exe" if os.name == "nt" else "neext-workbench-mcp"
+        assert snippet_server["command"] == str(Path(sysconfig.get_path("scripts")) / command_name)
+        assert snippet_server["args"] == ["--workspace", str(Path(tmpdir).resolve())]
+        assert snippet_server["env"]["NEEXT_WORKBENCH_MCP_TOKEN"] == first_token
+        assert "PYTHONPATH" not in snippet_server["env"]
+
+        settings_file = Path(tmpdir) / "mcp.json"
+        settings_payload = json.loads(settings_file.read_text(encoding="utf-8"))
+        assert settings_payload["schema_version"] == "1"
+        assert settings_payload["manifest_type"] == "mcp_settings"
+        assert settings_payload["enabled"] is True
+        assert settings_payload["token_hash"]
+        assert settings_payload["token_hash"] != first_token
+        assert first_token not in settings_file.read_text(encoding="utf-8")
+
+        read_after_enable = client.get("/api/mcp-settings")
+        assert read_after_enable.status_code == 200
+        assert read_after_enable.json()["one_time_token"] is None
+        assert first_token not in json.dumps(read_after_enable.json())
+
+        regenerated = client.post("/api/mcp-settings/regenerate")
+        assert regenerated.status_code == 200
+        second_token = regenerated.json()["one_time_token"]
+        assert second_token.startswith("nxt_mcp_")
+        assert second_token != first_token
+        assert not app.state.store.verify_mcp_token(first_token)
+        assert app.state.store.verify_mcp_token(second_token)
+
+        disabled = client.post("/api/mcp-settings/disable")
+        assert disabled.status_code == 200
+        assert disabled.json()["enabled"] is False
+        assert disabled.json()["one_time_token"] is None
+        disabled_payload = json.loads(settings_file.read_text(encoding="utf-8"))
+        assert disabled_payload["enabled"] is False
+        assert disabled_payload["token_hash"] is None
+        assert disabled_payload["token_preview"] is None
+        assert not app.state.store.verify_mcp_token(second_token)
 
 
 def test_workbench_project_create_list_and_read_by_id():
@@ -910,8 +980,8 @@ def test_feature_analysis_search_and_graph_detail(monkeypatch):
     pytest.importorskip("pyarrow")
     pytest.importorskip("sklearn")
 
-    from fastapi.testclient import TestClient
     import pandas as pd
+    from fastapi.testclient import TestClient
 
     import NEExT.workbench.dataset_library as dataset_library
     from NEExT.workbench.app import create_app

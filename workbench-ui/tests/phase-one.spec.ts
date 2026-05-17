@@ -685,7 +685,8 @@ test("Home commands switch center views", async ({ page }) => {
   await expect(page.locator(".document .title-only")).toHaveText("Import");
 
   await ribbon.getByRole("button", { name: "Settings" }).click();
-  await expect(page.locator(".document .title-only")).toHaveText("Settings");
+  await expect(page.getByRole("heading", { name: "Settings" })).toBeVisible();
+  await expect(page.getByText("Local MCP access for this Workbench workspace.")).toBeVisible();
 
   await ribbon.getByRole("button", { name: "Help" }).click();
   await expect(page.locator(".document .title-only")).toHaveText("Help");
@@ -695,6 +696,34 @@ test("Home commands switch center views", async ({ page }) => {
 
   await ribbon.getByRole("button", { name: "Projects" }).click();
   await expect(page.locator(".artifact-table-title")).toContainText("Projects");
+});
+
+test("Home Settings enables, regenerates, and disables local MCP setup", async ({ page }) => {
+  await page.request.post("/api/mcp-settings/disable");
+  await page.goto("/");
+
+  const ribbon = page.locator(".ribbon");
+  await ribbon.getByRole("button", { name: "Settings" }).click();
+
+  await expect(page.getByRole("heading", { name: "Settings" })).toBeVisible();
+  await expect(page.getByText("MCP disabled")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "ChatGPT" })).toBeVisible();
+  await expect(page.getByText("This v1 server is local stdio only")).toBeVisible();
+
+  await page.getByRole("button", { name: "Enable MCP" }).click();
+  const token = page.locator(".settings-token code");
+  await expect(token).toContainText("nxt_mcp_");
+  const firstToken = await token.textContent();
+  await expect(page.locator(".settings-snippet", { hasText: "Claude Desktop" })).toContainText("NEEXT_WORKBENCH_MCP_TOKEN");
+  await expect(page.locator(".settings-snippet", { hasText: "Cursor" })).toContainText("--workspace");
+  await expect(page.locator(".settings-snippet", { hasText: "Windsurf" })).toContainText("neext-workbench-mcp");
+
+  await page.getByRole("button", { name: "Regenerate Token" }).click();
+  await expect.poll(async () => token.textContent()).not.toBe(firstToken);
+
+  await page.getByRole("button", { name: "Disable MCP" }).click();
+  await expect(page.getByText("MCP disabled")).toBeVisible();
+  await expect(page.locator(".settings-snippet")).toHaveCount(0);
 });
 
 test("Models Import and Create commands remain title-only", async ({ page }) => {

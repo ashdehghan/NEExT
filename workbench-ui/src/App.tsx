@@ -27,6 +27,7 @@ import { Inspector } from "./components/panels/Inspector";
 import { JobsPanel } from "./components/panels/JobsPanel";
 import { CommandWindow } from "./components/panels/CommandWindow";
 import { CreateProjectView, ProjectsView } from "./pages/home/ProjectsPage";
+import { SettingsView } from "./pages/home/SettingsPage";
 import { ConfigureDatasetView, DatasetExploreView, DatasetLibraryView, ProjectDatasetsView } from "./pages/datasets/DatasetsPage";
 import { ConfigureFeatureView, FeatureExploreView, FeatureLibraryView, ProjectFeaturesView } from "./pages/features/FeaturesPage";
 import { ConfigureEmbeddingView, EmbeddingExploreView, EmbeddingLibraryView, ProjectEmbeddingsView } from "./pages/embeddings/EmbeddingsPage";
@@ -396,6 +397,7 @@ export default function App() {
 
   const refreshAll = useCallback(() => {
     queryClient.invalidateQueries({ queryKey: ["workspace"] });
+    queryClient.invalidateQueries({ queryKey: ["mcp-settings"] });
     queryClient.invalidateQueries({ queryKey: ["projects"] });
     queryClient.invalidateQueries({ queryKey: ["dataset-library"] });
     queryClient.invalidateQueries({ queryKey: ["feature-library"] });
@@ -1086,6 +1088,9 @@ export default function App() {
           onSelectProject={handleSelectProject}
         />
       );
+    }
+    if (route.topTab === "home" && route.command === "settings") {
+      return <SettingsView />;
     }
     if (route.topTab === "datasets" && route.command === "library" && configureDatasetCatalogId) {
       return (

@@ -647,3 +647,29 @@ class EmbeddingCatalogEntry(BaseModel):
     output: str
     operation_id: str
     operation_version: str
+
+
+class McpSettingsManifest(BaseModel):
+    schema_version: str = "1"
+    manifest_type: Literal["mcp_settings"] = "mcp_settings"
+    enabled: bool = False
+    token_hash: Optional[str] = None
+    token_preview: Optional[str] = None
+    created_at: str
+    updated_at: str
+
+
+class McpClientConfigSnippet(BaseModel):
+    client: str
+    label: str
+    target: str
+    content: str
+
+
+class McpSettingsResponse(BaseModel):
+    enabled: bool
+    token_preview: Optional[str] = None
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
+    one_time_token: Optional[str] = None
+    client_configs: list[McpClientConfigSnippet] = Field(default_factory=list)

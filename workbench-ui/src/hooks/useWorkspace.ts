@@ -5,6 +5,10 @@ export function useWorkspace() {
   return useQuery({ queryKey: ["workspace"], queryFn: api.workspace });
 }
 
+export function useMcpSettings() {
+  return useQuery({ queryKey: ["mcp-settings"], queryFn: api.mcpSettings });
+}
+
 export function useProjects() {
   return useQuery({ queryKey: ["projects"], queryFn: api.projects, refetchInterval: 60_000 });
 }
@@ -74,6 +78,7 @@ export function useInvalidateWorkspace() {
   const client = useQueryClient();
   return () => {
     client.invalidateQueries({ queryKey: ["workspace"] });
+    client.invalidateQueries({ queryKey: ["mcp-settings"] });
     client.invalidateQueries({ queryKey: ["projects"] });
     client.invalidateQueries({ queryKey: ["dataset-library"] });
     client.invalidateQueries({ queryKey: ["feature-library"] });

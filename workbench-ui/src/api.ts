@@ -498,6 +498,22 @@ export interface TabularPreview {
   total_rows: number;
 }
 
+export interface McpClientConfigSnippet {
+  client: string;
+  label: string;
+  target: string;
+  content: string;
+}
+
+export interface McpSettingsResponse {
+  enabled: boolean;
+  token_preview?: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+  one_time_token?: string | null;
+  client_configs: McpClientConfigSnippet[];
+}
+
 export type DatasetPreviewTable =
   | "nodes"
   | "edges"
@@ -616,6 +632,10 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
 export const api = {
   workspace: () => request<WorkspaceInfo>("/api/workspace"),
+  mcpSettings: () => request<McpSettingsResponse>("/api/mcp-settings"),
+  enableMcpSettings: () => request<McpSettingsResponse>("/api/mcp-settings/enable", { method: "POST" }),
+  regenerateMcpSettings: () => request<McpSettingsResponse>("/api/mcp-settings/regenerate", { method: "POST" }),
+  disableMcpSettings: () => request<McpSettingsResponse>("/api/mcp-settings/disable", { method: "POST" }),
   projects: () => request<ProjectManifest[]>("/api/projects"),
   project: (projectId: string) => request<ProjectManifest>(`/api/projects/${projectId}`),
   datasetLibrary: () => request<DatasetCatalogEntry[]>("/api/dataset-library"),
