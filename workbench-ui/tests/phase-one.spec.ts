@@ -685,8 +685,10 @@ test("Home commands switch center views", async ({ page }) => {
   await expect(page.locator(".document .title-only")).toHaveText("Import");
 
   await ribbon.getByRole("button", { name: "Settings" }).click();
+  const settingsSurface = page.locator(".settings-surface");
   await expect(page.getByRole("heading", { name: "Settings" })).toBeVisible();
-  await expect(page.getByText("Local MCP access for this Workbench workspace.")).toBeVisible();
+  await expect(settingsSurface.getByRole("button", { name: "General" })).toHaveClass(/is-active/);
+  await expect(settingsSurface).toContainText("No general settings yet.");
 
   await ribbon.getByRole("button", { name: "Help" }).click();
   await expect(page.locator(".document .title-only")).toHaveText("Help");
@@ -704,19 +706,40 @@ test("Home Settings enables, regenerates, and disables local MCP setup", async (
 
   const ribbon = page.locator(".ribbon");
   await ribbon.getByRole("button", { name: "Settings" }).click();
+  const settingsSurface = page.locator(".settings-surface");
 
   await expect(page.getByRole("heading", { name: "Settings" })).toBeVisible();
+  await expect(settingsSurface.getByRole("button", { name: "General" })).toHaveClass(/is-active/);
+  await expect(settingsSurface).toContainText("No general settings yet.");
+
+  await settingsSurface.getByRole("button", { name: "Agentic" }).click();
+  await expect(settingsSurface.getByRole("button", { name: "Agentic" })).toHaveClass(/is-active/);
   await expect(page.getByText("MCP disabled")).toBeVisible();
-  await expect(page.getByRole("heading", { name: "ChatGPT" })).toBeVisible();
-  await expect(page.getByText("This v1 server is local stdio only")).toBeVisible();
+  await expect(page.getByText('python3 -m pip install --upgrade "NEExT[workbench-mcp]"')).toBeVisible();
+  await expect(page.getByRole("heading", { name: "ChatGPT" })).toHaveCount(0);
 
   await page.getByRole("button", { name: "Enable MCP" }).click();
   const token = page.locator(".settings-token code");
   await expect(token).toContainText("nxt_mcp_");
   const firstToken = await token.textContent();
-  await expect(page.locator(".settings-snippet", { hasText: "Claude Desktop" })).toContainText("NEEXT_WORKBENCH_MCP_TOKEN");
-  await expect(page.locator(".settings-snippet", { hasText: "Cursor" })).toContainText("--workspace");
-  await expect(page.locator(".settings-snippet", { hasText: "Windsurf" })).toContainText("neext-workbench-mcp");
+  const configPanel = page.locator(".settings-configs");
+  const clientTabs = configPanel.locator(".settings-client-tabs");
+  await expect(clientTabs.getByRole("button", { name: "Claude Desktop", exact: true })).toHaveClass(/is-active/);
+  await expect(clientTabs.getByRole("button", { name: "Claude Code", exact: true })).toBeVisible();
+  await expect(clientTabs.getByRole("button", { name: "Cursor", exact: true })).toBeVisible();
+  await expect(clientTabs.getByRole("button", { name: "Windsurf", exact: true })).toBeVisible();
+  await expect(configPanel.locator(".settings-snippet")).toHaveCount(1);
+  await expect(configPanel.locator(".settings-snippet")).toContainText("neext-workbench-mcp");
+  await expect(configPanel.locator(".settings-snippet")).toContainText("--workspace");
+  await expect(configPanel.locator(".settings-snippet")).toContainText("NEEXT_WORKBENCH_MCP_TOKEN");
+
+  await clientTabs.getByRole("button", { name: "Cursor", exact: true }).click();
+  await expect(configPanel.locator(".settings-snippet")).toContainText("Cursor");
+  await expect(configPanel.locator(".settings-snippet")).toContainText(".cursor/mcp.json");
+
+  await clientTabs.getByRole("button", { name: "Windsurf", exact: true }).click();
+  await expect(configPanel.locator(".settings-snippet")).toContainText("Windsurf");
+  await expect(configPanel.locator(".settings-snippet")).toContainText("mcp_config.json");
 
   await page.getByRole("button", { name: "Regenerate Token" }).click();
   await expect.poll(async () => token.textContent()).not.toBe(firstToken);

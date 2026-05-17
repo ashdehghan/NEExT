@@ -553,12 +553,27 @@ input:focus, textarea:focus, select:focus {
 .settings-workflow {
   min-height: 0;
 }
-.settings-card {
-  flex: 0 0 auto;
+.settings-surface {
+  min-height: 0;
 }
-.settings-grid {
-  grid-template-columns: minmax(0, 1.15fr) minmax(260px, .85fr);
-  align-items: start;
+.settings-surface-head h3 {
+  margin: 0;
+  font: inherit;
+}
+.settings-tab-panel {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: var(--space-4);
+}
+.settings-general-panel {
+  display: grid;
+  place-items: center;
+}
+.settings-agentic-panel {
+  display: grid;
+  align-content: start;
+  gap: var(--space-3);
 }
 .settings-panel {
   display: grid;
@@ -636,31 +651,15 @@ input:focus, textarea:focus, select:focus {
   overflow-wrap: anywhere;
   color: var(--text);
 }
-.settings-link {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-2);
-  color: var(--neext-blue);
-  font-weight: 600;
-  text-decoration: none;
+.settings-client-tabs {
+  flex-wrap: wrap;
+  padding: 0;
+  border-bottom: 0;
+  background: transparent;
 }
-.settings-link:hover {
-  text-decoration: underline;
-}
-.settings-link svg {
-  width: 14px;
-  height: 14px;
-}
-.settings-configs {
-  flex: 1;
-  min-height: 0;
-}
-.settings-snippet-list {
-  min-height: 0;
-  overflow: auto;
-  display: grid;
-  gap: var(--space-3);
-  padding: var(--space-3);
+.settings-config-empty {
+  min-height: 120px;
+  padding: 0;
 }
 .settings-snippet {
   display: grid;
@@ -691,6 +690,9 @@ input:focus, textarea:focus, select:focus {
 }
 .settings-code code {
   white-space: pre;
+}
+.settings-install-code {
+  max-height: none;
 }
 .checkbox-field {
   display: flex;
@@ -1290,9 +1292,6 @@ input:focus, textarea:focus, select:focus {
   .desktop-right { display: none; }
   .feature-pca-control-band {
     grid-template-columns: auto minmax(220px, 1fr);
-  }
-  .settings-grid {
-    grid-template-columns: minmax(0, 1fr);
   }
   .feature-pca-status-group,
   .feature-pca-meta-group {
