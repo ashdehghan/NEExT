@@ -83,11 +83,12 @@ class DatasetManifest(BaseModel):
     status: Literal["planned", "running", "completed", "failed"] = "planned"
     created_at: str
     updated_at: str
-    source_type: Literal["neext_csv_bundle"] = "neext_csv_bundle"
+    source_type: Literal["neext_csv_bundle", "neext_single_graph_csv"] = "neext_csv_bundle"
     source_catalog_id: str
     source_name: str = ""
     source: str = ""
     source_domain: str = ""
+    source_graph_shape: Literal["graph_collection", "single_graph"] = "graph_collection"
     storage_format: Literal["neext-parquet-v1"] = "neext-parquet-v1"
     graph_shape: Literal["graph_collection"] = "graph_collection"
     inputs: list[ArtifactInputRef] = Field(default_factory=list)
@@ -107,12 +108,15 @@ class DatasetGraphSummary(BaseModel):
     node_count: int
     edge_count: int
     graph_label: Optional[Any] = None
+    source_node_id: Optional[str] = None
 
 
 class DatasetVisualNode(BaseModel):
     id: str
     label: str
     degree: int
+    source_node_id: Optional[str] = None
+    is_center: Optional[bool] = None
 
 
 class DatasetVisualEdge(BaseModel):
@@ -130,10 +134,22 @@ class DatasetGraphVisual(BaseModel):
     sample_reason: Optional[str] = None
 
 
+class DatasetEgonetMetadata(BaseModel):
+    source_graph_shape: Literal["single_graph"]
+    operation_id: str
+    operation_version: str
+    k_hop: int
+    node_selection: str
+    sample_fraction: float
+    random_seed: int
+    target_node_attribute: Optional[str] = None
+
+
 class DatasetAnalysis(BaseModel):
     dataset_id: str
     dataset_name: str
     dataset_status: Literal["completed"]
+    egonet_metadata: Optional[DatasetEgonetMetadata] = None
     source_stats: DatasetStats
     prepared_stats: DatasetStats
     dropped_node_count: int
@@ -177,7 +193,8 @@ class DatasetCatalogEntry(BaseModel):
     description: str = ""
     source: str
     domain: str
-    source_type: Literal["neext_csv_bundle"] = "neext_csv_bundle"
+    source_type: Literal["neext_csv_bundle", "neext_single_graph_csv"] = "neext_csv_bundle"
+    source_graph_shape: Literal["graph_collection", "single_graph"] = "graph_collection"
     graph_shape: Literal["graph_collection"] = "graph_collection"
     graph_count: int
     node_count: int
@@ -185,11 +202,18 @@ class DatasetCatalogEntry(BaseModel):
     has_graph_labels: bool
     has_node_features: bool
     has_edge_features: bool
+    node_attribute_columns: list[str] = Field(default_factory=list)
 
 
 class DatasetPrepareParams(BaseModel):
     graph_type: Literal["networkx", "igraph"] = "networkx"
     filter_largest_component: bool = True
+    k_hop: int = Field(default=1, ge=0, le=10)
+    node_selection: Literal["all_nodes", "sample_fraction", "specific_node_ids"] = "all_nodes"
+    sample_fraction: float = Field(default=1.0, ge=0.0, le=1.0)
+    random_seed: int = Field(default=13, ge=0)
+    source_node_ids: list[str] = Field(default_factory=list)
+    target_node_attribute: Optional[str] = None
 
 
 class DatasetCreateRequest(BaseModel):

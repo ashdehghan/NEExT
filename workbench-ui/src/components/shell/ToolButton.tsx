@@ -7,10 +7,11 @@ interface ToolButtonProps {
   onClick?: () => void;
   active?: boolean;
   command?: string;
+  disabled?: boolean;
 }
 
 export const ToolButton = forwardRef<HTMLButtonElement, ToolButtonProps>(function ToolButton(
-  { icon, label, onClick, active, command },
+  { icon, label, onClick, active, command, disabled },
   ref
 ) {
   return (
@@ -21,6 +22,7 @@ export const ToolButton = forwardRef<HTMLButtonElement, ToolButtonProps>(functio
       data-command={command}
       aria-pressed={Boolean(active)}
       onClick={onClick}
+      disabled={disabled}
       title={label}
       aria-label={label}
     >

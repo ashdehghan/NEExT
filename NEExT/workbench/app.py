@@ -238,7 +238,7 @@ def create_app(workspace_path: Optional[Union[str, Path]] = None):
         except Exception as exc:
             raise api_exception(exc) from exc
 
-    @app.get("/api/projects/{project_id}/datasets/{dataset_id}/analysis", response_model=DatasetAnalysis)
+    @app.get("/api/projects/{project_id}/datasets/{dataset_id}/analysis", response_model=DatasetAnalysis, response_model_exclude_none=True)
     def analyze_project_dataset(
         project_id: str,
         dataset_id: str,

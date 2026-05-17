@@ -117,6 +117,7 @@ export function Ribbon({ activeTab, activeCommand, onCommand }: RibbonProps) {
                 label={tool.label}
                 command={String(tool.command)}
                 active={tool.command === activeCommand}
+                disabled={activeTab === "home" && tool.command === "import"}
                 onClick={() => onCommand(tool.command)}
               />
             ))}

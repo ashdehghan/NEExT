@@ -509,6 +509,11 @@ export default function App() {
     setRoute({ topTab: "datasets", command: "library" });
   }, []);
 
+  const handleBackToDatasetLibrary = useCallback(() => {
+    setConfigureDatasetCatalogId("");
+    setRoute({ topTab: "datasets", command: "library" });
+  }, []);
+
   const handleSelectDataset = useCallback((datasetId: string) => {
     setSelectedDatasetId(datasetId);
     setSelectedCatalogId("");
@@ -1097,6 +1102,7 @@ export default function App() {
         <ConfigureDatasetView
           activeProjectId={activeProjectId}
           entry={configuredDatasetCatalogEntry}
+          onBack={handleBackToDatasetLibrary}
           onCreated={handleDatasetCreated}
         />
       );

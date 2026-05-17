@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Optional
 
 from .schemas import DatasetCatalogEntry
 
 CATALOG_SOURCE = "AnomalyPoint/NEExT_datasets"
 CSV_BUNDLE_BASE_URL = "https://raw.githubusercontent.com/AnomalyPoint/NEExT_datasets/refs/heads/main/real_world_networks/csv_format"
+WORKBENCH_CATALOG_SOURCE = "NEExT Workbench curated examples"
+CATALOG_DATA_DIR = Path(__file__).with_name("catalog_data")
 
 
 @dataclass(frozen=True)
@@ -23,7 +26,9 @@ class CatalogDataset:
     edge_count: int
     source: str = CATALOG_SOURCE
     source_type: str = "neext_csv_bundle"
+    source_graph_shape: str = "graph_collection"
     graph_shape: str = "graph_collection"
+    node_attribute_columns: tuple[str, ...] = ()
 
     def to_public_entry(self) -> DatasetCatalogEntry:
         return DatasetCatalogEntry(
@@ -32,14 +37,16 @@ class CatalogDataset:
             description=self.description,
             source=self.source,
             domain=self.domain,
-            source_type="neext_csv_bundle",
-            graph_shape="graph_collection",
+            source_type=self.source_type,
+            source_graph_shape=self.source_graph_shape,
+            graph_shape=self.graph_shape,
             graph_count=self.graph_count,
             node_count=self.node_count,
             edge_count=self.edge_count,
             has_graph_labels="graph_labels" in self.files,
-            has_node_features="node_features" in self.files,
+            has_node_features="node_features" in self.files or "nodes" in self.files and bool(self.node_attribute_columns),
             has_edge_features="edge_features" in self.files,
+            node_attribute_columns=list(self.node_attribute_columns),
         )
 
 
@@ -55,6 +62,14 @@ def _bundle_files(dataset: str, *, node_features: bool = False, edge_features: b
     if edge_features:
         files["edge_features"] = f"{base_url}/edge_features.csv"
     return files
+
+
+def _single_graph_files(dataset: str) -> dict[str, str]:
+    dataset_dir = CATALOG_DATA_DIR / dataset
+    return {
+        "nodes": str(dataset_dir / "nodes.csv"),
+        "edges": str(dataset_dir / "edges.csv"),
+    }
 
 
 DATASET_CATALOG: tuple[CatalogDataset, ...] = (
@@ -107,6 +122,20 @@ DATASET_CATALOG: tuple[CatalogDataset, ...] = (
         graph_count=1000,
         node_count=19773,
         edge_count=386124,
+    ),
+    CatalogDataset(
+        id="KARATE_CLUB",
+        name="Zachary Karate Club",
+        description="Single social network with node-level club labels for egonet graph classification workflows.",
+        domain="Social networks",
+        files=_single_graph_files("karate_club"),
+        graph_count=1,
+        node_count=34,
+        edge_count=78,
+        source=WORKBENCH_CATALOG_SOURCE,
+        source_type="neext_single_graph_csv",
+        source_graph_shape="single_graph",
+        node_attribute_columns=("club",),
     ),
 )
 

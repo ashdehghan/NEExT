@@ -30,6 +30,7 @@ interface DatasetLibraryViewProps {
 interface ConfigureDatasetViewProps {
   activeProjectId: string;
   entry?: DatasetCatalogEntry;
+  onBack: () => void;
   onCreated: (datasetId: string) => void;
 }
 
@@ -62,6 +63,21 @@ function formatCount(value: number): string {
 
 function catalogSize(entry: DatasetCatalogEntry): string {
   return `${formatCount(entry.graph_count)} graphs, ${formatCount(entry.node_count)} nodes, ${formatCount(entry.edge_count)} edges`;
+}
+
+function sourceTypeLabel(entry: DatasetCatalogEntry): string {
+  return entry.source_graph_shape === "single_graph" ? "Single Graph" : "Collection";
+}
+
+function sourceTypeClass(entry: DatasetCatalogEntry): string {
+  return entry.source_graph_shape === "single_graph" ? "is-single-graph" : "is-collection";
+}
+
+function parseSourceNodeIds(value: string): string[] {
+  return value
+    .split(/[\s,]+/)
+    .map((item) => item.trim())
+    .filter(Boolean);
 }
 
 function formatValue(value: unknown): string {
@@ -133,6 +149,7 @@ export function DatasetLibraryView({
               <thead>
                 <tr>
                   <th>Name</th>
+                  <th>Type</th>
                   <th>Source</th>
                   <th>Size</th>
                   <th>Status</th>
@@ -150,6 +167,9 @@ export function DatasetLibraryView({
                     >
                       <td>
                         <strong>{entry.name}</strong>
+                      </td>
+                      <td>
+                        <span className={`source-type-pill ${sourceTypeClass(entry)}`}>{sourceTypeLabel(entry)}</span>
                       </td>
                       <td className="muted">{entry.source}</td>
                       <td>{catalogSize(entry)}</td>
@@ -185,10 +205,16 @@ export function DatasetLibraryView({
   );
 }
 
-export function ConfigureDatasetView({ activeProjectId, entry, onCreated }: ConfigureDatasetViewProps) {
+export function ConfigureDatasetView({ activeProjectId, entry, onBack, onCreated }: ConfigureDatasetViewProps) {
   const queryClient = useQueryClient();
   const [graphType, setGraphType] = useState<"networkx" | "igraph">("networkx");
   const [filterLargestComponent, setFilterLargestComponent] = useState(true);
+  const [kHop, setKHop] = useState(1);
+  const [nodeSelection, setNodeSelection] = useState<"all_nodes" | "sample_fraction" | "specific_node_ids">("all_nodes");
+  const [sampleFraction, setSampleFraction] = useState(1);
+  const [randomSeed, setRandomSeed] = useState(13);
+  const [sourceNodeIdsText, setSourceNodeIdsText] = useState("");
+  const [targetNodeAttribute, setTargetNodeAttribute] = useState("");
 
   const createDataset = useMutation({
     mutationFn: (payload: DatasetCreatePayload) => api.createDataset(activeProjectId, payload),
@@ -210,7 +236,13 @@ export function ConfigureDatasetView({ activeProjectId, entry, onCreated }: Conf
     );
   }
 
-  const canSave = Boolean(activeProjectId && !createDataset.isPending);
+  const sourceNodeIds = parseSourceNodeIds(sourceNodeIdsText);
+  const isSingleGraph = entry.source_graph_shape === "single_graph";
+  const canSave = Boolean(
+    activeProjectId &&
+      !createDataset.isPending &&
+      (!isSingleGraph || nodeSelection !== "specific_node_ids" || sourceNodeIds.length > 0)
+  );
 
   return (
     <form
@@ -218,13 +250,29 @@ export function ConfigureDatasetView({ activeProjectId, entry, onCreated }: Conf
       onSubmit={(event) => {
         event.preventDefault();
         if (!canSave) return;
-        createDataset.mutate({
-          catalog_id: entry.id,
-          params: {
-            graph_type: graphType,
-            filter_largest_component: filterLargestComponent
-          }
-        });
+        if (isSingleGraph) {
+          createDataset.mutate({
+            catalog_id: entry.id,
+            params: {
+              graph_type: "networkx",
+              filter_largest_component: false,
+              k_hop: kHop,
+              node_selection: nodeSelection,
+              sample_fraction: nodeSelection === "sample_fraction" ? sampleFraction : 1,
+              random_seed: randomSeed,
+              source_node_ids: nodeSelection === "specific_node_ids" ? sourceNodeIds : [],
+              target_node_attribute: targetNodeAttribute || null
+            }
+          });
+        } else {
+          createDataset.mutate({
+            catalog_id: entry.id,
+            params: {
+              graph_type: graphType,
+              filter_largest_component: filterLargestComponent
+            }
+          });
+        }
       }}
     >
       <header className="card-head">
@@ -239,29 +287,123 @@ export function ConfigureDatasetView({ activeProjectId, entry, onCreated }: Conf
       <div className="card-body">
         {createDataset.error ? <p className="error-text">{createDataset.error.message}</p> : null}
         {!activeProjectId ? <p className="muted form-note">An active project is required.</p> : null}
-        <div className="field-grid">
-          <label className="field">
-            <span>Graph Backend</span>
-            <select value={graphType} onChange={(event) => setGraphType(event.target.value as "networkx" | "igraph")}>
-              <option value="networkx">networkx</option>
-              <option value="igraph">igraph</option>
-            </select>
-          </label>
-          <label className="checkbox-field">
-            <input
-              type="checkbox"
-              checked={filterLargestComponent}
-              onChange={(event) => setFilterLargestComponent(event.target.checked)}
-            />
-            <span>Filter Largest Component</span>
-          </label>
-          <label className="checkbox-field">
-            <input type="checkbox" checked readOnly />
-            <span>Reindex Nodes</span>
-          </label>
-        </div>
+        {isSingleGraph ? (
+          <>
+            <div className="stat-grid compact-stat-grid">
+              <div className="stat-tile">
+                <span>Type</span>
+                <strong>Single Graph</strong>
+                <small>{entry.domain}</small>
+              </div>
+              <div className="stat-tile">
+                <span>Nodes</span>
+                <strong>{formatCount(entry.node_count)}</strong>
+                <small>{formatCount(entry.edge_count)} edges</small>
+              </div>
+              <div className="stat-tile">
+                <span>Node Attributes</span>
+                <strong>{formatCount(entry.node_attribute_columns.length)}</strong>
+                <small>{entry.node_attribute_columns.length ? entry.node_attribute_columns.join(", ") : "None"}</small>
+              </div>
+            </div>
+            <div className="field-grid">
+              <label className="field">
+                <span>K-Hop</span>
+                <input
+                  type="number"
+                  min={0}
+                  max={10}
+                  value={kHop}
+                  onChange={(event) => setKHop(Number(event.target.value))}
+                />
+              </label>
+              <label className="field">
+                <span>Node Selection</span>
+                <select
+                  value={nodeSelection}
+                  onChange={(event) => setNodeSelection(event.target.value as "all_nodes" | "sample_fraction" | "specific_node_ids")}
+                >
+                  <option value="all_nodes">All nodes</option>
+                  <option value="sample_fraction">Sample fraction</option>
+                  <option value="specific_node_ids">Specific node IDs</option>
+                </select>
+              </label>
+              <label className="field">
+                <span>Target Attribute</span>
+                <select value={targetNodeAttribute} onChange={(event) => setTargetNodeAttribute(event.target.value)}>
+                  <option value="">None</option>
+                  {entry.node_attribute_columns.map((column) => (
+                    <option key={column} value={column}>
+                      {column}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              {nodeSelection === "sample_fraction" ? (
+                <>
+                  <label className="field">
+                    <span>Sample Fraction</span>
+                    <input
+                      type="number"
+                      min={0.01}
+                      max={1}
+                      step={0.01}
+                      value={sampleFraction}
+                      onChange={(event) => setSampleFraction(Number(event.target.value))}
+                    />
+                  </label>
+                  <label className="field">
+                    <span>Random Seed</span>
+                    <input
+                      type="number"
+                      min={0}
+                      value={randomSeed}
+                      onChange={(event) => setRandomSeed(Number(event.target.value))}
+                    />
+                  </label>
+                </>
+              ) : null}
+              {nodeSelection === "specific_node_ids" ? (
+                <label className="field field-wide">
+                  <span>Source Node IDs</span>
+                  <textarea
+                    value={sourceNodeIdsText}
+                    onChange={(event) => setSourceNodeIdsText(event.target.value)}
+                    rows={4}
+                  />
+                </label>
+              ) : null}
+            </div>
+          </>
+        ) : (
+          <div className="field-grid">
+            <label className="field">
+              <span>Graph Backend</span>
+              <select value={graphType} onChange={(event) => setGraphType(event.target.value as "networkx" | "igraph")}>
+                <option value="networkx">networkx</option>
+                <option value="igraph">igraph</option>
+              </select>
+            </label>
+            <label className="checkbox-field">
+              <input
+                type="checkbox"
+                checked={filterLargestComponent}
+                onChange={(event) => setFilterLargestComponent(event.target.checked)}
+              />
+              <span>Filter Largest Component</span>
+            </label>
+            <label className="checkbox-field">
+              <input type="checkbox" checked readOnly />
+              <span>Reindex Nodes</span>
+            </label>
+          </div>
+        )}
       </div>
       <footer className="card-foot">
+        <button type="button" className="btn" onClick={onBack}>
+          <ChevronLeft />
+          Back
+        </button>
         <button type="submit" className="btn btn-primary" disabled={!canSave}>
           <Save />
           {createDataset.isPending ? "Saving" : "Save"}
@@ -439,8 +581,11 @@ function DatasetGraphChart({
         trigger: "item",
         formatter: (params) => {
           const item = Array.isArray(params) ? params[0] : params;
-          const data = item.data as { name?: string; value?: number };
-          return data.name ? `${data.name}<br/>Degree: ${data.value ?? 0}` : "";
+          const data = item.data as { name?: string; value?: number; sourceNodeId?: string | null; isCenter?: boolean | null };
+          if (!data.name) return "";
+          const sourceLine = data.sourceNodeId && !data.isCenter ? `<br/>Source node: ${data.sourceNodeId}` : "";
+          const centerLine = data.isCenter ? `<br/>Center source node: ${data.sourceNodeId || data.name}` : "";
+          return `${data.name}<br/>Degree: ${data.value ?? 0}${sourceLine}${centerLine}`;
         }
       },
       series: [
@@ -455,13 +600,22 @@ function DatasetGraphChart({
             color: "#34424c",
             fontSize: 10
           },
-          data: visual.nodes.map((node) => ({
-            id: node.id,
-            name: node.label,
-            value: node.degree,
-            symbolSize: 9 + (node.degree / maxDegree) * 18,
-            itemStyle: { color: "#176ea9" }
-          })),
+          data: visual.nodes.map((node) => {
+            const isCenter = Boolean(node.is_center);
+            return {
+              id: node.id,
+              name: node.label,
+              value: node.degree,
+              sourceNodeId: node.source_node_id,
+              isCenter,
+              symbolSize: 9 + (node.degree / maxDegree) * 18 + (isCenter ? 8 : 0),
+              itemStyle: {
+                color: isCenter ? "#f28c28" : "#176ea9",
+                borderColor: isCenter ? "#8f3e00" : "#ffffff",
+                borderWidth: isCenter ? 2.5 : 1
+              }
+            };
+          }),
           links: visual.edges.map((edge) => ({ source: edge.source, target: edge.target })),
           lineStyle: {
             color: "#8a98a6",
@@ -470,7 +624,7 @@ function DatasetGraphChart({
           },
           emphasis: {
             focus: "adjacency",
-            itemStyle: { color: "#d86c1f" },
+            itemStyle: { color: "#f28c28", borderColor: "#7a3300", borderWidth: 3 },
             lineStyle: { width: 2 }
           },
           force: {
@@ -825,42 +979,157 @@ export function DatasetExploreView({
         ) : null}
         {tab === "statistics" && analysis.data ? (
           <div className="dataset-tab-panel">
-            <div className="stat-grid">
-              <div className="stat-tile">
-                <span>Graphs</span>
-                <strong>{formatCount(analysis.data.prepared_stats.graph_count)}</strong>
-                <small>Source {formatCount(analysis.data.source_stats.graph_count)}</small>
+            {analysis.data.egonet_metadata ? (
+              <>
+                <section className="dataset-stats-section">
+                  <h3>Source Graph</h3>
+                  <div className="stat-grid">
+                    <div className="stat-tile">
+                      <span>Graphs</span>
+                      <strong>{formatCount(analysis.data.source_stats.graph_count)}</strong>
+                      <small>Single graph source</small>
+                    </div>
+                    <div className="stat-tile">
+                      <span>Nodes</span>
+                      <strong>{formatCount(analysis.data.source_stats.node_count)}</strong>
+                      <small>Original source nodes</small>
+                    </div>
+                    <div className="stat-tile">
+                      <span>Edges</span>
+                      <strong>{formatCount(analysis.data.source_stats.edge_count)}</strong>
+                      <small>Original source edges</small>
+                    </div>
+                  </div>
+                </section>
+                <section className="dataset-stats-section">
+                  <h3>Prepared Egonet Collection</h3>
+                  <div className="stat-grid">
+                    <div className="stat-tile">
+                      <span>Egonets</span>
+                      <strong>{formatCount(analysis.data.prepared_stats.graph_count)}</strong>
+                      <small>Downstream graph collection</small>
+                    </div>
+                    <div className="stat-tile">
+                      <span>Node Memberships</span>
+                      <strong>{formatCount(analysis.data.prepared_stats.node_count)}</strong>
+                      <small>Nodes can repeat across egonets</small>
+                    </div>
+                    <div className="stat-tile">
+                      <span>Edge Memberships</span>
+                      <strong>{formatCount(analysis.data.prepared_stats.edge_count)}</strong>
+                      <small>Prepared egonet edges</small>
+                    </div>
+                    <div className="stat-tile">
+                      <span>Dropped Source Nodes</span>
+                      <strong>{formatCount(analysis.data.dropped_node_count)}</strong>
+                      <small>Selection or preparation filter</small>
+                    </div>
+                    <div className="stat-tile">
+                      <span>Nodes / Egonet</span>
+                      <strong>{formatAverage(analysis.data.prepared_stats.node_count, analysis.data.prepared_stats.graph_count)}</strong>
+                      <small>
+                        {formatCount(Math.min(...graphCounts))} min / {formatCount(Math.max(...graphCounts))} max
+                      </small>
+                    </div>
+                    <div className="stat-tile">
+                      <span>Edges / Egonet</span>
+                      <strong>{formatAverage(analysis.data.prepared_stats.edge_count, analysis.data.prepared_stats.graph_count)}</strong>
+                      <small>
+                        {formatCount(Math.min(...edgeCounts))} min / {formatCount(Math.max(...edgeCounts))} max
+                      </small>
+                    </div>
+                  </div>
+                  <p className="table-note">
+                    Prepared node counts are egonet memberships; the same source node can appear in multiple prepared egonets.
+                  </p>
+                </section>
+                <div className="dataset-detail-grid">
+                  <section>
+                    <h3>Egonet Generation</h3>
+                    <table className="tbl compact-tbl">
+                      <tbody>
+                        <tr>
+                          <th>Operation</th>
+                          <td>{analysis.data.egonet_metadata.operation_id}</td>
+                        </tr>
+                        <tr>
+                          <th>Version</th>
+                          <td>{analysis.data.egonet_metadata.operation_version}</td>
+                        </tr>
+                        <tr>
+                          <th>K-Hop</th>
+                          <td>{formatCount(analysis.data.egonet_metadata.k_hop)}</td>
+                        </tr>
+                        <tr>
+                          <th>Node Selection</th>
+                          <td>{analysis.data.egonet_metadata.node_selection.replace(/_/g, " ")}</td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </section>
+                  <section>
+                    <h3>Selection Parameters</h3>
+                    <table className="tbl compact-tbl">
+                      <tbody>
+                        <tr>
+                          <th>Sample Fraction</th>
+                          <td>{analysis.data.egonet_metadata.sample_fraction}</td>
+                        </tr>
+                        <tr>
+                          <th>Random Seed</th>
+                          <td>{analysis.data.egonet_metadata.random_seed}</td>
+                        </tr>
+                        <tr>
+                          <th>Target Attribute</th>
+                          <td>{formatValue(analysis.data.egonet_metadata.target_node_attribute)}</td>
+                        </tr>
+                        <tr>
+                          <th>Source Shape</th>
+                          <td>single graph</td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </section>
+                </div>
+              </>
+            ) : (
+              <div className="stat-grid">
+                <div className="stat-tile">
+                  <span>Graphs</span>
+                  <strong>{formatCount(analysis.data.prepared_stats.graph_count)}</strong>
+                  <small>Source {formatCount(analysis.data.source_stats.graph_count)}</small>
+                </div>
+                <div className="stat-tile">
+                  <span>Nodes</span>
+                  <strong>{formatCount(analysis.data.prepared_stats.node_count)}</strong>
+                  <small>Source {formatCount(analysis.data.source_stats.node_count)}</small>
+                </div>
+                <div className="stat-tile">
+                  <span>Edges</span>
+                  <strong>{formatCount(analysis.data.prepared_stats.edge_count)}</strong>
+                  <small>Source {formatCount(analysis.data.source_stats.edge_count)}</small>
+                </div>
+                <div className="stat-tile">
+                  <span>Dropped Nodes</span>
+                  <strong>{formatCount(analysis.data.dropped_node_count)}</strong>
+                  <small>Preparation filter</small>
+                </div>
+                <div className="stat-tile">
+                  <span>Nodes / Graph</span>
+                  <strong>{formatAverage(analysis.data.prepared_stats.node_count, analysis.data.prepared_stats.graph_count)}</strong>
+                  <small>
+                    {formatCount(Math.min(...graphCounts))} min / {formatCount(Math.max(...graphCounts))} max
+                  </small>
+                </div>
+                <div className="stat-tile">
+                  <span>Edges / Graph</span>
+                  <strong>{formatAverage(analysis.data.prepared_stats.edge_count, analysis.data.prepared_stats.graph_count)}</strong>
+                  <small>
+                    {formatCount(Math.min(...edgeCounts))} min / {formatCount(Math.max(...edgeCounts))} max
+                  </small>
+                </div>
               </div>
-              <div className="stat-tile">
-                <span>Nodes</span>
-                <strong>{formatCount(analysis.data.prepared_stats.node_count)}</strong>
-                <small>Source {formatCount(analysis.data.source_stats.node_count)}</small>
-              </div>
-              <div className="stat-tile">
-                <span>Edges</span>
-                <strong>{formatCount(analysis.data.prepared_stats.edge_count)}</strong>
-                <small>Source {formatCount(analysis.data.source_stats.edge_count)}</small>
-              </div>
-              <div className="stat-tile">
-                <span>Dropped Nodes</span>
-                <strong>{formatCount(analysis.data.dropped_node_count)}</strong>
-                <small>Preparation filter</small>
-              </div>
-              <div className="stat-tile">
-                <span>Nodes / Graph</span>
-                <strong>{formatAverage(analysis.data.prepared_stats.node_count, analysis.data.prepared_stats.graph_count)}</strong>
-                <small>
-                  {formatCount(Math.min(...graphCounts))} min / {formatCount(Math.max(...graphCounts))} max
-                </small>
-              </div>
-              <div className="stat-tile">
-                <span>Edges / Graph</span>
-                <strong>{formatAverage(analysis.data.prepared_stats.edge_count, analysis.data.prepared_stats.graph_count)}</strong>
-                <small>
-                  {formatCount(Math.min(...edgeCounts))} min / {formatCount(Math.max(...edgeCounts))} max
-                </small>
-              </div>
-            </div>
+            )}
             <div className="dataset-detail-grid">
               <section>
                 <h3>Graph Labels</h3>
@@ -895,27 +1164,54 @@ export function DatasetExploreView({
         ) : null}
         {tab === "graph" && analysis.data ? (
           <div className="dataset-tab-panel graph-tab-panel" tabIndex={0} onKeyDown={handleGraphKeyDown} aria-label="Dataset graph view">
-            <div className="table-toolbar dataset-table-toolbar dataset-graph-toolbar">
-              <button
-                type="button"
-                className="icon-btn graph-nav-btn"
-                aria-label="Previous graph"
-                title="Previous graph"
-                onClick={() => selectGraphByIndex(selectedGraphIndex - 1)}
-                disabled={selectedGraphIndex <= 0}
-              >
-                <ChevronLeft />
-              </button>
-              <button
-                type="button"
-                className="icon-btn graph-nav-btn"
-                aria-label="Next graph"
-                title="Next graph"
-                onClick={() => selectGraphByIndex(selectedGraphIndex + 1)}
-                disabled={selectedGraphIndex < 0 || selectedGraphIndex >= graphSummaries.length - 1}
-              >
-                <ChevronRight />
-              </button>
+            <div className="dataset-graph-header">
+              <div className="graph-nav-group">
+                <button
+                  type="button"
+                  className="icon-btn graph-nav-btn"
+                  aria-label="Previous graph"
+                  title="Previous graph"
+                  onClick={() => selectGraphByIndex(selectedGraphIndex - 1)}
+                  disabled={selectedGraphIndex <= 0}
+                >
+                  <ChevronLeft />
+                </button>
+                <button
+                  type="button"
+                  className="icon-btn graph-nav-btn"
+                  aria-label="Next graph"
+                  title="Next graph"
+                  onClick={() => selectGraphByIndex(selectedGraphIndex + 1)}
+                  disabled={selectedGraphIndex < 0 || selectedGraphIndex >= graphSummaries.length - 1}
+                >
+                  <ChevronRight />
+                </button>
+                <span className="graph-position">
+                  {selectedGraphIndex >= 0 ? `${selectedGraphIndex + 1} / ${formatCount(graphSummaries.length)}` : ""}
+                </span>
+              </div>
+              <div className="graph-summary-band">
+                {selectedSummary ? (
+                  <>
+                    <span className="graph-id-badge mono">Graph {selectedSummary.graph_id}</span>
+                    <span className="graph-meta-badge">{formatCount(selectedSummary.node_count)} nodes</span>
+                    <span className="graph-meta-badge">{formatCount(selectedSummary.edge_count)} edges</span>
+                    {selectedSummary.graph_label != null ? (
+                      <span className="graph-label-badge">Label {formatValue(selectedSummary.graph_label)}</span>
+                    ) : null}
+                    {selectedSummary.source_node_id ? (
+                      <span className="graph-center-badge">Center Source Node {selectedSummary.source_node_id}</span>
+                    ) : null}
+                    {analysis.data.egonet_metadata ? (
+                      <span className="graph-meta-badge">{formatCount(analysis.data.egonet_metadata.k_hop)}-hop egonet</span>
+                    ) : null}
+                    {analysis.data.egonet_metadata?.target_node_attribute ? (
+                      <span className="graph-meta-badge">Target {analysis.data.egonet_metadata.target_node_attribute}</span>
+                    ) : null}
+                  </>
+                ) : null}
+                {analysis.data.visual.sampled ? <span className="status-pill is-idle">sampled</span> : null}
+              </div>
               <label className="field graph-search-field">
                 <span>Search</span>
                 <div className="graph-search-input">
@@ -928,16 +1224,6 @@ export function DatasetExploreView({
                   />
                 </div>
               </label>
-              {analysis.data.visual.sampled ? <span className="status-pill is-idle">sampled</span> : null}
-              <span className="muted dataset-page-count">
-                {selectedSummary
-                  ? `Graph ${selectedGraphIndex + 1} of ${formatCount(graphSummaries.length)} · ${
-                      selectedSummary.graph_id
-                    } · ${formatCount(selectedSummary.node_count)} nodes · ${formatCount(selectedSummary.edge_count)} edges · label ${formatValue(
-                      selectedSummary.graph_label
-                    )}`
-                  : null}
-              </span>
             </div>
             {trimmedGraphSearch ? (
               <div className="graph-search-results" role="listbox" aria-label="Graph search results">

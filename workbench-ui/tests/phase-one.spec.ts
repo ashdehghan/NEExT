@@ -681,8 +681,8 @@ test("Home commands switch center views", async ({ page }) => {
   await page.goto("/");
 
   const ribbon = page.locator(".ribbon");
-  await ribbon.getByRole("button", { name: "Import" }).click();
-  await expect(page.locator(".document .title-only")).toHaveText("Import");
+  await expect(ribbon.getByRole("button", { name: "Import" })).toBeDisabled();
+  await expect(page.locator(".artifact-table-title")).toContainText("Projects");
 
   await ribbon.getByRole("button", { name: "Settings" }).click();
   const settingsSurface = page.locator(".settings-surface");
@@ -979,6 +979,73 @@ test("Embedding Explore shows statistics, PCA, data, and graph inspector details
   await expect(exploreView).toContainText("Dimensions");
 });
 
+test("Dataset Library configures single graph egonet datasets", async ({ page }) => {
+  test.setTimeout(60_000);
+  await page.goto("/");
+
+  const projectName = `Single Graph Dataset ${Date.now()}`;
+  const ribbon = page.locator(".ribbon");
+  await createProject(page, projectName, "single graph egonet flow");
+  await expect(page.locator(".selection-panel .sel-item-name", { hasText: projectName })).toBeVisible();
+
+  await page.getByRole("button", { name: "DATASETS" }).click();
+  await ribbon.getByRole("button", { name: "Library" }).click();
+  await expect(page.locator(".artifact-table .tbl thead th")).toHaveText(["Name", "Type", "Source", "Size", "Status", "Actions"]);
+  const karateCatalogRow = page.locator("table tbody tr", { hasText: "Zachary Karate Club" }).first();
+  const inspector = page.locator(".inspector-panel");
+  await expect(karateCatalogRow).toBeVisible();
+  await expect(karateCatalogRow).toContainText("Single Graph");
+  await karateCatalogRow.click();
+  await expect(inspector).toContainText("Catalog Dataset Details");
+  await expect(inspector).toContainText("Single Graph");
+  await expect(inspector).toContainText("club");
+
+  await karateCatalogRow.getByRole("button", { name: "Configure" }).click();
+  await expect(page.getByRole("heading", { name: "Configure Zachary Karate Club" })).toBeVisible();
+  await expect(page.getByLabel("K-Hop")).toHaveValue("1");
+  await expect(page.getByLabel("Node Selection")).toHaveValue("all_nodes");
+  await expect(page.getByLabel("Target Attribute")).toContainText("club");
+  await page.getByRole("button", { name: "Back" }).click();
+  await expect(page.locator(".artifact-table-title")).toContainText("Dataset Library");
+  await expect(karateCatalogRow).toBeVisible();
+
+  await karateCatalogRow.getByRole("button", { name: "Configure" }).click();
+  await page.getByLabel("Target Attribute").selectOption("club");
+  await page.locator(".card-foot").getByRole("button", { name: "Save" }).click();
+  await expect(page.locator(".sel-section", { hasText: "Datasets" }).locator(".sel-count")).toHaveText("1");
+
+  const datasetRow = page.locator("table tbody tr", { hasText: "Zachary Karate Club" }).first();
+  await expect(datasetRow).toBeVisible();
+  await expect(datasetRow).toContainText("planned");
+  await datasetRow.getByRole("button", { name: "Run" }).click();
+  await expect(page.locator(".cmd")).toContainText("Computing 1-hop egonets for Zachary Karate Club", { timeout: 20_000 });
+  await expect(datasetRow.locator(".status-pill")).toHaveText("completed", { timeout: 30_000 });
+  await datasetRow.getByRole("button", { name: "Preview" }).click();
+
+  const exploreView = page.locator(".dataset-explore");
+  await expect(page.locator(".artifact-table-title")).toContainText("Zachary Karate Club Explore");
+  await expect(exploreView.getByRole("button", { name: "Statistics", exact: true })).toHaveClass(/is-active/);
+  await expect(exploreView).toContainText("Source Graph");
+  await expect(exploreView).toContainText("Prepared Egonet Collection");
+  await expect(exploreView).toContainText("Egonet Generation");
+  await expect(exploreView).toContainText("Target Attribute");
+  await expect(exploreView).toContainText("Graph Labels");
+  await exploreView.getByRole("button", { name: "Graph", exact: true }).click();
+  await expect(exploreView.getByLabel("Search graphs and nodes")).toBeVisible();
+  await expect(exploreView.locator(".graph-label-badge")).toContainText("Label");
+  await expect(exploreView.locator(".graph-center-badge")).toContainText("Center Source Node");
+  await expect(exploreView.locator(".graph-meta-badge", { hasText: "1-hop egonet" })).toBeVisible();
+  await expect(exploreView.locator(".graph-meta-badge", { hasText: "Target club" })).toBeVisible();
+  const firstCenterBadge = await exploreView.locator(".graph-center-badge").textContent();
+  await exploreView.getByRole("button", { name: "Next graph" }).click();
+  await expect.poll(async () => exploreView.locator(".graph-center-badge").textContent()).not.toBe(firstCenterBadge);
+  await exploreView.getByRole("button", { name: "Data", exact: true }).click();
+  await page.getByLabel("Dataset table").selectOption("graph_labels");
+  await expect(page.locator(".artifact-table .tbl thead")).toContainText("graph_label");
+  await page.getByLabel("Dataset table").selectOption("graph_mapping");
+  await expect(page.locator(".artifact-table .tbl thead")).toContainText("source_node_id");
+});
+
 test("Datasets and Features run through planned artifacts and jobs", async ({ page }) => {
   test.setTimeout(120_000);
   await page.goto("/");
@@ -1001,7 +1068,7 @@ test("Datasets and Features run through planned artifacts and jobs", async ({ pa
   await page.getByRole("button", { name: "DATASETS" }).click();
   ribbon = page.locator(".ribbon");
   await ribbon.getByRole("button", { name: "Library" }).click();
-  await expect(page.locator(".artifact-table .tbl thead th")).toHaveText(["Name", "Source", "Size", "Status", "Actions"]);
+  await expect(page.locator(".artifact-table .tbl thead th")).toHaveText(["Name", "Type", "Source", "Size", "Status", "Actions"]);
   const mutagCatalogRow = page.locator("table tbody tr", { hasText: "MUTAG" }).first();
   const inspector = page.locator(".inspector-panel");
   await expect(mutagCatalogRow).toBeVisible();

@@ -29,6 +29,7 @@ from .schemas import (
     DatasetCatalogEntry,
     DatasetCreateRequest,
     DatasetDataFiles,
+    DatasetEgonetMetadata,
     DatasetGraphSearchResponse,
     DatasetGraphSearchResult,
     DatasetGraphSummary,
@@ -109,6 +110,7 @@ JOB_MANIFEST_TYPE = "job"
 MCP_SETTINGS_MANIFEST_TYPE = "mcp_settings"
 ARTIFACT_KINDS = ("datasets", "features", "embeddings", "models")
 DATASET_PREP_OPERATION_ID = "neext.prepare_graph_collection"
+DATASET_EGONET_PREP_OPERATION_ID = "neext.prepare_single_graph_egonets"
 DATASET_PREP_OPERATION_VERSION = "1"
 FEATURE_ANALYSIS_DEFAULT_MAX_FIT_ROWS = 5000
 FEATURE_ANALYSIS_DEFAULT_MAX_POINTS = 5000
@@ -796,6 +798,33 @@ class WorkbenchStore:
         artifact_path.mkdir(parents=True, exist_ok=False)
 
         try:
+            params = request.params
+            if catalog.source_graph_shape == "single_graph":
+                operation = OperationSpec(
+                    operation_id=DATASET_EGONET_PREP_OPERATION_ID,
+                    operation_version=DATASET_PREP_OPERATION_VERSION,
+                    params={
+                        "graph_type": "networkx",
+                        "reindex_nodes": True,
+                        "filter_largest_component": False,
+                        "k_hop": params.k_hop,
+                        "node_selection": params.node_selection,
+                        "sample_fraction": params.sample_fraction,
+                        "random_seed": params.random_seed,
+                        "source_node_ids": params.source_node_ids,
+                        "target_node_attribute": params.target_node_attribute,
+                    },
+                )
+            else:
+                operation = OperationSpec(
+                    operation_id=DATASET_PREP_OPERATION_ID,
+                    operation_version=DATASET_PREP_OPERATION_VERSION,
+                    params={
+                        "graph_type": params.graph_type,
+                        "reindex_nodes": True,
+                        "filter_largest_component": params.filter_largest_component,
+                    },
+                )
             now = utc_now()
             manifest = DatasetManifest(
                 id=dataset_id,
@@ -809,21 +838,15 @@ class WorkbenchStore:
                 source_name=catalog.name,
                 source=catalog.source,
                 source_domain=catalog.domain,
-                operation=OperationSpec(
-                    operation_id=DATASET_PREP_OPERATION_ID,
-                    operation_version=DATASET_PREP_OPERATION_VERSION,
-                    params={
-                        "graph_type": request.params.graph_type,
-                        "reindex_nodes": True,
-                        "filter_largest_component": request.params.filter_largest_component,
-                    },
-                ),
+                source_type=catalog.source_type,
+                source_graph_shape=catalog.source_graph_shape,
+                operation=operation,
                 source_stats=DatasetStats(
                     graph_count=catalog.graph_count,
                     node_count=catalog.node_count,
                     edge_count=catalog.edge_count,
                     has_graph_labels="graph_labels" in catalog.files,
-                    has_node_features="node_features" in catalog.files,
+                    has_node_features="node_features" in catalog.files or "nodes" in catalog.files and bool(catalog.node_attribute_columns),
                     has_edge_features="edge_features" in catalog.files,
                 ),
             )
@@ -1004,6 +1027,18 @@ class WorkbenchStore:
             if catalog is None:
                 raise FileNotFoundError(f"Dataset catalog entry not found: {dataset.source_catalog_id}")
 
+            if dataset.operation.operation_id == DATASET_EGONET_PREP_OPERATION_ID:
+                return self._prepare_single_graph_egonet_dataset(
+                    project_id=project_id,
+                    dataset=dataset,
+                    catalog=catalog,
+                    job_id=job_id,
+                    tmp_path=tmp_path,
+                    artifact_path=artifact_path,
+                )
+            if dataset.operation.operation_id != DATASET_PREP_OPERATION_ID:
+                raise ValueError(f"Unsupported dataset preparation operation: {dataset.operation.operation_id}")
+
             self._log_job(project_id, job_id, f"Preparing dataset {dataset.name}")
             frames = self._read_catalog_frames(catalog.files)
             nodes_df, edges_df = self._normalized_nodes_and_edges(frames["node_graph_mapping"], frames["edges"])
@@ -1073,6 +1108,104 @@ class WorkbenchStore:
         finally:
             shutil.rmtree(tmp_path, ignore_errors=True)
 
+    def _prepare_single_graph_egonet_dataset(
+        self,
+        *,
+        project_id: str,
+        dataset: DatasetManifest,
+        catalog,
+        job_id: str,
+        tmp_path: Path,
+        artifact_path: Path,
+    ) -> DatasetManifest:
+        import pandas as pd
+
+        from NEExT.collections import EgonetCollection
+
+        params = dataset.operation.params
+        self._log_job(project_id, job_id, f"Preparing dataset {dataset.name}")
+        frames = self._read_single_graph_catalog_frames(catalog.files)
+        nodes_df, edges_df, node_features_df, edge_features_df = self._single_graph_source_frames(catalog.id, frames)
+
+        target_attribute = params.get("target_node_attribute") or None
+        node_attribute_columns = [] if node_features_df is None else [column for column in node_features_df.columns if column != "node_id"]
+        if target_attribute is not None and target_attribute not in node_attribute_columns:
+            raise ValueError(f"Unknown target node attribute: {target_attribute}")
+        if target_attribute is not None and node_features_df is not None:
+            target_rows = node_features_df.loc[:, ["node_id", target_attribute]]
+            missing_target_nodes = set(nodes_df["node_id"]) - set(target_rows.dropna(subset=[target_attribute])["node_id"])
+            if missing_target_nodes:
+                raise ValueError(f"Target node attribute {target_attribute} is missing values for one or more source nodes")
+
+        raw_files = self._write_raw_dataset_snapshot(
+            tmp_path / "raw",
+            nodes_df,
+            edges_df,
+            None,
+            node_features_df,
+            edge_features_df,
+        )
+
+        source_collection = self._build_graph_collection_for_dataset(
+            nodes_df=nodes_df,
+            edges_df=edges_df,
+            graph_labels_df=None,
+            node_features_df=node_features_df,
+            edge_features_df=edge_features_df,
+            graph_type=str(params["graph_type"]),
+            filter_largest_component=False,
+        )
+        if len(source_collection.graphs) != 1:
+            raise ValueError("Single-graph dataset source must load exactly one graph")
+
+        source_graph = source_collection.graphs[0]
+        nodes_to_sample, sample_fraction = self._egonet_node_selection(source_graph, params)
+        egonets = EgonetCollection(graph_type=source_collection.graph_type, egonet_feature_target=target_attribute)
+        self._log_job(project_id, job_id, f"Computing {params['k_hop']}-hop egonets for {dataset.name}")
+        egonets.compute_k_hop_egonets(
+            source_collection,
+            k_hop=int(params["k_hop"]),
+            nodes_to_sample=nodes_to_sample,
+            sample_fraction=sample_fraction,
+            random_seed=int(params["random_seed"]),
+        )
+        self._normalize_egonet_graph_ids(egonets, source_graph)
+        node_mapping, graph_mapping = self._egonet_mapping_records(egonets, source_graph, int(params["k_hop"]))
+        prepared_files, mapping_files, prepared_stats = self._write_prepared_dataset_outputs(
+            tmp_path,
+            egonets,
+            node_mapping=node_mapping,
+            graph_mapping=graph_mapping,
+        )
+
+        self._promote_directory(tmp_path / "raw", artifact_path / "raw")
+        self._promote_directory(tmp_path / "prepared", artifact_path / "prepared")
+        self._promote_directory(tmp_path / "mappings", artifact_path / "mappings")
+
+        source_stats = DatasetStats(
+            graph_count=1,
+            node_count=int(len(nodes_df)),
+            edge_count=int(len(edges_df)),
+            has_graph_labels=False,
+            has_node_features=node_features_df is not None and len(node_attribute_columns) > 0,
+            has_edge_features=edge_features_df is not None,
+        )
+        dataset = self.read_dataset(project_id, dataset.id)
+        dataset.status = "completed"
+        dataset.source_stats = source_stats
+        dataset.prepared_stats = prepared_stats
+        dataset.raw_data_files = raw_files
+        dataset.prepared_data_files = prepared_files
+        dataset.mapping_files = mapping_files
+        dataset.data_files = prepared_files
+        dataset.stats = prepared_stats
+        dataset.error = None
+        dataset.updated_at = utc_now()
+        self._validate_dataset_data_files(dataset)
+        self._write_json(artifact_path / "artifact.json", dataset.model_dump())
+        self._log_job(project_id, job_id, f"Dataset {dataset.name} completed")
+        return dataset
+
     def _set_dataset_status(self, project_id: str, dataset_id: str, status: str, error: ArtifactError | None) -> None:
         dataset = self.read_dataset(project_id, dataset_id)
         dataset.status = status
@@ -1130,7 +1263,165 @@ class WorkbenchStore:
             node_sample_rate=1.0,
         )
 
-    def _write_prepared_dataset_outputs(self, tmp_path: Path, collection) -> tuple[DatasetDataFiles, DatasetMappingFiles, DatasetStats]:
+    def _read_single_graph_catalog_frames(self, files: dict[str, str]):
+        import pandas as pd
+
+        required_files = {"nodes", "edges"}
+        missing = sorted(required_files - set(files))
+        if missing:
+            raise ValueError(f"Single-graph dataset source is missing required file declarations: {', '.join(missing)}")
+
+        frames = {}
+        for key, source_path in files.items():
+            try:
+                frames[key] = pd.read_csv(source_path)
+            except Exception as exc:
+                raise ValueError(f"Could not read dataset source file: {key}") from exc
+
+        self._require_columns(frames["nodes"], {"node_id"}, "nodes.csv")
+        self._require_columns(frames["edges"], {"src_node_id", "dest_node_id"}, "edges.csv")
+        return frames
+
+    def _single_graph_source_frames(self, source_graph_id: str, frames):
+        import pandas as pd
+
+        source_nodes = frames["nodes"].copy()
+        source_edges = frames["edges"].copy()
+        if source_nodes.empty:
+            raise ValueError("nodes.csv must contain at least one node")
+        if source_nodes["node_id"].duplicated().any():
+            raise ValueError("nodes.csv must contain unique node_id values")
+
+        source_node_ids = set(source_nodes["node_id"])
+        unknown_sources = set(source_edges["src_node_id"]) - source_node_ids
+        unknown_targets = set(source_edges["dest_node_id"]) - source_node_ids
+        if unknown_sources or unknown_targets:
+            raise ValueError("edges.csv contains endpoints that are not present in nodes.csv")
+
+        nodes_df = pd.DataFrame({"node_id": source_nodes["node_id"], "graph_id": source_graph_id})
+        edges_df = pd.DataFrame(
+            {
+                "graph_id": source_graph_id,
+                "src_node_id": source_edges["src_node_id"],
+                "dest_node_id": source_edges["dest_node_id"],
+            }
+        )
+
+        node_feature_columns = [column for column in source_nodes.columns if column != "node_id"]
+        node_features_df = source_nodes.loc[:, ["node_id"] + node_feature_columns].copy() if node_feature_columns else None
+        edge_feature_columns = [column for column in source_edges.columns if column not in {"src_node_id", "dest_node_id"}]
+        edge_features_df = source_edges.loc[:, ["src_node_id", "dest_node_id"] + edge_feature_columns].copy() if edge_feature_columns else None
+        return nodes_df, edges_df, node_features_df, edge_features_df
+
+    def _egonet_node_selection(self, source_graph, params: dict[str, Any]) -> tuple[dict[Any, list[int]] | None, float]:
+        selection = str(params.get("node_selection", "all_nodes"))
+        if selection == "all_nodes":
+            return None, 1.0
+        if selection == "sample_fraction":
+            sample_fraction = float(params.get("sample_fraction", 1.0))
+            if sample_fraction <= 0.0 or sample_fraction > 1.0:
+                raise ValueError("Sample fraction must be greater than 0 and at most 1")
+            return None, sample_fraction
+        if selection != "specific_node_ids":
+            raise ValueError(f"Unsupported node selection mode: {selection}")
+
+        requested_ids = [str(source_node_id).strip() for source_node_id in params.get("source_node_ids", []) if str(source_node_id).strip()]
+        if not requested_ids:
+            raise ValueError("Specific node ID selection requires at least one source node ID")
+
+        source_to_internal = source_graph.source_to_internal_node_id or {node_id: node_id for node_id in source_graph.nodes}
+        internal_by_source_text = {str(self._json_scalar(source_node_id)): internal_node_id for source_node_id, internal_node_id in source_to_internal.items()}
+        unknown_ids = [source_node_id for source_node_id in requested_ids if source_node_id not in internal_by_source_text]
+        if unknown_ids:
+            raise ValueError(f"Unknown source node IDs: {', '.join(unknown_ids)}")
+
+        selected_internal_nodes = [internal_by_source_text[source_node_id] for source_node_id in requested_ids]
+        return {source_graph.graph_id: selected_internal_nodes}, 0.0
+
+    def _source_node_by_internal_id(self, source_graph) -> dict[int, Any]:
+        source_to_internal = source_graph.source_to_internal_node_id or {node_id: node_id for node_id in source_graph.nodes}
+        return {internal_node_id: self._json_scalar(source_node_id) for source_node_id, internal_node_id in source_to_internal.items()}
+
+    def _normalize_egonet_graph_ids(self, egonets, source_graph) -> None:
+        source_node_by_internal = self._source_node_by_internal_id(source_graph)
+
+        def source_sort_key(egonet) -> tuple[str, str]:
+            source_node_id = source_node_by_internal.get(egonet.original_node_id, egonet.original_node_id)
+            return (type(source_node_id).__name__, repr(source_node_id))
+
+        egonets.graphs = sorted(egonets.graphs, key=source_sort_key)
+        egonets.egonet_to_graph_node_mapping = {}
+        egonets.graph_id_node_array = []
+        for graph_id, egonet in enumerate(egonets.graphs):
+            egonet.graph_id = graph_id
+            egonets.egonet_to_graph_node_mapping[graph_id] = (egonet.original_graph_id, egonet.original_node_id)
+            egonets.graph_id_node_array.extend([graph_id] * len(egonet.nodes))
+
+    def _egonet_mapping_records(self, egonets, source_graph, k_hop: int):
+        import pandas as pd
+
+        source_node_by_internal = self._source_node_by_internal_id(source_graph)
+        source_graph_id = self._json_scalar(source_graph.source_graph_id if source_graph.source_graph_id is not None else source_graph.graph_id)
+        node_records = []
+        graph_records = []
+        for egonet in egonets.graphs:
+            center_source_node_id = self._json_scalar(source_node_by_internal.get(egonet.original_node_id, egonet.original_node_id))
+            for source_internal_node_id, egonet_node_id in sorted(egonet.node_mapping.items(), key=lambda item: item[1]):
+                node_records.append(
+                    {
+                        "source_graph_id": source_graph_id,
+                        "source_node_id": self._json_scalar(source_node_by_internal.get(source_internal_node_id, source_internal_node_id)),
+                        "internal_graph_id": egonet.graph_id,
+                        "internal_node_id": egonet_node_id,
+                        "center_source_node_id": center_source_node_id,
+                        "included": True,
+                        "drop_reason": None,
+                    }
+                )
+            graph_records.append(
+                {
+                    "source_graph_id": source_graph_id,
+                    "source_node_id": center_source_node_id,
+                    "internal_graph_id": egonet.graph_id,
+                    "internal_node_count": len(egonet.nodes),
+                    "internal_edge_count": len(egonet.edges),
+                    "k_hop": k_hop,
+                }
+            )
+
+        node_mapping = pd.DataFrame(
+            node_records,
+            columns=[
+                "source_graph_id",
+                "source_node_id",
+                "internal_graph_id",
+                "internal_node_id",
+                "center_source_node_id",
+                "included",
+                "drop_reason",
+            ],
+        )
+        graph_mapping = pd.DataFrame(
+            graph_records,
+            columns=[
+                "source_graph_id",
+                "source_node_id",
+                "internal_graph_id",
+                "internal_node_count",
+                "internal_edge_count",
+                "k_hop",
+            ],
+        )
+        return node_mapping, graph_mapping
+
+    def _write_prepared_dataset_outputs(
+        self,
+        tmp_path: Path,
+        collection,
+        *,
+        node_mapping=None,
+        graph_mapping=None,
+    ) -> tuple[DatasetDataFiles, DatasetMappingFiles, DatasetStats]:
         import pandas as pd
 
         prepared_dir = tmp_path / "prepared"
@@ -1181,8 +1472,10 @@ class WorkbenchStore:
             pd.DataFrame(edge_feature_records).to_parquet(prepared_dir / "edge_features.parquet", index=False)
             prepared_files.edge_features = "prepared/edge_features.parquet"
 
-        node_mapping = collection.export_node_mapping_records()
-        graph_mapping = collection.export_graph_mapping_records()
+        if node_mapping is None:
+            node_mapping = collection.export_node_mapping_records()
+        if graph_mapping is None:
+            graph_mapping = collection.export_graph_mapping_records()
         node_mapping.to_parquet(mapping_dir / "node_mapping.parquet", index=False)
         graph_mapping.to_parquet(mapping_dir / "graph_mapping.parquet", index=False)
         mapping_files = DatasetMappingFiles(node_mapping="mappings/node_mapping.parquet", graph_mapping="mappings/graph_mapping.parquet")
@@ -1674,12 +1967,37 @@ class WorkbenchStore:
             edge_features = pd.read_parquet(artifact_path / dataset.prepared_data_files.edge_features)
 
         dropped_node_count = max(0, dataset.source_stats.node_count - dataset.prepared_stats.node_count)
+        node_mapping = None
+        graph_mapping = None
         if dataset.mapping_files is not None:
             node_mapping_path = artifact_path / dataset.mapping_files.node_mapping
             if node_mapping_path.exists():
                 node_mapping = pd.read_parquet(node_mapping_path)
                 if "included" in node_mapping.columns:
                     dropped_node_count = int((~node_mapping["included"].astype(bool)).sum())
+            if dataset.mapping_files.graph_mapping:
+                graph_mapping_path = artifact_path / dataset.mapping_files.graph_mapping
+                if graph_mapping_path.exists():
+                    graph_mapping = pd.read_parquet(graph_mapping_path)
+
+        source_node_by_graph: dict[str, str] = {}
+        if graph_mapping is not None and {"internal_graph_id", "source_node_id"}.issubset(graph_mapping.columns):
+            for row in graph_mapping.to_dict(orient="records"):
+                source_node_by_graph[str(row["internal_graph_id"])] = str(self._json_scalar(row["source_node_id"]))
+
+        egonet_metadata = None
+        if dataset.source_graph_shape == "single_graph":
+            params = dataset.operation.params
+            egonet_metadata = DatasetEgonetMetadata(
+                source_graph_shape="single_graph",
+                operation_id=dataset.operation.operation_id,
+                operation_version=dataset.operation.operation_version,
+                k_hop=int(params["k_hop"]),
+                node_selection=str(params["node_selection"]),
+                sample_fraction=float(params["sample_fraction"]),
+                random_seed=int(params["random_seed"]),
+                target_node_attribute=params.get("target_node_attribute"),
+            )
 
         label_by_graph: dict[str, object] = {}
         graph_label_distribution: dict[str, int] = {}
@@ -1705,6 +2023,7 @@ class WorkbenchStore:
                 node_count=int(node_counts.get(current_graph_id, 0)),
                 edge_count=int(edge_counts.get(current_graph_id, 0)),
                 graph_label=label_by_graph.get(str(current_graph_id)),
+                source_node_id=source_node_by_graph.get(str(current_graph_id)),
             )
             for current_graph_id in graph_ids
         ]
@@ -1722,11 +2041,13 @@ class WorkbenchStore:
             graph_id=selected_graph_id,
             max_nodes=max_nodes,
             max_edges=max_edges,
+            node_mapping=node_mapping if dataset.source_graph_shape == "single_graph" else None,
         )
         return DatasetAnalysis(
             dataset_id=dataset.id,
             dataset_name=dataset.name,
             dataset_status="completed",
+            egonet_metadata=egonet_metadata,
             source_stats=dataset.source_stats,
             prepared_stats=dataset.prepared_stats,
             dropped_node_count=dropped_node_count,
@@ -1899,13 +2220,42 @@ class WorkbenchStore:
             feature_values=feature_values,
         )
 
-    def _dataset_graph_visual(self, *, nodes, edges, graph_id: str, max_nodes: int, max_edges: int) -> DatasetGraphVisual:
+    def _dataset_graph_visual(
+        self,
+        *,
+        nodes,
+        edges,
+        graph_id: str,
+        max_nodes: int,
+        max_edges: int,
+        node_mapping=None,
+    ) -> DatasetGraphVisual:
         graph_nodes = nodes[nodes["graph_id"].map(str) == graph_id]
         graph_edges = edges[edges["graph_id"].map(str) == graph_id]
         node_ids = [str(node_id) for node_id in graph_nodes["node_id"].tolist()]
         node_id_set = set(node_ids)
         degree = dict.fromkeys(node_ids, 0)
         edge_records: list[tuple[str, str]] = []
+        source_node_by_internal_node: dict[str, str] = {}
+        center_source_node_id = None
+
+        if node_mapping is not None and {"internal_graph_id", "internal_node_id", "source_node_id"}.issubset(node_mapping.columns):
+            graph_mapping_rows = node_mapping[node_mapping["internal_graph_id"].map(str) == graph_id]
+            if "included" in graph_mapping_rows.columns:
+                graph_mapping_rows = graph_mapping_rows[graph_mapping_rows["included"].astype(bool)]
+            for row in graph_mapping_rows.to_dict(orient="records"):
+                internal_node_id = str(row["internal_node_id"])
+                source_node_id = str(self._json_scalar(row["source_node_id"]))
+                source_node_by_internal_node[internal_node_id] = source_node_id
+                if center_source_node_id is None and "center_source_node_id" in row:
+                    center_source_node_id = str(self._json_scalar(row["center_source_node_id"]))
+
+        center_node_ids = {
+            internal_node_id
+            for internal_node_id, source_node_id in source_node_by_internal_node.items()
+            if center_source_node_id is not None and source_node_id == center_source_node_id
+        }
+        center_node_id = sorted(center_node_ids)[0] if center_node_ids else None
 
         for row in graph_edges.to_dict(orient="records"):
             source = str(row["src_node_id"])
@@ -1923,7 +2273,10 @@ class WorkbenchStore:
             sampled = True
             sample_reasons.append(f"nodes limited to {max_nodes}")
             ordered_nodes = sorted(included_node_ids, key=lambda node_id: (-degree.get(node_id, 0), node_id))
-            included_node_ids = set(ordered_nodes[:max_nodes])
+            selected_nodes = ordered_nodes[:max_nodes]
+            if center_node_id and center_node_id in included_node_ids and center_node_id not in selected_nodes:
+                selected_nodes = selected_nodes[:-1] + [center_node_id]
+            included_node_ids = set(selected_nodes)
 
         included_edges = [(source, target) for source, target in edge_records if source in included_node_ids and target in included_node_ids]
         if len(included_edges) > max_edges:
@@ -1946,6 +2299,8 @@ class WorkbenchStore:
                     id=node_id,
                     label=node_id,
                     degree=int(degree.get(node_id, 0)),
+                    source_node_id=source_node_by_internal_node.get(node_id),
+                    is_center=True if node_id == center_node_id else None,
                 )
                 for node_id in ordered_visual_nodes
             ],

@@ -63,11 +63,12 @@ export interface DatasetManifest {
   status: "planned" | "running" | "completed" | "failed";
   created_at: string;
   updated_at: string;
-  source_type: "neext_csv_bundle";
+  source_type: "neext_csv_bundle" | "neext_single_graph_csv";
   source_catalog_id: string;
   source_name: string;
   source: string;
   source_domain: string;
+  source_graph_shape: "graph_collection" | "single_graph";
   storage_format: "neext-parquet-v1";
   graph_shape: "graph_collection";
   inputs: ArtifactInputRef[];
@@ -87,12 +88,15 @@ export interface DatasetGraphSummary {
   node_count: number;
   edge_count: number;
   graph_label?: unknown;
+  source_node_id?: string | null;
 }
 
 export interface DatasetVisualNode {
   id: string;
   label: string;
   degree: number;
+  source_node_id?: string | null;
+  is_center?: boolean | null;
 }
 
 export interface DatasetVisualEdge {
@@ -110,10 +114,22 @@ export interface DatasetGraphVisual {
   sample_reason?: string | null;
 }
 
+export interface DatasetEgonetMetadata {
+  source_graph_shape: "single_graph";
+  operation_id: string;
+  operation_version: string;
+  k_hop: number;
+  node_selection: string;
+  sample_fraction: number;
+  random_seed: number;
+  target_node_attribute?: string | null;
+}
+
 export interface DatasetAnalysis {
   dataset_id: string;
   dataset_name: string;
   dataset_status: "completed";
+  egonet_metadata?: DatasetEgonetMetadata | null;
   source_stats: DatasetStats;
   prepared_stats: DatasetStats;
   dropped_node_count: number;
@@ -157,7 +173,8 @@ export interface DatasetCatalogEntry {
   description: string;
   source: string;
   domain: string;
-  source_type: "neext_csv_bundle";
+  source_type: "neext_csv_bundle" | "neext_single_graph_csv";
+  source_graph_shape: "graph_collection" | "single_graph";
   graph_shape: "graph_collection";
   graph_count: number;
   node_count: number;
@@ -165,6 +182,7 @@ export interface DatasetCatalogEntry {
   has_graph_labels: boolean;
   has_node_features: boolean;
   has_edge_features: boolean;
+  node_attribute_columns: string[];
 }
 
 export interface OperationSpec {
@@ -529,6 +547,12 @@ export interface DatasetCreatePayload {
   params: {
     graph_type: "networkx" | "igraph";
     filter_largest_component: boolean;
+    k_hop?: number;
+    node_selection?: "all_nodes" | "sample_fraction" | "specific_node_ids";
+    sample_fraction?: number;
+    random_seed?: number;
+    source_node_ids?: string[];
+    target_node_attribute?: string | null;
   };
 }
 

@@ -487,9 +487,20 @@ export function Inspector({
               <InspectorRow label="Project ID" value={dataset.project_id} mono />
               <InspectorRow label="Source" value={dataset.source_catalog_id} />
               <InspectorRow label="Source Name" value={dataset.source_name || dataset.source_catalog_id} />
+              <InspectorRow label="Source Type" value={dataset.source_graph_shape === "single_graph" ? "Single Graph" : "Collection"} />
               <InspectorRow label="Graph Backend" value={String(dataset.operation.params.graph_type)} />
               <InspectorRow label="Reindex Nodes" value={boolText(Boolean(dataset.operation.params.reindex_nodes))} />
-              <InspectorRow label="Filter Largest Component" value={boolText(Boolean(dataset.operation.params.filter_largest_component))} />
+              {dataset.source_graph_shape === "single_graph" ? (
+                <>
+                  <InspectorRow label="K-Hop" value={String(dataset.operation.params.k_hop)} />
+                  <InspectorRow label="Node Selection" value={String(dataset.operation.params.node_selection).replace(/_/g, " ")} />
+                  <InspectorRow label="Sample Fraction" value={String(dataset.operation.params.sample_fraction)} />
+                  <InspectorRow label="Random Seed" value={String(dataset.operation.params.random_seed)} />
+                  <InspectorRow label="Target Attribute" value={String(dataset.operation.params.target_node_attribute || "None")} />
+                </>
+              ) : (
+                <InspectorRow label="Filter Largest Component" value={boolText(Boolean(dataset.operation.params.filter_largest_component))} />
+              )}
               <InspectorRow label="Graph Shape" value={dataset.graph_shape} />
               <InspectorRow label="Storage" value={dataset.storage_format} />
               <InspectorRow label="Graphs" value={String(datasetStats(dataset).graph_count)} />
@@ -515,10 +526,17 @@ export function Inspector({
               <InspectorRow label="Status" value={catalogImportStatus || "Not configured"} />
               <InspectorRow label="Source" value={catalogEntry.source} />
               <InspectorRow label="Domain" value={catalogEntry.domain} />
+              <InspectorRow label="Type" value={catalogEntry.source_graph_shape === "single_graph" ? "Single Graph" : "Collection"} />
               <InspectorRow label="Graph Shape" value={catalogEntry.graph_shape} />
               <InspectorRow label="Graphs" value={String(catalogEntry.graph_count)} />
               <InspectorRow label="Nodes" value={String(catalogEntry.node_count)} />
               <InspectorRow label="Edges" value={String(catalogEntry.edge_count)} />
+              {catalogEntry.source_graph_shape === "single_graph" ? (
+                <InspectorRow
+                  label="Node Attributes"
+                  value={catalogEntry.node_attribute_columns.length ? catalogEntry.node_attribute_columns.join(", ") : "None"}
+                />
+              ) : null}
               <InspectorRow label="Graph Labels" value={boolText(catalogEntry.has_graph_labels)} />
               <InspectorRow label="Node Features" value={boolText(catalogEntry.has_node_features)} />
               <InspectorRow label="Edge Features" value={boolText(catalogEntry.has_edge_features)} />

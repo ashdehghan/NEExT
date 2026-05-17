@@ -107,6 +107,37 @@ def write_labeled_graph_source_bundle(source_dir: Path, *, graph_count: int = 8,
     }
 
 
+def write_single_graph_source_bundle(source_dir: Path) -> dict[str, str]:
+    source_dir.mkdir(parents=True)
+    (source_dir / "nodes.csv").write_text(
+        "node_id,role,score\n"
+        "101,left,1.0\n"
+        "102,right,2.0\n"
+        "103,left,3.0\n"
+        "104,right,4.0\n"
+        "105,left,5.0\n"
+        "106,right,6.0\n"
+        "107,left,7.0\n"
+        "108,right,8.0\n",
+        encoding="utf-8",
+    )
+    (source_dir / "edges.csv").write_text(
+        "src_node_id,dest_node_id\n"
+        "101,102\n"
+        "102,103\n"
+        "103,104\n"
+        "104,105\n"
+        "105,106\n"
+        "106,107\n"
+        "107,108\n",
+        encoding="utf-8",
+    )
+    return {
+        "nodes": str(source_dir / "nodes.csv"),
+        "edges": str(source_dir / "edges.csv"),
+    }
+
+
 def wait_for_job(client, project_id: str, job_id: str, timeout_s: float = 10.0) -> dict:
     deadline = time.time() + timeout_s
     while time.time() < deadline:
@@ -322,17 +353,23 @@ def test_dataset_library_catalog_endpoint_exposes_curated_metadata_without_paths
         assert response.status_code == 200
         catalog = response.json()
         assert {"MUTAG", "NCI1", "BZR", "PROTEINS", "IMDB"}.issubset({entry["id"] for entry in catalog})
+        assert {"graph_collection", "single_graph"}.issubset({entry["source_graph_shape"] for entry in catalog})
         mutag = next(entry for entry in catalog if entry["id"] == "MUTAG")
         assert mutag["graph_count"] == 188
         assert mutag["node_count"] == 3371
         assert mutag["edge_count"] == 7442
+        karate = next(entry for entry in catalog if entry["id"] == "KARATE_CLUB")
+        assert karate["source_graph_shape"] == "single_graph"
+        assert karate["graph_shape"] == "graph_collection"
+        assert karate["node_attribute_columns"] == ["club"]
         for entry in catalog:
             payload = json.dumps(entry)
             assert "files" not in entry
             assert "path" not in entry
             assert "http://" not in payload
             assert "https://" not in payload
-            assert entry["source_type"] == "neext_csv_bundle"
+            assert entry["source_type"] in {"neext_csv_bundle", "neext_single_graph_csv"}
+            assert entry["source_graph_shape"] in {"graph_collection", "single_graph"}
             assert entry["graph_shape"] == "graph_collection"
             assert isinstance(entry["graph_count"], int)
             assert isinstance(entry["node_count"], int)
@@ -400,6 +437,7 @@ def test_configure_and_run_dataset_writes_prepared_outputs_and_mapping(monkeypat
         assert dataset["source_type"] == "neext_csv_bundle"
         assert dataset["source_catalog_id"] == "TINY"
         assert dataset["storage_format"] == "neext-parquet-v1"
+        assert dataset["source_graph_shape"] == "graph_collection"
         assert dataset["graph_shape"] == "graph_collection"
         assert dataset["inputs"] == []
         assert dataset["operation"] == {
@@ -546,6 +584,7 @@ def test_configure_and_run_dataset_writes_prepared_outputs_and_mapping(monkeypat
         assert analysis_payload["dataset_id"] == dataset_id
         assert analysis_payload["dataset_name"] == "Tiny Dataset"
         assert analysis_payload["dataset_status"] == "completed"
+        assert "egonet_metadata" not in analysis_payload
         assert analysis_payload["source_stats"]["node_count"] == 5
         assert analysis_payload["prepared_stats"]["node_count"] == 4
         assert analysis_payload["dropped_node_count"] == 1
@@ -634,6 +673,324 @@ def test_configure_and_run_dataset_writes_prepared_outputs_and_mapping(monkeypat
         listed_again = client.get(f"/api/projects/{project_id}/datasets")
         assert listed_again.status_code == 200
         assert len(listed_again.json()) == 2
+
+
+def test_single_graph_dataset_prepares_egonet_collection_and_feeds_downstream_artifacts(monkeypatch):
+    pytest.importorskip("fastapi")
+    pytest.importorskip("pyarrow")
+
+    import pandas as pd
+    from fastapi.testclient import TestClient
+
+    import NEExT.workbench.dataset_library as dataset_library
+    from NEExT.workbench.app import create_app
+    from NEExT.workbench.dataset_library import CatalogDataset
+
+    with TemporaryDirectory() as tmpdir:
+        source_files = write_single_graph_source_bundle(Path(tmpdir) / "single-source")
+        monkeypatch.setattr(
+            dataset_library,
+            "DATASET_CATALOG",
+            (
+                CatalogDataset(
+                    id="SINGLE",
+                    name="Single Source",
+                    description="local single graph",
+                    domain="Tests",
+                    files=source_files,
+                    graph_count=1,
+                    node_count=8,
+                    edge_count=7,
+                    source="Test catalog",
+                    source_type="neext_single_graph_csv",
+                    source_graph_shape="single_graph",
+                    node_attribute_columns=("role", "score"),
+                ),
+            ),
+        )
+
+        client = TestClient(create_app(tmpdir))
+        project = client.post("/api/projects", json={"name": "Single Graph Project"}).json()
+        project_id = project["id"]
+
+        configured = client.post(
+            f"/api/projects/{project_id}/datasets",
+            json={
+                "catalog_id": "SINGLE",
+                "params": {
+                    "k_hop": 1,
+                    "node_selection": "all_nodes",
+                    "target_node_attribute": "role",
+                },
+            },
+        )
+        assert configured.status_code == 200
+        dataset = configured.json()
+        dataset_id = dataset["id"]
+        assert dataset["source_type"] == "neext_single_graph_csv"
+        assert dataset["source_graph_shape"] == "single_graph"
+        assert dataset["graph_shape"] == "graph_collection"
+        assert dataset["operation"] == {
+            "operation_id": "neext.prepare_single_graph_egonets",
+            "operation_version": "1",
+            "params": {
+                "graph_type": "networkx",
+                "reindex_nodes": True,
+                "filter_largest_component": False,
+                "k_hop": 1,
+                "node_selection": "all_nodes",
+                "sample_fraction": 1.0,
+                "random_seed": 13,
+                "source_node_ids": [],
+                "target_node_attribute": "role",
+            },
+        }
+
+        run = client.post(f"/api/projects/{project_id}/datasets/{dataset_id}/run")
+        assert run.status_code == 200
+        job = wait_for_job(client, project_id, run.json()["id"])
+        assert job["status"] == "completed"
+        assert "Computing 1-hop egonets for Single Source" in job["log"]
+
+        dataset = client.get(f"/api/projects/{project_id}/datasets/{dataset_id}").json()
+        assert dataset["status"] == "completed"
+        assert dataset["source_stats"] == {
+            "graph_count": 1,
+            "node_count": 8,
+            "edge_count": 7,
+            "has_graph_labels": False,
+            "has_node_features": True,
+            "has_edge_features": False,
+        }
+        assert dataset["prepared_stats"]["graph_count"] == 8
+        assert dataset["prepared_stats"]["has_graph_labels"] is True
+        assert dataset["prepared_stats"]["has_node_features"] is True
+
+        artifact_path = Path(tmpdir) / "projects" / project_id / "artifacts" / "datasets" / dataset_id
+        graph_labels = pd.read_parquet(artifact_path / "prepared" / "graph_labels.parquet")
+        node_features = pd.read_parquet(artifact_path / "prepared" / "node_features.parquet")
+        node_mapping = pd.read_parquet(artifact_path / "mappings" / "node_mapping.parquet")
+        graph_mapping = pd.read_parquet(artifact_path / "mappings" / "graph_mapping.parquet")
+        assert len(graph_labels) == 8
+        assert set(graph_labels["graph_label"]) == {"left", "right"}
+        assert "role" not in node_features.columns
+        assert "score" in node_features.columns
+        assert {"source_graph_id", "source_node_id", "internal_graph_id", "internal_node_id", "center_source_node_id"}.issubset(
+            node_mapping.columns
+        )
+        assert graph_mapping["source_node_id"].tolist() == [101, 102, 103, 104, 105, 106, 107, 108]
+        assert graph_mapping["internal_graph_id"].tolist() == list(range(8))
+
+        analysis = client.get(f"/api/projects/{project_id}/datasets/{dataset_id}/analysis")
+        assert analysis.status_code == 200
+        analysis_payload = analysis.json()
+        assert analysis_payload["egonet_metadata"] == {
+            "source_graph_shape": "single_graph",
+            "operation_id": "neext.prepare_single_graph_egonets",
+            "operation_version": "1",
+            "k_hop": 1,
+            "node_selection": "all_nodes",
+            "sample_fraction": 1.0,
+            "random_seed": 13,
+            "target_node_attribute": "role",
+        }
+        assert analysis_payload["source_stats"]["node_count"] == 8
+        assert analysis_payload["source_stats"]["edge_count"] == 7
+        assert analysis_payload["prepared_stats"]["graph_count"] == 8
+        assert analysis_payload["prepared_stats"]["node_count"] == int(node_mapping.groupby("internal_graph_id").size().sum())
+        assert analysis_payload["graph_label_distribution"] == {"left": 4, "right": 4}
+        graph_zero_summary = next(summary for summary in analysis_payload["graph_summaries"] if summary["graph_id"] == "0")
+        assert graph_zero_summary["source_node_id"] == "101"
+        assert graph_zero_summary["graph_label"] == "left"
+
+        graph_zero_analysis = client.get(f"/api/projects/{project_id}/datasets/{dataset_id}/analysis?graph_id=0")
+        assert graph_zero_analysis.status_code == 200
+        graph_zero_payload = graph_zero_analysis.json()
+        center_nodes = [node for node in graph_zero_payload["visual"]["nodes"] if node.get("is_center")]
+        assert len(center_nodes) == 1
+        assert center_nodes[0]["id"] == "0"
+        assert center_nodes[0]["source_node_id"] == "101"
+        assert graph_zero_payload["selected_graph_id"] == "0"
+        node_detail = client.get(f"/api/projects/{project_id}/datasets/{dataset_id}/analysis/node?graph_id=0&node_id=0")
+        assert node_detail.status_code == 200
+        assert node_detail.json()["source_graph_id"] == "SINGLE"
+        assert node_detail.json()["source_node_id"] == "101"
+
+        feature = client.post(
+            f"/api/projects/{project_id}/features",
+            json={
+                "source_dataset_id": dataset_id,
+                "source_feature_id": "page_rank",
+                "params": {
+                    "feature_vector_length": 2,
+                    "normalize_features": False,
+                    "n_jobs": 1,
+                    "parallel_backend": "loky",
+                },
+            },
+        )
+        assert feature.status_code == 200
+        feature_id = feature.json()["id"]
+        feature_run = client.post(f"/api/projects/{project_id}/features/{feature_id}/run")
+        assert feature_run.status_code == 200
+        assert wait_for_job(client, project_id, feature_run.json()["id"], timeout_s=20.0)["status"] == "completed"
+
+        embedding = client.post(
+            f"/api/projects/{project_id}/embeddings",
+            json={
+                "source_embedding_id": "approx_wasserstein",
+                "source_feature_ids": [feature_id],
+                "params": {"embedding_dimension": 2},
+            },
+        )
+        assert embedding.status_code == 200
+        embedding_id = embedding.json()["id"]
+        embedding_run = client.post(f"/api/projects/{project_id}/embeddings/{embedding_id}/run")
+        assert embedding_run.status_code == 200
+        assert wait_for_job(client, project_id, embedding_run.json()["id"], timeout_s=20.0)["status"] == "completed"
+
+        model = client.post(
+            f"/api/projects/{project_id}/models",
+            json={
+                "source_model_id": "random_forest",
+                "source_embedding_ids": [embedding_id],
+                "params": {
+                    "task_type": "classifier",
+                    "sample_size": 1,
+                    "test_size": 0.5,
+                    "balance_dataset": False,
+                    "n_jobs": 1,
+                    "parallel_backend": "thread",
+                },
+            },
+        )
+        assert model.status_code == 200
+        model_run = client.post(f"/api/projects/{project_id}/models/{model.json()['id']}/run")
+        assert model_run.status_code == 200
+        assert wait_for_job(client, project_id, model_run.json()["id"], timeout_s=20.0)["status"] == "completed"
+
+
+def test_single_graph_node_selection_modes_are_deterministic_and_validate_unknown_ids(monkeypatch):
+    pytest.importorskip("fastapi")
+    pytest.importorskip("pyarrow")
+
+    import pandas as pd
+    from fastapi.testclient import TestClient
+
+    import NEExT.workbench.dataset_library as dataset_library
+    from NEExT.workbench.app import create_app
+    from NEExT.workbench.dataset_library import CatalogDataset
+
+    with TemporaryDirectory() as tmpdir:
+        source_files = write_single_graph_source_bundle(Path(tmpdir) / "single-source")
+        monkeypatch.setattr(
+            dataset_library,
+            "DATASET_CATALOG",
+            (
+                CatalogDataset(
+                    id="SINGLE",
+                    name="Single Source",
+                    description="local single graph",
+                    domain="Tests",
+                    files=source_files,
+                    graph_count=1,
+                    node_count=8,
+                    edge_count=7,
+                    source="Test catalog",
+                    source_type="neext_single_graph_csv",
+                    source_graph_shape="single_graph",
+                    node_attribute_columns=("role", "score"),
+                ),
+            ),
+        )
+
+        client = TestClient(create_app(tmpdir))
+        project = client.post("/api/projects", json={"name": "Single Selection Project"}).json()
+        project_id = project["id"]
+
+        selected_sequences = []
+        for _ in range(2):
+            configured = client.post(
+                f"/api/projects/{project_id}/datasets",
+                json={
+                    "catalog_id": "SINGLE",
+                    "params": {
+                        "k_hop": 1,
+                        "node_selection": "sample_fraction",
+                        "sample_fraction": 0.5,
+                        "random_seed": 7,
+                    },
+                },
+            )
+            assert configured.status_code == 200
+            dataset_id = configured.json()["id"]
+            run = client.post(f"/api/projects/{project_id}/datasets/{dataset_id}/run")
+            assert run.status_code == 200
+            assert wait_for_job(client, project_id, run.json()["id"])["status"] == "completed"
+            graph_mapping = pd.read_parquet(
+                Path(tmpdir)
+                / "projects"
+                / project_id
+                / "artifacts"
+                / "datasets"
+                / dataset_id
+                / "mappings"
+                / "graph_mapping.parquet"
+            )
+            selected_sequences.append(graph_mapping["source_node_id"].tolist())
+
+        assert selected_sequences[0] == selected_sequences[1]
+        assert len(selected_sequences[0]) == 4
+
+        specific = client.post(
+            f"/api/projects/{project_id}/datasets",
+            json={
+                "catalog_id": "SINGLE",
+                "params": {
+                    "k_hop": 1,
+                    "node_selection": "specific_node_ids",
+                    "source_node_ids": ["101", "108"],
+                },
+            },
+        )
+        assert specific.status_code == 200
+        specific_dataset_id = specific.json()["id"]
+        run_specific = client.post(f"/api/projects/{project_id}/datasets/{specific_dataset_id}/run")
+        assert run_specific.status_code == 200
+        assert wait_for_job(client, project_id, run_specific.json()["id"])["status"] == "completed"
+        specific_mapping = pd.read_parquet(
+            Path(tmpdir)
+            / "projects"
+            / project_id
+            / "artifacts"
+            / "datasets"
+            / specific_dataset_id
+            / "mappings"
+            / "graph_mapping.parquet"
+        )
+        assert specific_mapping["source_node_id"].tolist() == [101, 108]
+
+        unknown = client.post(
+            f"/api/projects/{project_id}/datasets",
+            json={
+                "catalog_id": "SINGLE",
+                "params": {
+                    "k_hop": 1,
+                    "node_selection": "specific_node_ids",
+                    "source_node_ids": ["101", "999"],
+                },
+            },
+        )
+        assert unknown.status_code == 200
+        unknown_dataset_id = unknown.json()["id"]
+        run_unknown = client.post(f"/api/projects/{project_id}/datasets/{unknown_dataset_id}/run")
+        assert run_unknown.status_code == 200
+        unknown_job = wait_for_job(client, project_id, run_unknown.json()["id"])
+        assert unknown_job["status"] == "failed"
+        assert "Unknown source node IDs: 999" in unknown_job["error"]
+        failed_dataset = client.get(f"/api/projects/{project_id}/datasets/{unknown_dataset_id}").json()
+        assert failed_dataset["status"] == "failed"
+        assert "Unknown source node IDs: 999" in failed_dataset["error"]["message"]
 
 
 def test_feature_library_catalog_endpoint_exposes_built_ins_without_paths_or_code():
