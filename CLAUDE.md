@@ -26,7 +26,9 @@ These rules override every default behavior. They exist because guessing, invent
 
 10. **Keep `AGENTS.md` and `CLAUDE.md` synchronized.** Whenever either file is updated, review the other file and update it in the same change when the guidance applies to both. Before any `git commit`, check whether either file needs an update so repository instructions do not drift.
 
-11. **Use voice once.** When using voice output, call the voice tool only once for a given message; if playback seems slow, wait rather than retrying.
+11. **Never push to git.** Coding agents must never run `git push`, create or update remote branches, push tags, or otherwise publish repository changes to any remote. Only the user may push. If a push seems necessary, stop after committing locally and tell the user what command they can run themselves.
+
+12. **Use voice once.** When using voice output, call the voice tool only once for a given message; if playback seems slow, wait rather than retrying.
 
 ## Build, Test, and Development Commands
 
