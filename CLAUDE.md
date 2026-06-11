@@ -134,6 +134,15 @@ Features → Embeddings → ML      EgonetCollection
                             Features → Embeddings → Outlier Detection
 ```
 
+## Development Lifecycle Dashboard
+
+The committed lifecycle planning artifact is `development-lifecycle/index.html`. It is a self-contained HTML dashboard for current project state, epics, sprints, tasks, decisions, and agent handoff context.
+
+- Update this dashboard when a sprint is created, scoped, completed, or materially changed.
+- Use the dashboard to record approved decisions and known deferred areas; do not use it to invent new product scope or bypass the "Never guess. Ask." rule.
+- Local drafts, exports, notes, and scratch lifecycle material inside `development-lifecycle/` are ignored by git unless explicitly unignored.
+- If lifecycle guidance changes in `AGENTS.md` or `CLAUDE.md`, keep both files synchronized in the same change.
+
 ### Workbench Shape
 
 NEExT Workbench is a local, single-user FastAPI + React desktop-style UI for research and scientific NEExT workflows. NEExT is the core lightweight Python library; Workbench is an optional interface over real NEExT capabilities.

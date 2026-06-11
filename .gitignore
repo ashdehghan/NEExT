@@ -223,6 +223,10 @@ manuscript/
 # Paper experiments (separate private repo)
 paper_experiments/
 
+# Development lifecycle dashboard: commit the canonical HTML, keep local drafts/scratch ignored.
+/development-lifecycle/*
+!/development-lifecycle/index.html
+
 # Sandbox directory: local scratch artifacts, except shareable Workbench mockups.
 sandbox/*
 !sandbox/workbench-mockups/

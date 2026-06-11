@@ -1,0 +1,650 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="icon" href="data:,">
+  <title>NEExT Development Lifecycle</title>
+  <style>
+    :root {
+      --bg: #f6f7f9;
+      --paper: #ffffff;
+      --ink: #18202a;
+      --muted: #627084;
+      --line: #d8dde5;
+      --line-strong: #b8c0cc;
+      --accent: #2266aa;
+      --accent-soft: #e8f1fb;
+      --good: #19714d;
+      --good-soft: #e5f4ed;
+      --warn: #9a6700;
+      --warn-soft: #fff3cd;
+      --hold: #6f42c1;
+      --hold-soft: #f0e7ff;
+      --bad: #b42318;
+      --bad-soft: #fde7e5;
+      --shadow: 0 12px 30px rgba(20, 32, 45, 0.08);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html {
+      scroll-behavior: smooth;
+    }
+
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--ink);
+      font-size: 15px;
+      line-height: 1.55;
+    }
+
+    a {
+      color: var(--accent);
+      text-decoration: none;
+    }
+
+    a:hover {
+      text-decoration: underline;
+    }
+
+    .page {
+      max-width: 1240px;
+      margin: 0 auto;
+      padding: 32px 24px 56px;
+    }
+
+    .hero {
+      display: grid;
+      gap: 18px;
+      margin-bottom: 24px;
+      padding: 28px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--paper);
+      box-shadow: var(--shadow);
+    }
+
+    .hero-top {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 20px;
+    }
+
+    h1,
+    h2,
+    h3 {
+      margin: 0;
+      line-height: 1.2;
+    }
+
+    h1 {
+      font-size: 34px;
+      font-weight: 760;
+      letter-spacing: 0;
+    }
+
+    h2 {
+      font-size: 22px;
+      margin-bottom: 14px;
+    }
+
+    h3 {
+      font-size: 16px;
+      margin-bottom: 10px;
+    }
+
+    p {
+      margin: 0 0 10px;
+    }
+
+    .subtitle {
+      max-width: 780px;
+      color: var(--muted);
+      font-size: 16px;
+    }
+
+    .meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 2px;
+    }
+
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      min-height: 26px;
+      padding: 4px 10px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: #f9fafb;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 680;
+      text-transform: uppercase;
+      white-space: nowrap;
+    }
+
+    .pill.ready {
+      border-color: #b9dec8;
+      background: var(--good-soft);
+      color: var(--good);
+    }
+
+    .pill.active {
+      border-color: #bcd3ee;
+      background: var(--accent-soft);
+      color: var(--accent);
+    }
+
+    .pill.hold {
+      border-color: #d8c6fa;
+      background: var(--hold-soft);
+      color: var(--hold);
+    }
+
+    .pill.warn {
+      border-color: #ebd69a;
+      background: var(--warn-soft);
+      color: var(--warn);
+    }
+
+    .layout {
+      display: grid;
+      grid-template-columns: 270px minmax(0, 1fr);
+      gap: 22px;
+      align-items: start;
+    }
+
+    nav.toc {
+      position: sticky;
+      top: 18px;
+      padding: 18px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--paper);
+      box-shadow: var(--shadow);
+    }
+
+    .toc-title {
+      margin-bottom: 12px;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 760;
+      text-transform: uppercase;
+    }
+
+    .toc a {
+      display: block;
+      padding: 8px 0;
+      border-top: 1px solid #edf0f4;
+      color: var(--ink);
+      font-weight: 620;
+    }
+
+    .toc a:first-of-type {
+      border-top: 0;
+    }
+
+    main {
+      display: grid;
+      gap: 22px;
+    }
+
+    section {
+      padding: 22px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--paper);
+      box-shadow: var(--shadow);
+    }
+
+    .grid {
+      display: grid;
+      gap: 14px;
+    }
+
+    .grid.two {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .grid.three {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+
+    .card {
+      padding: 16px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fbfcfd;
+    }
+
+    .card strong {
+      display: block;
+      margin-bottom: 6px;
+    }
+
+    .muted {
+      color: var(--muted);
+    }
+
+    .small {
+      font-size: 13px;
+    }
+
+    .mono {
+      font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 8px;
+    }
+
+    th,
+    td {
+      padding: 10px 9px;
+      border-top: 1px solid var(--line);
+      text-align: left;
+      vertical-align: top;
+    }
+
+    th {
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 760;
+      text-transform: uppercase;
+    }
+
+    ul,
+    ol {
+      margin: 8px 0 0;
+      padding-left: 22px;
+    }
+
+    li {
+      margin: 5px 0;
+    }
+
+    .checklist {
+      list-style: none;
+      padding-left: 0;
+    }
+
+    .checklist li {
+      display: flex;
+      gap: 9px;
+      align-items: flex-start;
+      margin: 8px 0;
+    }
+
+    .checklist input {
+      margin-top: 4px;
+      accent-color: var(--accent);
+    }
+
+    .flow {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 12px;
+      margin-top: 12px;
+    }
+
+    .flow-step {
+      position: relative;
+      min-height: 118px;
+      padding: 16px;
+      border: 1px solid var(--line-strong);
+      border-radius: 8px;
+      background: #fbfcfd;
+    }
+
+    .flow-step:not(:last-child)::after {
+      content: "->";
+      position: absolute;
+      top: 48px;
+      right: -22px;
+      color: var(--muted);
+      font-weight: 800;
+    }
+
+    .tag-list {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 10px;
+    }
+
+    .note {
+      padding: 12px 14px;
+      border-left: 4px solid var(--accent);
+      background: var(--accent-soft);
+      color: #173a5c;
+    }
+
+    .warning {
+      border-left-color: var(--warn);
+      background: var(--warn-soft);
+      color: #5d4000;
+    }
+
+    .footer-note {
+      margin-top: 22px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    @media (max-width: 920px) {
+      .layout,
+      .grid.two,
+      .grid.three,
+      .flow {
+        grid-template-columns: 1fr;
+      }
+
+      nav.toc {
+        position: static;
+      }
+
+      .hero-top {
+        flex-direction: column;
+      }
+
+      .flow-step:not(:last-child)::after {
+        content: "";
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <header class="hero">
+      <div class="hero-top">
+        <div>
+          <h1>NEExT Development Lifecycle</h1>
+          <p class="subtitle">Canonical planning dashboard for the NEExT core library and Workbench. This file is the shared human-agent interface for current state, active sprint work, backlog, and decisions.</p>
+        </div>
+        <div class="meta">
+          <span class="pill active">Active: Sprint 0</span>
+          <span class="pill ready">Tracked artifact</span>
+          <span class="pill">Updated 2026-06-11</span>
+        </div>
+      </div>
+      <div class="note">
+        Source of truth rule: update this dashboard when a sprint is created, scoped, completed, or materially changed. Do not use it to add new product scope without explicit user approval.
+      </div>
+    </header>
+
+    <div class="layout">
+      <nav class="toc" aria-label="Table of contents">
+        <div class="toc-title">Table of Contents</div>
+        <a href="#status">Status Summary</a>
+        <a href="#sprint">Active Sprint</a>
+        <a href="#current-state">Current State</a>
+        <a href="#workbench-map">Workbench Map</a>
+        <a href="#dag">Compute DAG</a>
+        <a href="#epics">Epics and Backlog</a>
+        <a href="#decisions">Decision Log</a>
+        <a href="#protocol">Update Protocol</a>
+      </nav>
+
+      <main>
+        <section id="status">
+          <h2>Status Summary</h2>
+          <div class="grid three">
+            <div class="card">
+              <strong>Core Library</strong>
+              <p class="muted">Python graph machine learning framework with graph IO, graph collections, egonets, structural features, graph embeddings, ML workflows, generators, and outlier utilities.</p>
+              <span class="pill ready">Established</span>
+            </div>
+            <div class="card">
+              <strong>Workbench</strong>
+              <p class="muted">Local FastAPI plus React desktop-style UI over persisted projects, artifacts, jobs, previews, and analysis for dataset-to-model workflows.</p>
+              <span class="pill ready">Real workflows</span>
+            </div>
+            <div class="card">
+              <strong>Lifecycle Dashboard</strong>
+              <p class="muted">Committed static HTML planning artifact for sprint state, handoff context, and current/future development tracking.</p>
+              <span class="pill active">New in Sprint 0</span>
+            </div>
+          </div>
+        </section>
+
+        <section id="sprint">
+          <h2>Active Sprint: Sprint 0 - Lifecycle Setup</h2>
+          <div class="grid two">
+            <div class="card">
+              <strong>Goal</strong>
+              <p>Create a lightweight committed planning interface that captures current project state and gives future agents a stable handoff surface.</p>
+            </div>
+            <div class="card">
+              <strong>Acceptance Criteria</strong>
+              <ul class="checklist">
+                <li><input type="checkbox" checked> <span>Canonical dashboard exists at <span class="mono">development-lifecycle/index.html</span>.</span></li>
+                <li><input type="checkbox" checked> <span>Local scratch files inside <span class="mono">development-lifecycle/</span> are ignored.</span></li>
+                <li><input type="checkbox" checked> <span><span class="mono">AGENTS.md</span> and <span class="mono">CLAUDE.md</span> explain the lifecycle artifact.</span></li>
+                <li><input type="checkbox"> <span>Next development sprint is explicitly selected and scoped by the user.</span></li>
+              </ul>
+            </div>
+          </div>
+        </section>
+
+        <section id="current-state">
+          <h2>Current State</h2>
+          <div class="grid two">
+            <div class="card">
+              <h3>NEExT Core Library</h3>
+              <ul>
+                <li><strong>Input and graph loading:</strong> CSV, DataFrame, URL, and NetworkX loading through graph IO workflows.</li>
+                <li><strong>Graph structures:</strong> graph wrappers, graph collections, egonets, and k-hop decomposition.</li>
+                <li><strong>Features:</strong> structural node feature computation and custom feature registration.</li>
+                <li><strong>Embeddings:</strong> graph embedding computation, including Wasserstein-style embeddings.</li>
+                <li><strong>ML and datasets:</strong> sklearn-compatible datasets, model training, metrics, and feature importance support.</li>
+                <li><strong>Research utilities:</strong> synthetic generators, anomaly helpers, adapters, presets, and outlier utilities.</li>
+              </ul>
+            </div>
+            <div class="card">
+              <h3>NEExT Workbench</h3>
+              <ul>
+                <li><strong>Runtime:</strong> local single-user FastAPI backend with React release assets.</li>
+                <li><strong>Workspace:</strong> project-first persisted workspace under <span class="mono">~/NEExT-Workbench</span>.</li>
+                <li><strong>Artifacts:</strong> datasets, features, embeddings, models, and jobs are persisted as project artifacts.</li>
+                <li><strong>Execution:</strong> dataset preparation, feature execution, embedding execution, and model execution are real, local workflows.</li>
+                <li><strong>Inspection:</strong> previews, analysis views, job records, command output, inspector context, and status surfaces are available.</li>
+              </ul>
+            </div>
+          </div>
+        </section>
+
+        <section id="workbench-map">
+          <h2>Workbench Map</h2>
+          <table>
+            <thead>
+              <tr>
+                <th>Space</th>
+                <th>Available Today</th>
+                <th>Known Not-Yet-Designed Areas</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><strong>Home</strong></td>
+                <td>Create/select projects, list projects, delete projects to workspace trash, view workspace status, configure MCP settings.</td>
+                <td>Project import/export and broader app settings beyond MCP.</td>
+              </tr>
+              <tr>
+                <td><strong>Datasets</strong></td>
+                <td>Configure curated library datasets, run preparation, preview tables, explore statistics, graph visuals, graph/node search, and data.</td>
+                <td>Arbitrary URL imports, dataset deletion, restore/archive, broader import providers.</td>
+              </tr>
+              <tr>
+                <td><strong>Features</strong></td>
+                <td>Configure built-in structural node features, run single or batch jobs, preview outputs, explore statistics, PCA/direct plots, graph search, and data.</td>
+                <td>Feature deletion, editing, duplication, import/export, custom Workbench feature lifecycle.</td>
+              </tr>
+              <tr>
+                <td><strong>Embeddings</strong></td>
+                <td>Configure graph embeddings from one or more feature artifacts, run single or batch jobs, preview outputs, explore statistics, PCA, search, and data.</td>
+                <td>Embedding deletion, editing, duplication, import/export, additional lifecycle actions.</td>
+              </tr>
+              <tr>
+                <td><strong>Models</strong></td>
+                <td>Configure supervised graph models from embeddings, run single or batch jobs, preview metrics, explore overview, metric charts, iterations, data, and lineage.</td>
+                <td>Model deletion, editing, duplication, import/export, prediction workflows, feature-importance views.</td>
+              </tr>
+            </tbody>
+          </table>
+        </section>
+
+        <section id="dag">
+          <h2>Compute DAG</h2>
+          <p class="muted">Workbench compute starts at configured Dataset artifacts. Downstream artifacts store typed input references so the lineage remains explicit.</p>
+          <div class="flow" aria-label="Dataset to model workflow">
+            <div class="flow-step">
+              <h3>Dataset</h3>
+              <p>Configured from library source templates, then prepared into canonical Parquet plus manifests, mappings, stats, and logs.</p>
+            </div>
+            <div class="flow-step">
+              <h3>Feature</h3>
+              <p>One structural feature artifact targets one prepared dataset and writes feature output only on successful execution.</p>
+            </div>
+            <div class="flow-step">
+              <h3>Embedding</h3>
+              <p>One embedding artifact consumes one or more feature artifacts from the same dataset and writes graph-level embeddings.</p>
+            </div>
+            <div class="flow-step">
+              <h3>Model</h3>
+              <p>One model artifact consumes one or more embeddings from the same dataset and writes trained model files plus metrics.</p>
+            </div>
+          </div>
+          <div class="tag-list">
+            <span class="pill">UUID artifacts</span>
+            <span class="pill">Relative paths only</span>
+            <span class="pill">Single local worker</span>
+            <span class="pill">Auto-runs upstream planned/failed work</span>
+          </div>
+        </section>
+
+        <section id="epics">
+          <h2>Epics and Backlog</h2>
+          <table>
+            <thead>
+              <tr>
+                <th>Epic</th>
+                <th>Status</th>
+                <th>Next Decision</th>
+                <th>Notes</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><strong>Lifecycle Dashboard</strong></td>
+                <td><span class="pill active">Active</span></td>
+                <td>Choose the next development sprint after this setup lands.</td>
+                <td>This HTML is the canonical handoff artifact. Keep it compact and current.</td>
+              </tr>
+              <tr>
+                <td><strong>Workbench Artifact Lifecycle</strong></td>
+                <td><span class="pill hold">Needs design</span></td>
+                <td>Decide deletion, restore, archive, edit, duplicate, and immutability behavior per artifact kind.</td>
+                <td>Project deletion exists. Artifact deletion and restore/archive are intentionally not designed yet.</td>
+              </tr>
+              <tr>
+                <td><strong>Workbench Import/Export</strong></td>
+                <td><span class="pill hold">Needs design</span></td>
+                <td>Define project archive import/export before implementation.</td>
+                <td>Future archives should contain <span class="mono">project.json</span> and <span class="mono">artifacts/</span> at zip root.</td>
+              </tr>
+              <tr>
+                <td><strong>Prediction and Model Inspection</strong></td>
+                <td><span class="pill hold">Needs design</span></td>
+                <td>Define prediction workflow and feature-importance surfaces.</td>
+                <td>Do not add prediction workflows or feature-importance views without explicit design approval.</td>
+              </tr>
+              <tr>
+                <td><strong>Execution Operations</strong></td>
+                <td><span class="pill hold">Needs design</span></td>
+                <td>Decide cancellation, concurrency, and broader execution status behavior.</td>
+                <td>Current behavior is local serialized jobs through the single worker.</td>
+              </tr>
+              <tr>
+                <td><strong>Dataset Sources</strong></td>
+                <td><span class="pill hold">Needs design</span></td>
+                <td>Decide whether and how to support arbitrary URL imports or external graph providers.</td>
+                <td>Current Dataset Library v1 uses curated NEExT CSV bundles and curated single-graph CSV templates.</td>
+              </tr>
+            </tbody>
+          </table>
+        </section>
+
+        <section id="decisions">
+          <h2>Decision Log</h2>
+          <table>
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th>Decision</th>
+                <th>Rationale</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>2026-06-11</td>
+                <td>Use <span class="mono">development-lifecycle/index.html</span> as the committed planning dashboard.</td>
+                <td>Single self-contained HTML is easy to open locally and easy for agents to edit directly.</td>
+              </tr>
+              <tr>
+                <td>2026-06-11</td>
+                <td>Optimize the artifact for agent handoff using Epic -> Sprint -> Task.</td>
+                <td>Future development rounds need decision-complete context, not just a visual roadmap.</td>
+              </tr>
+              <tr>
+                <td>2026-06-11</td>
+                <td>Ignore scratch content in <span class="mono">development-lifecycle/</span>, but track the canonical HTML.</td>
+                <td>Keeps the repository clean while allowing local drafts, exports, and planning notes.</td>
+              </tr>
+              <tr>
+                <td>2026-06-11</td>
+                <td>Update lifecycle guidance in both <span class="mono">AGENTS.md</span> and <span class="mono">CLAUDE.md</span>.</td>
+                <td>Repository instructions must stay synchronized for coding agents.</td>
+              </tr>
+            </tbody>
+          </table>
+        </section>
+
+        <section id="protocol">
+          <h2>Update Protocol</h2>
+          <div class="grid two">
+            <div class="card">
+              <h3>When to Update</h3>
+              <ul class="checklist">
+                <li><input type="checkbox"> <span>A sprint is created or scoped.</span></li>
+                <li><input type="checkbox"> <span>A sprint is completed or materially changed.</span></li>
+                <li><input type="checkbox"> <span>An epic changes status or gets an approved implementation plan.</span></li>
+                <li><input type="checkbox"> <span>A planned/deferred area becomes approved scope.</span></li>
+              </ul>
+            </div>
+            <div class="card">
+              <h3>Rules</h3>
+              <ul>
+                <li>Keep this file concise enough to review at the start of a development turn.</li>
+                <li>Record approved decisions; do not invent product scope.</li>
+                <li>For Workbench work, keep using the approved Space, Ribbon Group, Ribbon Command, Center View, panel, and artifact vocabulary.</li>
+                <li>Temporary lifecycle drafts belong in <span class="mono">development-lifecycle/</span> and remain ignored unless explicitly unignored.</li>
+              </ul>
+            </div>
+          </div>
+          <p class="footer-note">Last implementation verification for this artifact should confirm local HTML render, tracked/ignored file behavior, and synchronized guidance updates.</p>
+        </section>
+      </main>
+    </div>
+  </div>
+</body>
+</html>
