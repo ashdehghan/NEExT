@@ -465,6 +465,8 @@ from NEExT.workbench.schemas import (
     EmbeddingCreateParams,
     FeatureCreateParams,
     FeatureCreateRequest,
+    ModelCreateParams,
+    ModelCreateRequest,
     OperationSpec,
     ProjectCreate,
 )
@@ -571,6 +573,148 @@ print(
     dataset_id: string;
     feature_ids: string[];
     embedding_ids: string[];
+  };
+}
+
+function seedLineageSelectionProject(name: string) {
+  const repoRoot = path.resolve(process.cwd(), "..");
+  const workspacePath = path.join(repoRoot, "sandbox", "workbench-e2e");
+  const script = String.raw`
+import json
+import sys
+from pathlib import Path
+
+from NEExT.workbench.schemas import (
+    DatasetManifest,
+    DatasetStats,
+    EmbeddingCreateParams,
+    EmbeddingCreateRequest,
+    FeatureCreateParams,
+    FeatureCreateRequest,
+    ModelCreateParams,
+    ModelCreateRequest,
+    OperationSpec,
+    ProjectCreate,
+)
+from NEExT.workbench.storage import WorkbenchStore, utc_now
+
+workspace_path = Path(sys.argv[1])
+project_name = sys.argv[2]
+store = WorkbenchStore(workspace_path)
+project = store.create_project(ProjectCreate(name=project_name, description="lineage selection project"))
+
+def create_dataset(label):
+    dataset_id = store._new_dataset_id(project.id)
+    dataset_path = store.dataset_path(project.id, dataset_id)
+    dataset_path.mkdir(parents=True, exist_ok=False)
+    now = utc_now()
+    stats = DatasetStats(
+        graph_count=2,
+        node_count=4,
+        edge_count=2,
+        has_graph_labels=True,
+        has_node_features=False,
+        has_edge_features=False,
+    )
+    dataset = DatasetManifest(
+        id=dataset_id,
+        project_id=project.id,
+        name=label,
+        description=f"{label} lineage fixture",
+        status="completed",
+        created_at=now,
+        updated_at=now,
+        source_catalog_id=label.upper().replace(" ", "_"),
+        source_name=label,
+        source="E2E fixture",
+        source_domain="Tests",
+        operation=OperationSpec(
+            operation_id="neext.prepare_graph_collection",
+            operation_version="1",
+            params={"graph_type": "networkx", "reindex_nodes": True, "filter_largest_component": False},
+        ),
+        source_stats=stats,
+        prepared_stats=stats,
+        stats=stats,
+    )
+    store._write_json(dataset_path / "artifact.json", dataset.model_dump())
+    return dataset
+
+alpha = create_dataset("Lineage Alpha")
+beta = create_dataset("Lineage Beta")
+feature_params = FeatureCreateParams(feature_vector_length=2, normalize_features=False, n_jobs=1, parallel_backend="threading")
+alpha_page = store.create_feature(project.id, FeatureCreateRequest(source_dataset_id=alpha.id, source_feature_id="page_rank", params=feature_params))
+alpha_degree = store.create_feature(project.id, FeatureCreateRequest(source_dataset_id=alpha.id, source_feature_id="degree_centrality", params=feature_params))
+beta_page = store.create_feature(project.id, FeatureCreateRequest(source_dataset_id=beta.id, source_feature_id="page_rank", params=feature_params))
+
+embedding_params = EmbeddingCreateParams(embedding_dimension=2)
+alpha_page_embedding = store.create_embedding(
+    project.id,
+    EmbeddingCreateRequest(source_embedding_id="approx_wasserstein", source_feature_ids=[alpha_page.id], params=embedding_params),
+)
+alpha_combined_embedding = store.create_embedding(
+    project.id,
+    EmbeddingCreateRequest(source_embedding_id="approx_wasserstein", source_feature_ids=[alpha_page.id, alpha_degree.id], params=embedding_params),
+)
+beta_embedding = store.create_embedding(
+    project.id,
+    EmbeddingCreateRequest(source_embedding_id="approx_wasserstein", source_feature_ids=[beta_page.id], params=embedding_params),
+)
+
+for embedding, label in [
+    (alpha_page_embedding, "Alpha Page Embedding"),
+    (alpha_combined_embedding, "Alpha Combined Embedding"),
+    (beta_embedding, "Beta Page Embedding"),
+]:
+    embedding.name = label
+    embedding.updated_at = utc_now()
+    store._write_json(store.embedding_path(project.id, embedding.id) / "artifact.json", embedding.model_dump())
+
+model_params = ModelCreateParams(
+    task_type="classifier",
+    sample_size=1,
+    test_size=0.5,
+    balance_dataset=False,
+    n_jobs=1,
+    parallel_backend="thread",
+)
+alpha_model = store.create_model(
+    project.id,
+    ModelCreateRequest(source_model_id="random_forest", source_embedding_ids=[alpha_combined_embedding.id], params=model_params),
+)
+beta_model = store.create_model(
+    project.id,
+    ModelCreateRequest(source_model_id="random_forest", source_embedding_ids=[beta_embedding.id], params=model_params),
+)
+alpha_model.name = "Alpha Classifier"
+alpha_model.updated_at = utc_now()
+store._write_json(store.model_path(project.id, alpha_model.id) / "artifact.json", alpha_model.model_dump())
+beta_model.name = "Beta Classifier"
+beta_model.updated_at = utc_now()
+store._write_json(store.model_path(project.id, beta_model.id) / "artifact.json", beta_model.model_dump())
+
+print(
+    json.dumps(
+        {
+            "project_id": project.id,
+            "datasets": {"alpha": alpha.id, "beta": beta.id},
+            "features": {"alpha_page": alpha_page.id, "alpha_degree": alpha_degree.id, "beta_page": beta_page.id},
+            "embeddings": {
+                "alpha_page": alpha_page_embedding.id,
+                "alpha_combined": alpha_combined_embedding.id,
+                "beta": beta_embedding.id,
+            },
+            "models": {"alpha": alpha_model.id, "beta": beta_model.id},
+        }
+    )
+)
+`;
+  return JSON.parse(execFileSync("python", ["-c", script, workspacePath, name], { cwd: repoRoot, encoding: "utf-8" })) as {
+    project_id: string;
+    datasets: Record<string, string>;
+    features: Record<string, string>;
+    embeddings: Record<string, string>;
+    models: Record<string, string>;
   };
 }
 
@@ -698,6 +842,109 @@ test("Home commands switch center views", async ({ page }) => {
 
   await ribbon.getByRole("button", { name: "Projects" }).click();
   await expect(page.locator(".artifact-table-title")).toContainText("Projects");
+});
+
+test("Left Panel scopes artifacts by dataset and marks selected lineage relationships", async ({ page }) => {
+  const projectName = `Lineage Project ${Date.now()}`;
+  seedLineageSelectionProject(projectName);
+
+  await page.goto("/");
+  const selection = page.locator(".selection-panel");
+  const section = (title: string) => selection.locator(".sel-section", { hasText: title });
+  const item = (title: string, name: string) => section(title).locator(".sel-item", { hasText: name });
+
+  await expect(selection.locator(".sel-item-name", { hasText: projectName })).toBeVisible();
+  await expect(selection.locator(".sel-context")).toHaveText(`Context: Project ${projectName}`);
+  await expect(section("Datasets").locator(".sel-count")).toHaveText("2");
+  await expect(section("Features").locator(".sel-count")).toHaveText("0");
+  await expect(section("Embeddings").locator(".sel-count")).toHaveText("0");
+  await expect(section("Models").locator(".sel-count")).toHaveText("0");
+  await expect(item("Features", "Lineage Alpha - PageRank")).toHaveCount(0);
+  await expect(item("Embeddings", "Alpha Page Embedding")).toHaveCount(0);
+  await expect(item("Models", "Alpha Classifier")).toHaveCount(0);
+
+  await item("Datasets", "Lineage Alpha").click();
+  await expect(selection.locator(".sel-context")).toHaveText("Context: Dataset Lineage Alpha");
+  await expect(section("Datasets").locator(".sel-count")).toHaveText("2");
+  await expect(item("Datasets", "Lineage Alpha")).toHaveClass(/is-active/);
+  await expect(item("Datasets", "Lineage Beta")).toBeVisible();
+  await expect(section("Features").locator(".sel-count")).toHaveText("2");
+  await expect(section("Embeddings").locator(".sel-count")).toHaveText("2");
+  await expect(section("Models").locator(".sel-count")).toHaveText("1");
+  await expect(item("Features", "Lineage Beta - PageRank")).toHaveCount(0);
+  await expect(item("Embeddings", "Beta Page Embedding")).toHaveCount(0);
+  await expect(item("Models", "Beta Classifier")).toHaveCount(0);
+  await expect(page.locator(".artifact-table-title")).toContainText("Datasets");
+  await expect(page.locator(".document table tbody tr", { hasText: "Lineage Beta" })).toBeVisible();
+
+  await item("Datasets", "Lineage Beta").click();
+  await expect(selection.locator(".sel-context")).toHaveText("Context: Dataset Lineage Beta");
+  await expect(section("Datasets").locator(".sel-count")).toHaveText("2");
+  await expect(item("Datasets", "Lineage Beta")).toHaveClass(/is-active/);
+  await expect(item("Datasets", "Lineage Alpha")).toBeVisible();
+  await expect(section("Features").locator(".sel-count")).toHaveText("1");
+  await expect(section("Embeddings").locator(".sel-count")).toHaveText("1");
+  await expect(section("Models").locator(".sel-count")).toHaveText("1");
+  await expect(item("Features", "Lineage Beta - PageRank")).toBeVisible();
+  await expect(item("Features", "Lineage Alpha - PageRank")).toHaveCount(0);
+  await expect(item("Embeddings", "Beta Page Embedding")).toBeVisible();
+  await expect(item("Models", "Beta Classifier")).toBeVisible();
+
+  await item("Datasets", "Lineage Alpha").click();
+  await expect(selection.locator(".sel-context")).toHaveText("Context: Dataset Lineage Alpha");
+
+  await item("Features", "Lineage Alpha - PageRank").click();
+  await expect(selection.locator(".sel-context")).toHaveText("Context: Feature Lineage Alpha - PageRank");
+  await expect(section("Datasets").locator(".sel-count")).toHaveText("2");
+  await expect(item("Datasets", "Lineage Alpha")).toHaveClass(/is-active/);
+  await expect(item("Datasets", "Lineage Beta")).toBeVisible();
+  await expect(section("Features").locator(".sel-count")).toHaveText("2");
+  await expect(section("Embeddings").locator(".sel-count")).toHaveText("2");
+  await expect(section("Models").locator(".sel-count")).toHaveText("1");
+  await expect(item("Features", "Lineage Alpha - Degree Centrality")).toBeVisible();
+  await expect(item("Embeddings", "Alpha Page Embedding")).toHaveClass(/is-related/);
+  await expect(item("Embeddings", "Alpha Combined Embedding")).toHaveClass(/is-related/);
+  await expect(item("Models", "Alpha Classifier")).toHaveClass(/is-related/);
+  await expect(page.locator(".artifact-table-title")).toContainText("Features");
+  await expect(page.locator(".document table tbody tr", { hasText: "Lineage Beta - PageRank" })).toBeVisible();
+
+  await item("Embeddings", "Alpha Combined Embedding").click();
+  await expect(selection.locator(".sel-context")).toHaveText("Context: Embedding Alpha Combined Embedding");
+  await expect(section("Datasets").locator(".sel-count")).toHaveText("2");
+  await expect(item("Datasets", "Lineage Alpha")).toHaveClass(/is-active/);
+  await expect(item("Datasets", "Lineage Beta")).toBeVisible();
+  await expect(section("Features").locator(".sel-count")).toHaveText("2");
+  await expect(section("Embeddings").locator(".sel-count")).toHaveText("2");
+  await expect(section("Models").locator(".sel-count")).toHaveText("1");
+  await expect(item("Features", "Lineage Alpha - PageRank")).toBeVisible();
+  await expect(item("Features", "Lineage Alpha - Degree Centrality")).toBeVisible();
+  await expect(item("Embeddings", "Alpha Page Embedding")).toBeVisible();
+  await expect(item("Models", "Alpha Classifier")).toHaveClass(/is-related/);
+  await expect(page.locator(".artifact-table-title")).toContainText("Embeddings");
+  await expect(page.locator(".document table tbody tr", { hasText: "Beta Page Embedding" })).toBeVisible();
+
+  await item("Models", "Alpha Classifier").click();
+  await expect(selection.locator(".sel-context")).toHaveText("Context: Model Alpha Classifier");
+  await expect(section("Datasets").locator(".sel-count")).toHaveText("2");
+  await expect(item("Datasets", "Lineage Alpha")).toHaveClass(/is-active/);
+  await expect(item("Datasets", "Lineage Beta")).toBeVisible();
+  await expect(section("Features").locator(".sel-count")).toHaveText("2");
+  await expect(section("Embeddings").locator(".sel-count")).toHaveText("2");
+  await expect(section("Models").locator(".sel-count")).toHaveText("1");
+  await expect(item("Embeddings", "Alpha Combined Embedding")).toBeVisible();
+  await expect(item("Models", "Beta Classifier")).toHaveCount(0);
+  await expect(page.locator(".artifact-table-title")).toContainText("Models");
+  await expect(page.locator(".document table tbody tr", { hasText: "Beta Classifier" })).toBeVisible();
+
+  await item("Project", projectName).click();
+  await expect(selection.locator(".sel-context")).toHaveText(`Context: Project ${projectName}`);
+  await expect(section("Datasets").locator(".sel-count")).toHaveText("2");
+  await expect(section("Features").locator(".sel-count")).toHaveText("0");
+  await expect(section("Embeddings").locator(".sel-count")).toHaveText("0");
+  await expect(section("Models").locator(".sel-count")).toHaveText("0");
+  await expect(item("Features", "Lineage Alpha - PageRank")).toHaveCount(0);
+  await expect(item("Embeddings", "Alpha Page Embedding")).toHaveCount(0);
+  await expect(item("Models", "Alpha Classifier")).toHaveCount(0);
 });
 
 test("Home Settings enables, regenerates, and disables local MCP setup", async ({ page }) => {
@@ -1242,7 +1489,7 @@ test("Embeddings library configures, batches, runs, and previews persisted artif
 
   await expect(page.locator(".artifact-table-title")).toContainText("Embeddings");
   await expect(page.locator(".artifact-table-empty")).toContainText("No embeddings.");
-  await expect(page.locator(".selection-panel .sel-section", { hasText: "Features" }).locator(".sel-count")).toHaveText("2");
+  await expect(page.locator(".selection-panel .sel-section", { hasText: "Features" }).locator(".sel-count")).toHaveText("0");
 
   await ribbon.getByRole("button", { name: "Library" }).click();
   await expect(page.locator(".artifact-table .tbl thead th")).toHaveText(["Name", "Algorithm", "Output", "Actions"]);
@@ -1293,12 +1540,13 @@ test("Embeddings library configures, batches, runs, and previews persisted artif
 
   const approxEmbeddingRows = page.locator("table tbody tr", { hasText: "Tiny Embedding - Approx Wasserstein Embedding" });
   await expect(approxEmbeddingRows).toHaveCount(2);
+  await expect(page.locator(".selection-panel .sel-context")).toContainText("Context: Embedding Tiny Embedding - Approx Wasserstein Embedding");
   await expect(page.locator(".selection-panel .sel-section", { hasText: "Embeddings" }).locator(".sel-count")).toHaveText("2");
   await approxEmbeddingRows.nth(0).locator("input[type='checkbox']").check();
   await approxEmbeddingRows.nth(1).locator("input[type='checkbox']").check();
   await page.getByRole("button", { name: "Run Selected" }).click();
   await expect(page.locator(".jobs-panel")).toContainText("neext.compute_graph_embeddings", { timeout: 20_000 });
-  await expect(page.locator(".cmd")).toContainText("Computing upstream features for embedding", { timeout: 20_000 });
+  await expect(page.locator(".cmd")).toContainText("Computing features:", { timeout: 20_000 });
   await expect(page.locator(".cmd")).toContainText("Computing embedding", { timeout: 30_000 });
   await expect(approxEmbeddingRows.nth(0).locator(".status-pill")).toHaveText("completed", { timeout: 60_000 });
   await expect(approxEmbeddingRows.nth(1).locator(".status-pill")).toHaveText("completed", { timeout: 60_000 });
@@ -1326,7 +1574,7 @@ test("Models library configures, runs, batches, and previews persisted artifacts
 
   await expect(page.locator(".artifact-table-title")).toContainText("Models");
   await expect(page.locator(".artifact-table-empty")).toContainText("No models.");
-  await expect(page.locator(".selection-panel .sel-section", { hasText: "Embeddings" }).locator(".sel-count")).toHaveText("2");
+  await expect(page.locator(".selection-panel .sel-section", { hasText: "Embeddings" }).locator(".sel-count")).toHaveText("0");
 
   await modelAnalysisGroup.getByRole("button", { name: "Explore" }).click();
   await expect(page.locator(".artifact-table-title")).toContainText("Model Explore");
@@ -1461,7 +1709,7 @@ test("Models library configures, runs, batches, and previews persisted artifacts
   await ribbon.getByRole("button", { name: "Models" }).click();
   const modelRows = page.locator("table tbody tr", { hasText: "Tiny Model - Random Forest Classifier" });
   await expect(modelRows).toHaveCount(3);
-  await expect(page.locator(".selection-panel .sel-section", { hasText: "Models" }).locator(".sel-count")).toHaveText("3");
+  await expect(page.locator(".selection-panel .sel-section", { hasText: "Models" }).locator(".sel-count")).toHaveText("0");
   await modelRows.nth(0).locator("input[type='checkbox']").check();
   await modelRows.nth(1).locator("input[type='checkbox']").check();
   await page.getByRole("button", { name: "Run Selected" }).click();

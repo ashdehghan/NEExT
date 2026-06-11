@@ -322,6 +322,20 @@ svg { display: inline-block; vertical-align: middle; width: 1em; height: 1em; }
   --sel-accent-soft: var(--tile-model-bg);
 }
 
+.sel-context {
+  min-height: 28px;
+  padding: 7px var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-2);
+  background: var(--panel-alt);
+  color: var(--chrome-700);
+  font-size: var(--text-12);
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .sel-header {
   display: flex;
   align-items: center;
@@ -366,6 +380,7 @@ svg { display: inline-block; vertical-align: middle; width: 1em; height: 1em; }
 }
 
 .sel-item {
+  position: relative;
   width: 100%;
   display: grid;
   grid-template-columns: 16px minmax(0, 1fr) auto;
@@ -390,6 +405,17 @@ button.sel-item:hover {
 }
 button.sel-item.is-active:hover {
   background: var(--select-bg);
+}
+.sel-item.is-related::before {
+  content: "";
+  position: absolute;
+  left: 3px;
+  top: 50%;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--sel-accent);
+  transform: translateY(-50%);
 }
 .sel-item-icon {
   color: var(--chrome-500);

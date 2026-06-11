@@ -9,6 +9,9 @@ interface SelectionPanelProps {
   features: FeatureManifest[];
   embeddings: EmbeddingManifest[];
   models: ModelManifest[];
+  contextLabel: string;
+  relatedEmbeddingIds: string[];
+  relatedModelIds: string[];
   isProjectSelected: boolean;
   selectedDatasetId: string;
   selectedFeatureId: string;
@@ -69,6 +72,9 @@ export function SelectionPanel({
   features,
   embeddings,
   models,
+  contextLabel,
+  relatedEmbeddingIds,
+  relatedModelIds,
   isProjectSelected,
   selectedDatasetId,
   selectedFeatureId,
@@ -86,6 +92,7 @@ export function SelectionPanel({
         <span>Selection</span>
       </div>
       <div className="panel-body panel-body-flush">
+        <div className="sel-context">{contextLabel}</div>
         <section className="sel-section" data-kind="project">
           <header className="sel-header">
             <span className="sel-header-title">
@@ -164,37 +171,45 @@ export function SelectionPanel({
                     </button>
                   ))
                 ) : isEmbeddingSection && embeddings.length ? (
-                  embeddings.map((embedding) => (
-                    <button
-                      key={embedding.id}
-                      type="button"
-                      className={`sel-item ${embedding.id === selectedEmbeddingId ? "is-active" : ""}`}
-                      aria-current={embedding.id === selectedEmbeddingId ? "true" : undefined}
-                      onClick={() => onSelectEmbedding(embedding.id)}
-                    >
-                      <span className="sel-item-icon" style={{ color: section.color }}>
-                        <ItemIcon />
-                      </span>
-                      <span className="sel-item-name">{embedding.name}</span>
-                      <span className="sel-item-sub">Embedding</span>
-                    </button>
-                  ))
+                  embeddings.map((embedding) => {
+                    const isRelated = relatedEmbeddingIds.includes(embedding.id);
+                    return (
+                      <button
+                        key={embedding.id}
+                        type="button"
+                        className={`sel-item ${embedding.id === selectedEmbeddingId ? "is-active" : ""} ${isRelated ? "is-related" : ""}`}
+                        aria-current={embedding.id === selectedEmbeddingId ? "true" : undefined}
+                        onClick={() => onSelectEmbedding(embedding.id)}
+                        title={isRelated ? "Related to selected artifact" : undefined}
+                      >
+                        <span className="sel-item-icon" style={{ color: section.color }}>
+                          <ItemIcon />
+                        </span>
+                        <span className="sel-item-name">{embedding.name}</span>
+                        <span className="sel-item-sub">Embedding</span>
+                      </button>
+                    );
+                  })
                 ) : isModelSection && models.length ? (
-                  models.map((model) => (
-                    <button
-                      key={model.id}
-                      type="button"
-                      className={`sel-item ${model.id === selectedModelId ? "is-active" : ""}`}
-                      aria-current={model.id === selectedModelId ? "true" : undefined}
-                      onClick={() => onSelectModel(model.id)}
-                    >
-                      <span className="sel-item-icon" style={{ color: section.color }}>
-                        <ItemIcon />
-                      </span>
-                      <span className="sel-item-name">{model.name}</span>
-                      <span className="sel-item-sub">Model</span>
-                    </button>
-                  ))
+                  models.map((model) => {
+                    const isRelated = relatedModelIds.includes(model.id);
+                    return (
+                      <button
+                        key={model.id}
+                        type="button"
+                        className={`sel-item ${model.id === selectedModelId ? "is-active" : ""} ${isRelated ? "is-related" : ""}`}
+                        aria-current={model.id === selectedModelId ? "true" : undefined}
+                        onClick={() => onSelectModel(model.id)}
+                        title={isRelated ? "Related to selected artifact" : undefined}
+                      >
+                        <span className="sel-item-icon" style={{ color: section.color }}>
+                          <ItemIcon />
+                        </span>
+                        <span className="sel-item-name">{model.name}</span>
+                        <span className="sel-item-sub">Model</span>
+                      </button>
+                    );
+                  })
                 ) : (
                   <div className="sel-empty">{section.emptyLabel}</div>
                 )}

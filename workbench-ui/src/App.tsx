@@ -13,7 +13,7 @@ import {
   useWorkspace,
   useProjects
 } from "./hooks/useWorkspace";
-import type { DatasetGraphSummary } from "./api";
+import type { DatasetGraphSummary, DatasetManifest, EmbeddingManifest, FeatureManifest, ModelManifest } from "./api";
 import type { MainTab } from "./types";
 import { titleCase } from "./types";
 
@@ -61,6 +61,33 @@ function viewTitle(route: Route): string {
 
 function TitleOnlyView({ title }: { title: string }) {
   return <h1 className="title-only">{title}</h1>;
+}
+
+function featureDatasetId(feature: FeatureManifest): string {
+  return feature.inputs.find((input) => input.role === "source_dataset" && input.artifact_kind === "dataset")?.artifact_id || "";
+}
+
+function embeddingFeatureIds(embedding: EmbeddingManifest): string[] {
+  return embedding.inputs
+    .filter((input) => input.role === "source_feature" && input.artifact_kind === "feature")
+    .map((input) => input.artifact_id);
+}
+
+function modelEmbeddingIds(model: ModelManifest): string[] {
+  return model.inputs
+    .filter((input) => input.role === "source_embedding" && input.artifact_kind === "embedding")
+    .map((input) => input.artifact_id);
+}
+
+interface SelectionLineage {
+  contextLabel: string;
+  activeDatasetId: string;
+  datasets: DatasetManifest[];
+  features: FeatureManifest[];
+  embeddings: EmbeddingManifest[];
+  models: ModelManifest[];
+  relatedEmbeddingIds: string[];
+  relatedModelIds: string[];
 }
 
 export default function App() {
@@ -218,6 +245,143 @@ export default function App() {
     const datasetInput = firstFeature?.inputs.find((input) => input.role === "source_dataset" && input.artifact_kind === "dataset");
     return datasetInput ? datasets.find((dataset) => dataset.id === datasetInput.artifact_id) : undefined;
   }, [datasets, features, selectedModelEmbeddings]);
+  const selectionLineage = useMemo<SelectionLineage>(() => {
+    const projectContext = {
+      contextLabel: project ? `Context: Project ${project.name}` : "Context: No project",
+      activeDatasetId: "",
+      datasets,
+      features: [],
+      embeddings: [],
+      models: [],
+      relatedEmbeddingIds: [],
+      relatedModelIds: []
+    };
+    const featuresById = new Map(features.map((feature) => [feature.id, feature]));
+    const embeddingsById = new Map(embeddings.map((embedding) => [embedding.id, embedding]));
+    const embeddingDatasetId = (embedding: EmbeddingManifest) => {
+      const sourceFeatureIds = embeddingFeatureIds(embedding);
+      if (sourceFeatureIds.length === 0) return "";
+      const datasetIds = new Set<string>();
+      for (const featureId of sourceFeatureIds) {
+        const feature = featuresById.get(featureId);
+        const datasetId = feature ? featureDatasetId(feature) : "";
+        if (!datasetId) return "";
+        datasetIds.add(datasetId);
+      }
+      return datasetIds.size === 1 ? Array.from(datasetIds)[0] : "";
+    };
+    const modelDatasetId = (model: ModelManifest) => {
+      const sourceEmbeddingIds = modelEmbeddingIds(model);
+      if (sourceEmbeddingIds.length === 0) return "";
+      const datasetIds = new Set<string>();
+      for (const embeddingId of sourceEmbeddingIds) {
+        const embedding = embeddingsById.get(embeddingId);
+        const datasetId = embedding ? embeddingDatasetId(embedding) : "";
+        if (!datasetId) return "";
+        datasetIds.add(datasetId);
+      }
+      return datasetIds.size === 1 ? Array.from(datasetIds)[0] : "";
+    };
+    const datasetContext = (
+      dataset: DatasetManifest,
+      contextLabel: string,
+      relatedEmbeddingIds: string[] = [],
+      relatedModelIds: string[] = []
+    ): SelectionLineage => {
+      const datasetId = dataset.id;
+      const lineageFeatures = features.filter((feature) => featureDatasetId(feature) === datasetId);
+      const lineageEmbeddings = embeddings.filter((embedding) => embeddingDatasetId(embedding) === datasetId);
+      const lineageModels = models.filter((model) => modelDatasetId(model) === datasetId);
+      return {
+        contextLabel,
+        activeDatasetId: dataset.id,
+        datasets,
+        features: lineageFeatures,
+        embeddings: lineageEmbeddings,
+        models: lineageModels,
+        relatedEmbeddingIds,
+        relatedModelIds
+      };
+    };
+
+    if (selectedDataset) {
+      return datasetContext(selectedDataset, `Context: Dataset ${selectedDataset.name}`);
+    }
+
+    if (selectedFeature) {
+      const datasetId = featureDatasetId(selectedFeature);
+      const lineageDataset = datasets.find((dataset) => dataset.id === datasetId);
+      const relatedEmbeddings = lineageDataset
+        ? embeddings.filter((embedding) => embeddingDatasetId(embedding) === datasetId && embeddingFeatureIds(embedding).includes(selectedFeature.id))
+        : [];
+      const relatedEmbeddingIds = relatedEmbeddings.map((embedding) => embedding.id);
+      const relatedEmbeddingIdSet = new Set(relatedEmbeddingIds);
+      const relatedModelIds = lineageDataset
+        ? models
+            .filter(
+              (model) =>
+                modelDatasetId(model) === datasetId && modelEmbeddingIds(model).some((embeddingId) => relatedEmbeddingIdSet.has(embeddingId))
+            )
+            .map((model) => model.id)
+        : [];
+      if (lineageDataset) {
+        return datasetContext(lineageDataset, `Context: Feature ${selectedFeature.name}`, relatedEmbeddingIds, relatedModelIds);
+      }
+      return {
+        contextLabel: `Context: Feature ${selectedFeature.name}`,
+        activeDatasetId: "",
+        datasets: [],
+        features: [selectedFeature],
+        embeddings: [],
+        models: [],
+        relatedEmbeddingIds: [],
+        relatedModelIds: []
+      };
+    }
+
+    if (selectedEmbedding) {
+      const datasetId = embeddingDatasetId(selectedEmbedding);
+      const lineageDataset = datasets.find((dataset) => dataset.id === datasetId);
+      const relatedModelIds = lineageDataset
+        ? models
+            .filter((model) => modelDatasetId(model) === datasetId && modelEmbeddingIds(model).includes(selectedEmbedding.id))
+            .map((model) => model.id)
+        : [];
+      if (lineageDataset) {
+        return datasetContext(lineageDataset, `Context: Embedding ${selectedEmbedding.name}`, [], relatedModelIds);
+      }
+      return {
+        contextLabel: `Context: Embedding ${selectedEmbedding.name}`,
+        activeDatasetId: "",
+        datasets: [],
+        features: [],
+        embeddings: [selectedEmbedding],
+        models: [],
+        relatedEmbeddingIds: [],
+        relatedModelIds: []
+      };
+    }
+
+    if (selectedModel) {
+      const datasetId = modelDatasetId(selectedModel);
+      const lineageDataset = datasets.find((dataset) => dataset.id === datasetId);
+      if (lineageDataset) {
+        return datasetContext(lineageDataset, `Context: Model ${selectedModel.name}`);
+      }
+      return {
+        contextLabel: `Context: Model ${selectedModel.name}`,
+        activeDatasetId: "",
+        datasets: [],
+        features: [],
+        embeddings: [],
+        models: [selectedModel],
+        relatedEmbeddingIds: [],
+        relatedModelIds: []
+      };
+    }
+
+    return projectContext;
+  }, [datasets, embeddings, features, models, project, selectedDataset, selectedEmbedding, selectedFeature, selectedModel]);
   const importedCatalogIds = useMemo(() => new Set(datasets.map((dataset) => dataset.source_catalog_id)), [datasets]);
   const jobs = projectJobsQuery.data || [];
   const isProjectSelected = Boolean(
@@ -1339,12 +1503,15 @@ export default function App() {
       left={
         <SelectionPanel
           project={project}
-          datasets={datasets}
-          features={features}
-          embeddings={embeddings}
-          models={models}
+          contextLabel={selectionLineage.contextLabel}
+          datasets={selectionLineage.datasets}
+          features={selectionLineage.features}
+          embeddings={selectionLineage.embeddings}
+          models={selectionLineage.models}
+          relatedEmbeddingIds={selectionLineage.relatedEmbeddingIds}
+          relatedModelIds={selectionLineage.relatedModelIds}
           isProjectSelected={isProjectSelected}
-          selectedDatasetId={selectedDatasetId}
+          selectedDatasetId={selectionLineage.activeDatasetId}
           selectedFeatureId={selectedFeatureId}
           selectedEmbeddingId={selectedEmbeddingId}
           selectedModelId={selectedModelId}

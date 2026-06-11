@@ -372,7 +372,7 @@
           <p class="subtitle">Canonical planning dashboard for the NEExT core library and Workbench. This file is the shared human-agent interface for current state, active sprint work, backlog, and decisions.</p>
         </div>
         <div class="meta">
-          <span class="pill active">Active: Sprint 0</span>
+          <span class="pill ready">Complete: Sprint 1</span>
           <span class="pill ready">Tracked artifact</span>
           <span class="pill">Updated 2026-06-11</span>
         </div>
@@ -386,7 +386,8 @@
       <nav class="toc" aria-label="Table of contents">
         <div class="toc-title">Table of Contents</div>
         <a href="#status">Status Summary</a>
-        <a href="#sprint">Active Sprint</a>
+        <a href="#sprint">Completed Sprint</a>
+        <a href="#roadmap">Sprint Roadmap</a>
         <a href="#current-state">Current State</a>
         <a href="#workbench-map">Workbench Map</a>
         <a href="#dag">Compute DAG</a>
@@ -411,29 +412,119 @@
             </div>
             <div class="card">
               <strong>Lifecycle Dashboard</strong>
-              <p class="muted">Committed static HTML planning artifact for sprint state, handoff context, and current/future development tracking.</p>
-              <span class="pill active">New in Sprint 0</span>
+              <p class="muted">Committed static HTML planning artifact for sprint state, handoff context, and current/future development tracking. Sprint 0 and Sprint 1 are complete.</p>
+              <span class="pill ready">Sprint 1 complete</span>
             </div>
           </div>
         </section>
 
         <section id="sprint">
-          <h2>Active Sprint: Sprint 0 - Lifecycle Setup</h2>
+          <h2>Completed Sprint: Sprint 1 - Selection Hierarchy and Lineage Context</h2>
           <div class="grid two">
             <div class="card">
               <strong>Goal</strong>
-              <p>Create a lightweight committed planning interface that captures current project state and gives future agents a stable handoff surface.</p>
+              <p>Make Workbench artifact selection explain the project lineage from dataset to feature to embedding to model, so the user can see what belongs to the selected context without losing the current navigation pattern.</p>
             </div>
             <div class="card">
               <strong>Acceptance Criteria</strong>
               <ul class="checklist">
-                <li><input type="checkbox" checked> <span>Canonical dashboard exists at <span class="mono">development-lifecycle/index.html</span>.</span></li>
-                <li><input type="checkbox" checked> <span>Local scratch files inside <span class="mono">development-lifecycle/</span> are ignored.</span></li>
-                <li><input type="checkbox" checked> <span><span class="mono">AGENTS.md</span> and <span class="mono">CLAUDE.md</span> explain the lifecycle artifact.</span></li>
-                <li><input type="checkbox"> <span>Next development sprint is explicitly selected and scoped by the user.</span></li>
+                <li><input type="checkbox" checked> <span>Left Panel artifact lists preserve the active project or dataset scope.</span></li>
+                <li><input type="checkbox" checked> <span>Project selection shows project datasets only; downstream artifacts require a dataset or lower artifact branch.</span></li>
+                <li><input type="checkbox" checked> <span>The dataset list remains stable across branch selection so sibling datasets are still available.</span></li>
+                <li><input type="checkbox" checked> <span>Dataset, feature, embedding, and model selection keep sibling artifacts visible within the same dataset branch.</span></li>
+                <li><input type="checkbox" checked> <span>Feature and embedding selection mark related downstream artifacts instead of hiding unrelated same-dataset artifacts.</span></li>
+                <li><input type="checkbox" checked> <span>Existing click-to-navigate behavior remains: selecting an artifact opens that artifact kind's Center View.</span></li>
               </ul>
             </div>
           </div>
+          <div class="card">
+            <h3>Verification</h3>
+            <ul>
+              <li><span class="mono">npm exec tsc</span> passed.</li>
+              <li><span class="mono">python3 -m pytest tests/test_workbench.py</span> passed with 34 tests.</li>
+              <li><span class="mono">npm run test:e2e</span> passed with 14 browser tests.</li>
+              <li>Manual browser verification at <span class="mono">http://127.0.0.1:8765</span> confirmed stable dataset navigation and related markers with no console warnings or errors.</li>
+            </ul>
+          </div>
+          <div class="card">
+            <h3>Lineage Scope Rules</h3>
+            <table>
+              <thead>
+                <tr>
+                  <th>Selected Context</th>
+                  <th>Left Panel Context To Show</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Project</td>
+                  <td>All datasets in the active project. Features, embeddings, and models stay empty until a dataset, feature, embedding, or model establishes a coherent branch.</td>
+                </tr>
+                <tr>
+                  <td>Dataset</td>
+                  <td>All project datasets remain visible with the selected dataset highlighted. Downstream sections show features whose <span class="mono">source_dataset</span> input points to it, embeddings built from those features, and models built from those embeddings.</td>
+                </tr>
+                <tr>
+                  <td>Feature</td>
+                  <td>All project datasets remain visible with the feature source dataset highlighted. All sibling features, embeddings, and models from that dataset remain visible. Mark embeddings consuming the selected feature and models consuming those embeddings.</td>
+                </tr>
+                <tr>
+                  <td>Embedding</td>
+                  <td>All project datasets remain visible with the embedding source dataset highlighted. All sibling features, embeddings, and models from that dataset remain visible. Mark models consuming the selected embedding.</td>
+                </tr>
+                <tr>
+                  <td>Model</td>
+                  <td>All project datasets remain visible with the model source dataset highlighted. All sibling features, embeddings, and models from that dataset remain visible while the selected model is highlighted.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <section id="roadmap">
+          <h2>Sprint Roadmap</h2>
+          <table>
+            <thead>
+              <tr>
+                <th>Sprint</th>
+                <th>Status</th>
+                <th>Focus</th>
+                <th>Notes</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><strong>Sprint 0</strong></td>
+                <td><span class="pill ready">Complete</span></td>
+                <td>Lifecycle Setup</td>
+                <td>Created this committed dashboard, ignore policy, and synchronized repository guidance.</td>
+              </tr>
+              <tr>
+                <td><strong>Sprint 1</strong></td>
+                <td><span class="pill ready">Complete</span></td>
+                <td>Selection Hierarchy and Lineage Context</td>
+                <td>Implemented stable dataset navigation, dataset-scoped downstream artifacts, and related downstream markers using existing artifact manifest inputs.</td>
+              </tr>
+              <tr>
+                <td><strong>Sprint 2</strong></td>
+                <td><span class="pill hold">Planned</span></td>
+                <td>Dataset Explore Polish and Export Design</td>
+                <td>Back to Datasets, Statistics layout cleanup, Graph header alignment, Data dropdown styling, and export design.</td>
+              </tr>
+              <tr>
+                <td><strong>Sprint 3</strong></td>
+                <td><span class="pill hold">Needs design</span></td>
+                <td>Artifact Lifecycle Management Design</td>
+                <td>Deletion/removal requires decisions about dependency blocking, cascade behavior, trash, and running jobs.</td>
+              </tr>
+              <tr>
+                <td><strong>Sprint 4</strong></td>
+                <td><span class="pill hold">Discovery</span></td>
+                <td>Dataset/Feature Create Page Discovery</td>
+                <td>Define what Create means separately from Library -> Configure before implementation.</td>
+              </tr>
+            </tbody>
+          </table>
         </section>
 
         <section id="current-state">
@@ -546,39 +637,39 @@
             <tbody>
               <tr>
                 <td><strong>Lifecycle Dashboard</strong></td>
-                <td><span class="pill active">Active</span></td>
-                <td>Choose the next development sprint after this setup lands.</td>
-                <td>This HTML is the canonical handoff artifact. Keep it compact and current.</td>
+                <td><span class="pill ready">Operating</span></td>
+                <td>Keep the active sprint, roadmap, and decisions current after each planning or implementation turn.</td>
+                <td>This HTML is the canonical handoff artifact. Sprint 0 setup is complete.</td>
+              </tr>
+              <tr>
+                <td><strong>Workbench Selection Hierarchy</strong></td>
+                <td><span class="pill ready">Complete</span></td>
+                <td>Monitor usability and decide whether a future sprint should replace section lists with a true nested tree navigator.</td>
+                <td>Sprint 1 implemented stable dataset lists, branch-scoped downstream artifacts, and related downstream markers.</td>
+              </tr>
+              <tr>
+                <td><strong>Dataset Explore Experience</strong></td>
+                <td><span class="pill hold">Planned</span></td>
+                <td>Decide dataset export API shape before implementation; UI cleanup can remain scoped to existing Center Views.</td>
+                <td>Includes Back to Datasets, Statistics layout cleanup, Graph header alignment, Data dropdown styling, and export behavior.</td>
               </tr>
               <tr>
                 <td><strong>Workbench Artifact Lifecycle</strong></td>
                 <td><span class="pill hold">Needs design</span></td>
-                <td>Decide deletion, restore, archive, edit, duplicate, and immutability behavior per artifact kind.</td>
-                <td>Project deletion exists. Artifact deletion and restore/archive are intentionally not designed yet.</td>
+                <td>Decide delete/remove behavior, dependency blocking, trash semantics, and immutable artifact rules per artifact kind.</td>
+                <td>Project deletion exists. Dataset, feature, embedding, and model deletion are intentionally not designed yet.</td>
+              </tr>
+              <tr>
+                <td><strong>Create Workflows</strong></td>
+                <td><span class="pill hold">Discovery</span></td>
+                <td>Define what Dataset Create and Feature Create mean relative to Library -> Configure workflows.</td>
+                <td>Do not implement empty Create pages until the workflow forms are explicitly scoped.</td>
               </tr>
               <tr>
                 <td><strong>Workbench Import/Export</strong></td>
                 <td><span class="pill hold">Needs design</span></td>
-                <td>Define project archive import/export before implementation.</td>
-                <td>Future archives should contain <span class="mono">project.json</span> and <span class="mono">artifacts/</span> at zip root.</td>
-              </tr>
-              <tr>
-                <td><strong>Prediction and Model Inspection</strong></td>
-                <td><span class="pill hold">Needs design</span></td>
-                <td>Define prediction workflow and feature-importance surfaces.</td>
-                <td>Do not add prediction workflows or feature-importance views without explicit design approval.</td>
-              </tr>
-              <tr>
-                <td><strong>Execution Operations</strong></td>
-                <td><span class="pill hold">Needs design</span></td>
-                <td>Decide cancellation, concurrency, and broader execution status behavior.</td>
-                <td>Current behavior is local serialized jobs through the single worker.</td>
-              </tr>
-              <tr>
-                <td><strong>Dataset Sources</strong></td>
-                <td><span class="pill hold">Needs design</span></td>
-                <td>Decide whether and how to support arbitrary URL imports or external graph providers.</td>
-                <td>Current Dataset Library v1 uses curated NEExT CSV bundles and curated single-graph CSV templates.</td>
+                <td>Define project archive import/export and dataset export boundaries before implementation.</td>
+                <td>Project archives remain a future epic. Dataset CSV export is part of Sprint 2 design.</td>
               </tr>
             </tbody>
           </table>
@@ -615,6 +706,46 @@
                 <td>Update lifecycle guidance in both <span class="mono">AGENTS.md</span> and <span class="mono">CLAUDE.md</span>.</td>
                 <td>Repository instructions must stay synchronized for coding agents.</td>
               </tr>
+              <tr>
+                <td>2026-06-11</td>
+                <td>Make Sprint 1 the active sprint: Selection Hierarchy and Lineage Context.</td>
+                <td>The Workbench already persists lineage through artifact inputs, so the first implementation should expose that context in the Left Panel.</td>
+              </tr>
+              <tr>
+                <td>2026-06-11</td>
+                <td>Preserve existing click-to-navigate behavior while adding lineage-aware Left Panel context.</td>
+                <td>The current Workbench pattern opens the selected artifact kind's Center View, and the user approved keeping that behavior.</td>
+              </tr>
+              <tr>
+                <td>2026-06-11</td>
+                <td>Use dataset-scoped navigation plus relationship indicators for feature and embedding selection.</td>
+                <td>Selected features and embeddings should not hide sibling artifacts in the same dataset branch; small indicators should show downstream relationships instead.</td>
+              </tr>
+              <tr>
+                <td>2026-06-11</td>
+                <td>Project-only Left Panel context shows datasets only.</td>
+                <td>Showing mixed downstream artifacts from unrelated datasets before a branch is selected creates an incoherent default state.</td>
+              </tr>
+              <tr>
+                <td>2026-06-11</td>
+                <td>Keep all project datasets visible while a dataset branch is selected.</td>
+                <td>The Left Panel should behave as a stable navigator, not a hard filter that forces users to jump back to Project to switch datasets.</td>
+              </tr>
+              <tr>
+                <td>2026-06-11</td>
+                <td>Complete Sprint 1 selection hierarchy implementation.</td>
+                <td>Automated and browser verification passed for stable project/dataset/feature/embedding/model selection behavior.</td>
+              </tr>
+              <tr>
+                <td>2026-06-11</td>
+                <td>Treat Dataset Create and Feature Create as discovery-first work.</td>
+                <td>The current Create pages are not designed yet; implementation should wait until those workflows are explicitly scoped.</td>
+              </tr>
+              <tr>
+                <td>2026-06-11</td>
+                <td>Do not update <span class="mono">AGENTS.md</span> or <span class="mono">CLAUDE.md</span> for the Sprint 1 roadmap update.</td>
+                <td>This change only records planned work in the lifecycle dashboard and does not alter repository operating instructions.</td>
+              </tr>
             </tbody>
           </table>
         </section>
@@ -641,7 +772,7 @@
               </ul>
             </div>
           </div>
-          <p class="footer-note">Last implementation verification for this artifact should confirm local HTML render, tracked/ignored file behavior, and synchronized guidance updates.</p>
+          <p class="footer-note">Last implementation verification for this artifact should confirm local HTML render, intended tracked changes, and no unintended guidance updates.</p>
         </section>
       </main>
     </div>
