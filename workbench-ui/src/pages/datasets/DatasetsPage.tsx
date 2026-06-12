@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import * as echarts from "echarts";
 import type { EChartsOption } from "echarts";
-import { ChevronLeft, ChevronRight, Database, Eye, Play, RotateCcw, Save, Search, Settings2 } from "lucide-react";
+import { ChevronLeft, ChevronRight, Database, Download, Eye, Play, RotateCcw, Save, Search, Settings2 } from "lucide-react";
 import {
   api,
   type DatasetCatalogEntry,
@@ -52,6 +52,7 @@ interface DatasetExploreViewProps {
   exploreGraphId: string;
   exploreNodeId: string;
   onExploreDataset: (datasetId: string) => void;
+  onBackToDatasets: () => void;
   onExploreGraphChange: (graphId: string, summary: DatasetGraphSummary | null, options?: { clearNode?: boolean }) => void;
   onExploreNodeChange: (nodeId: string) => void;
   onExploreNodeVisualStateChange: (visible: boolean | null) => void;
@@ -693,6 +694,8 @@ function DatasetDataTab({ activeProjectId, dataset }: { activeProjectId: string;
   const tableIds = useMemo(() => tables.map((table) => table.id).join(","), [tables]);
   const [table, setTable] = useState<DatasetPreviewTable>(tables[0]?.id || "nodes");
   const [offset, setOffset] = useState(0);
+  const [isExporting, setIsExporting] = useState(false);
+  const [exportError, setExportError] = useState("");
   const pageSize = 50;
 
   useEffect(() => {
@@ -712,10 +715,30 @@ function DatasetDataTab({ activeProjectId, dataset }: { activeProjectId: string;
   const pageStart = totalRows === 0 ? 0 : offset + 1;
   const pageEnd = preview.data ? Math.min(offset + preview.data.rows.length, totalRows) : 0;
 
+  const exportTable = async () => {
+    setExportError("");
+    setIsExporting(true);
+    try {
+      const download = await api.datasetExport(activeProjectId, dataset.id, table);
+      const objectUrl = URL.createObjectURL(download.blob);
+      const anchor = document.createElement("a");
+      anchor.href = objectUrl;
+      anchor.download = download.filename;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      URL.revokeObjectURL(objectUrl);
+    } catch (error) {
+      setExportError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
   return (
     <div className="dataset-tab-panel">
       <div className="table-toolbar dataset-table-toolbar">
-        <label className="field compact-field">
+        <label className="field compact-field dataset-table-select">
           <span>Table</span>
           <select
             aria-label="Dataset table"
@@ -736,6 +759,10 @@ function DatasetDataTab({ activeProjectId, dataset }: { activeProjectId: string;
           {pageStart}-{pageEnd} of {formatCount(totalRows)}
         </span>
         <span className="toolbar-spacer" />
+        <button type="button" className="btn" onClick={exportTable} disabled={isExporting || !tables.length}>
+          <Download />
+          {isExporting ? "Exporting" : "Export CSV"}
+        </button>
         <button type="button" className="btn" onClick={() => setOffset(Math.max(0, offset - pageSize))} disabled={offset === 0}>
           Previous
         </button>
@@ -748,6 +775,7 @@ function DatasetDataTab({ activeProjectId, dataset }: { activeProjectId: string;
           Next
         </button>
       </div>
+      {exportError ? <p className="table-error">{exportError}</p> : null}
       {preview.error ? <p className="table-error">{preview.error.message}</p> : null}
       {preview.isLoading || !preview.data ? (
         <div className="artifact-table-empty">
@@ -769,6 +797,7 @@ export function DatasetExploreView({
   exploreGraphId,
   exploreNodeId,
   onExploreDataset,
+  onBackToDatasets,
   onExploreGraphChange,
   onExploreNodeChange,
   onExploreNodeVisualStateChange
@@ -944,7 +973,13 @@ export function DatasetExploreView({
               <FcIcon name="explore" size={16} />
               {dataset.name} Explore
             </span>
-            <span className="muted">{dataset.status}</span>
+            <div className="artifact-table-head-actions">
+              <span className="muted">{dataset.status}</span>
+              <button type="button" className="btn" onClick={onBackToDatasets}>
+                <ChevronLeft />
+                Back to Datasets
+              </button>
+            </div>
           </header>
           <div className="artifact-table-empty">
             <EmptyState compact>Run dataset preparation before exploring this dataset.</EmptyState>
@@ -962,7 +997,13 @@ export function DatasetExploreView({
             <FcIcon name="explore" size={16} />
             {dataset.name} Explore
           </span>
-          <span className="muted">{dataset.prepared_stats ? `${formatCount(dataset.prepared_stats.node_count)} nodes` : dataset.status}</span>
+          <div className="artifact-table-head-actions">
+            <span className="muted">{dataset.prepared_stats ? `${formatCount(dataset.prepared_stats.node_count)} nodes` : dataset.status}</span>
+            <button type="button" className="btn" onClick={onBackToDatasets}>
+              <ChevronLeft />
+              Back to Datasets
+            </button>
+          </div>
         </header>
         <div className="tab-strip">
           {(["statistics", "graph", "data"] as const).map((item) => (
@@ -978,7 +1019,7 @@ export function DatasetExploreView({
           </div>
         ) : null}
         {tab === "statistics" && analysis.data ? (
-          <div className="dataset-tab-panel">
+          <div className="dataset-tab-panel dataset-stat-panel">
             {analysis.data.egonet_metadata ? (
               <>
                 <section className="dataset-stats-section">
@@ -1043,7 +1084,7 @@ export function DatasetExploreView({
                     Prepared node counts are egonet memberships; the same source node can appear in multiple prepared egonets.
                   </p>
                 </section>
-                <div className="dataset-detail-grid">
+                <div className="dataset-detail-grid dataset-stat-detail-grid">
                   <section>
                     <h3>Egonet Generation</h3>
                     <table className="tbl compact-tbl">
@@ -1130,7 +1171,7 @@ export function DatasetExploreView({
                 </div>
               </div>
             )}
-            <div className="dataset-detail-grid">
+            <div className="dataset-detail-grid dataset-stat-detail-grid">
               <section>
                 <h3>Graph Labels</h3>
                 {Object.keys(analysis.data.graph_label_distribution).length ? (
@@ -1155,9 +1196,19 @@ export function DatasetExploreView({
                 )}
               </section>
               <section>
-                <h3>Feature Columns</h3>
-                <p className="muted">Node: {analysis.data.node_feature_columns.length ? analysis.data.node_feature_columns.join(", ") : "None"}</p>
-                <p className="muted">Edge: {analysis.data.edge_feature_columns.length ? analysis.data.edge_feature_columns.join(", ") : "None"}</p>
+                <h3>Data Columns</h3>
+                <table className="tbl compact-tbl">
+                  <tbody>
+                    <tr>
+                      <th>Node Features</th>
+                      <td>{analysis.data.node_feature_columns.length ? analysis.data.node_feature_columns.join(", ") : "None"}</td>
+                    </tr>
+                    <tr>
+                      <th>Edge Features</th>
+                      <td>{analysis.data.edge_feature_columns.length ? analysis.data.edge_feature_columns.join(", ") : "None"}</td>
+                    </tr>
+                  </tbody>
+                </table>
               </section>
             </div>
           </div>

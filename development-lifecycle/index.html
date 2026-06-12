@@ -372,7 +372,7 @@
           <p class="subtitle">Canonical planning dashboard for the NEExT core library and Workbench. This file is the shared human-agent interface for current state, active sprint work, backlog, and decisions.</p>
         </div>
         <div class="meta">
-          <span class="pill ready">Complete: Sprint 1</span>
+          <span class="pill ready">Complete: Sprint 2</span>
           <span class="pill ready">Tracked artifact</span>
           <span class="pill">Updated 2026-06-11</span>
         </div>
@@ -386,7 +386,8 @@
       <nav class="toc" aria-label="Table of contents">
         <div class="toc-title">Table of Contents</div>
         <a href="#status">Status Summary</a>
-        <a href="#sprint">Completed Sprint</a>
+        <a href="#sprint">Completed Sprint 1</a>
+        <a href="#sprint-2">Completed Sprint 2</a>
         <a href="#roadmap">Sprint Roadmap</a>
         <a href="#current-state">Current State</a>
         <a href="#workbench-map">Workbench Map</a>
@@ -412,8 +413,8 @@
             </div>
             <div class="card">
               <strong>Lifecycle Dashboard</strong>
-              <p class="muted">Committed static HTML planning artifact for sprint state, handoff context, and current/future development tracking. Sprint 0 and Sprint 1 are complete.</p>
-              <span class="pill ready">Sprint 1 complete</span>
+              <p class="muted">Committed static HTML planning artifact for sprint state, handoff context, and current/future development tracking. Sprint 0, Sprint 1, and Sprint 2 are complete.</p>
+              <span class="pill ready">Sprint 2 complete</span>
             </div>
           </div>
         </section>
@@ -481,6 +482,65 @@
           </div>
         </section>
 
+        <section id="sprint-2">
+          <h2>Completed Sprint: Sprint 2 - Dataset Explore Polish and Current-Table Export</h2>
+          <div class="grid two">
+            <div class="card">
+              <strong>Goal</strong>
+              <p>Make Dataset Explore easier to navigate and inspect, then add a real current-table CSV export without introducing broader import/export scope.</p>
+            </div>
+            <div class="card">
+              <strong>Acceptance Criteria</strong>
+              <ul class="checklist">
+                <li><input type="checkbox" checked> <span>Dataset Explore includes a Back to Datasets control that preserves the selected dataset context.</span></li>
+                <li><input type="checkbox" checked> <span>Statistics lower sections are organized into clearer detail cards and tables.</span></li>
+                <li><input type="checkbox" checked> <span>Graph navigation, graph count, badges, and search controls align consistently in the Graph tab header.</span></li>
+                <li><input type="checkbox" checked> <span>The Data tab table dropdown uses the Workbench field styling and remains usable.</span></li>
+                <li><input type="checkbox" checked> <span>The Data tab exports the selected dataset table as CSV through a real backend endpoint.</span></li>
+              </ul>
+            </div>
+          </div>
+          <div class="card">
+            <h3>Verification</h3>
+            <ul>
+              <li><span class="mono">npm exec tsc</span> passed.</li>
+              <li><span class="mono">python3 -m pytest tests/test_workbench.py</span> passed with 34 tests.</li>
+              <li><span class="mono">npm run test:e2e</span> passed with 14 browser tests.</li>
+              <li><span class="mono">make neext-workbench</span> built and launched Workbench; after port cleanup the verified browser target is <span class="mono">http://127.0.0.1:8765</span>.</li>
+              <li>Manual browser verification confirmed Dataset Explore Statistics scrolling, Graph, Data, current-table CSV export, Back to Datasets, and a clean browser console.</li>
+            </ul>
+          </div>
+          <div class="card">
+            <h3>Export Contract</h3>
+            <table>
+              <thead>
+                <tr>
+                  <th>Behavior</th>
+                  <th>Decision</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Scope</td>
+                  <td>Export only the currently selected Data tab table as CSV.</td>
+                </tr>
+                <tr>
+                  <td>Backend route</td>
+                  <td><span class="mono">GET /api/projects/{project_id}/datasets/{dataset_id}/export/{table}</span></td>
+                </tr>
+                <tr>
+                  <td>Allowed tables</td>
+                  <td>Reuse the same prepared dataset and mapping table whitelist as Dataset Preview.</td>
+                </tr>
+                <tr>
+                  <td>Deferred</td>
+                  <td>No dataset zip bundle, arbitrary export framework, artifact lifecycle, or AGENTS/CLAUDE rule update in this sprint.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
         <section id="roadmap">
           <h2>Sprint Roadmap</h2>
           <table>
@@ -507,9 +567,9 @@
               </tr>
               <tr>
                 <td><strong>Sprint 2</strong></td>
-                <td><span class="pill hold">Planned</span></td>
-                <td>Dataset Explore Polish and Export Design</td>
-                <td>Back to Datasets, Statistics layout cleanup, Graph header alignment, Data dropdown styling, and export design.</td>
+                <td><span class="pill ready">Complete</span></td>
+                <td>Dataset Explore Polish and Current-Table Export</td>
+                <td>Implemented Back to Datasets, Statistics layout cleanup, Graph header alignment, Data dropdown styling, and current-table CSV export.</td>
               </tr>
               <tr>
                 <td><strong>Sprint 3</strong></td>
@@ -572,8 +632,8 @@
               </tr>
               <tr>
                 <td><strong>Datasets</strong></td>
-                <td>Configure curated library datasets, run preparation, preview tables, explore statistics, graph visuals, graph/node search, and data.</td>
-                <td>Arbitrary URL imports, dataset deletion, restore/archive, broader import providers.</td>
+                <td>Configure curated library datasets, run preparation, preview tables, explore statistics, graph visuals, graph/node search, data, and current-table CSV export.</td>
+                <td>Arbitrary URL imports, dataset deletion, restore/archive, broader import providers, and dataset bundle export.</td>
               </tr>
               <tr>
                 <td><strong>Features</strong></td>
@@ -649,9 +709,9 @@
               </tr>
               <tr>
                 <td><strong>Dataset Explore Experience</strong></td>
-                <td><span class="pill hold">Planned</span></td>
-                <td>Decide dataset export API shape before implementation; UI cleanup can remain scoped to existing Center Views.</td>
-                <td>Includes Back to Datasets, Statistics layout cleanup, Graph header alignment, Data dropdown styling, and export behavior.</td>
+                <td><span class="pill ready">Complete</span></td>
+                <td>Monitor usability and decide whether a later sprint should add bundle export or richer analysis controls.</td>
+                <td>Sprint 2 implemented Back to Datasets, Statistics layout cleanup, Graph header alignment, Data dropdown styling, and current-table CSV export.</td>
               </tr>
               <tr>
                 <td><strong>Workbench Artifact Lifecycle</strong></td>
@@ -668,8 +728,8 @@
               <tr>
                 <td><strong>Workbench Import/Export</strong></td>
                 <td><span class="pill hold">Needs design</span></td>
-                <td>Define project archive import/export and dataset export boundaries before implementation.</td>
-                <td>Project archives remain a future epic. Dataset CSV export is part of Sprint 2 design.</td>
+                <td>Define project archive import/export, dataset bundle export, and non-dataset artifact export boundaries before implementation.</td>
+                <td>Project archives remain a future epic. Dataset current-table CSV export is complete as a narrow Dataset Explore action.</td>
               </tr>
             </tbody>
           </table>
@@ -745,6 +805,26 @@
                 <td>2026-06-11</td>
                 <td>Do not update <span class="mono">AGENTS.md</span> or <span class="mono">CLAUDE.md</span> for the Sprint 1 roadmap update.</td>
                 <td>This change only records planned work in the lifecycle dashboard and does not alter repository operating instructions.</td>
+              </tr>
+              <tr>
+                <td>2026-06-11</td>
+                <td>Make Sprint 2 a narrow Dataset Explore polish sprint with current-table CSV export.</td>
+                <td>The user approved current-table CSV export and rejected broader bundle/export framework scope for this sprint.</td>
+              </tr>
+              <tr>
+                <td>2026-06-11</td>
+                <td>Back to Datasets returns to the Datasets Center View while preserving the selected dataset.</td>
+                <td>This matches the Workbench navigation pattern and lets the user choose another dataset without losing context.</td>
+              </tr>
+              <tr>
+                <td>2026-06-11</td>
+                <td>Do not update <span class="mono">AGENTS.md</span> or <span class="mono">CLAUDE.md</span> for Sprint 2.</td>
+                <td>The approved behavior is product scope recorded in the lifecycle dashboard, not a durable repository operating rule.</td>
+              </tr>
+              <tr>
+                <td>2026-06-11</td>
+                <td>Complete Sprint 2 Dataset Explore implementation.</td>
+                <td>Automated checks and browser verification passed for layout polish, Back to Datasets, and current-table CSV export.</td>
               </tr>
             </tbody>
           </table>

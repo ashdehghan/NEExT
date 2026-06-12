@@ -6,6 +6,7 @@ import hashlib
 import hmac
 import json
 import queue
+import re
 import secrets
 import shutil
 import threading
@@ -3015,6 +3016,18 @@ class WorkbenchStore:
             raise ValueError("Dataset preview is available only after preparation completes")
         path = self._dataset_preview_path(project_id, dataset, table)
         return self._preview_parquet(path, limit=limit, offset=offset)
+
+    def export_dataset_csv(self, project_id: str, dataset_id: str, table: str) -> tuple[str, str]:
+        import pandas as pd
+
+        dataset = self.read_dataset(project_id, dataset_id)
+        if dataset.status != "completed":
+            raise ValueError("Dataset export is available only after preparation completes")
+        path = self._dataset_preview_path(project_id, dataset, table)
+        frame = pd.read_parquet(path)
+        safe_dataset_name = re.sub(r"[^A-Za-z0-9._-]+", "_", dataset.name).strip("._-") or "dataset"
+        safe_table_name = re.sub(r"[^A-Za-z0-9._-]+", "_", table).strip("._-") or "table"
+        return f"{safe_dataset_name}_{safe_table_name}.csv", frame.to_csv(index=False)
 
     def preview_feature(self, project_id: str, feature_id: str, *, limit: int = 20, offset: int = 0) -> TabularPreview:
         feature = self.read_feature(project_id, feature_id)

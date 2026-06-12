@@ -880,6 +880,15 @@ export default function App() {
     setRoute({ topTab: "datasets", command: "explore" });
   }, []);
 
+  const handleBackToDatasets = useCallback(() => {
+    setExploreDatasetId("");
+    setExploreGraphId("");
+    setExploreGraphSummary(null);
+    setExploreNodeId("");
+    setExploreNodeVisible(null);
+    setRoute({ topTab: "datasets", command: "datasets" });
+  }, []);
+
   const handleExploreGraphChange = useCallback(
     (graphId: string, summary: DatasetGraphSummary | null, options: { clearNode?: boolean } = {}) => {
       setExploreGraphId(graphId);
@@ -1295,6 +1304,7 @@ export default function App() {
           exploreGraphId={exploreGraphId}
           exploreNodeId={exploreNodeId}
           onExploreDataset={handleExploreDataset}
+          onBackToDatasets={handleBackToDatasets}
           onExploreGraphChange={handleExploreGraphChange}
           onExploreNodeChange={handleExploreNodeChange}
           onExploreNodeVisualStateChange={setExploreNodeVisible}

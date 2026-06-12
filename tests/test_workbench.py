@@ -478,6 +478,9 @@ def test_configure_and_run_dataset_writes_prepared_outputs_and_mapping(monkeypat
         not_ready_node = client.get(f"/api/projects/{project_id}/datasets/{dataset_id}/analysis/node?graph_id=g1&node_id=0")
         assert not_ready_node.status_code == 400
         assert "available only after preparation completes" in not_ready_node.json()["detail"]
+        not_ready_export = client.get(f"/api/projects/{project_id}/datasets/{dataset_id}/export/nodes")
+        assert not_ready_export.status_code == 400
+        assert "available only after preparation completes" in not_ready_export.json()["detail"]
 
         run = client.post(f"/api/projects/{project_id}/datasets/{dataset_id}/run")
         assert run.status_code == 200
@@ -576,6 +579,18 @@ def test_configure_and_run_dataset_writes_prepared_outputs_and_mapping(monkeypat
             "included",
             "drop_reason",
         ]
+
+        exported = client.get(f"/api/projects/{project_id}/datasets/{dataset_id}/export/node_mapping")
+        assert exported.status_code == 200
+        assert exported.headers["content-type"].startswith("text/csv")
+        assert exported.headers["content-disposition"] == 'attachment; filename="Tiny_Dataset_node_mapping.csv"'
+        assert str(Path(tmpdir).resolve()) not in exported.text
+        assert exported.text.splitlines()[0] == "source_graph_id,source_node_id,internal_graph_id,internal_node_id,included,drop_reason"
+        assert "g1,1,g1,0,True," in exported.text
+
+        unsupported_export = client.get(f"/api/projects/{project_id}/datasets/{dataset_id}/export/not_a_table")
+        assert unsupported_export.status_code == 400
+        assert "Unsupported dataset preview table" in unsupported_export.json()["detail"]
 
         analysis = client.get(f"/api/projects/{project_id}/datasets/{dataset_id}/analysis")
         assert analysis.status_code == 200

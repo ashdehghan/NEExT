@@ -12,6 +12,28 @@ body {
   -moz-osx-font-smoothing: grayscale;
 }
 
+* {
+  scrollbar-color: var(--chrome-400) transparent;
+  scrollbar-width: thin;
+}
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+*::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background: var(--chrome-400);
+  background-clip: content-box;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--chrome-600);
+  background-clip: content-box;
+}
+
 button { font: inherit; color: inherit; cursor: pointer; background: none; border: 0; padding: 0; }
 input, textarea, select { font-family: inherit; }
 code { font-family: var(--font-mono); font-size: var(--text-11); }
@@ -1001,12 +1023,19 @@ input:focus, textarea:focus, select:focus {
   gap: var(--space-3);
   padding: var(--space-3);
 }
+.dataset-stat-panel {
+  overflow: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  padding-right: calc(var(--space-3) + 2px);
+}
 .graph-tab-panel {
   padding: 0;
   gap: 0;
 }
 .dataset-table-toolbar {
   align-items: center;
+  flex-wrap: wrap;
 }
 .dataset-graph-toolbar {
   flex-wrap: wrap;
@@ -1015,7 +1044,7 @@ input:focus, textarea:focus, select:focus {
 .dataset-graph-header {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) minmax(240px, 320px);
-  align-items: end;
+  align-items: center;
   gap: var(--space-3);
   padding: var(--space-3);
   border-bottom: 1px solid var(--border);
@@ -1029,13 +1058,18 @@ input:focus, textarea:focus, select:focus {
   min-width: 0;
 }
 .graph-nav-group {
+  min-height: 34px;
   padding: 2px;
   border: 1px solid var(--border);
   border-radius: var(--radius-2);
   background: var(--panel);
 }
 .graph-position {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   min-width: 58px;
+  height: 28px;
   padding: 0 6px;
   font-size: var(--text-11);
   font-weight: 700;
@@ -1046,7 +1080,7 @@ input:focus, textarea:focus, select:focus {
 .graph-summary-band {
   flex-wrap: wrap;
   align-content: center;
-  min-height: 44px;
+  min-height: 34px;
 }
 .graph-id-badge,
 .graph-meta-badge,
@@ -1054,9 +1088,9 @@ input:focus, textarea:focus, select:focus {
 .graph-center-badge {
   display: inline-flex;
   align-items: center;
-  min-height: 22px;
+  min-height: 28px;
   max-width: 100%;
-  padding: 2px 7px;
+  padding: 3px 8px;
   border: 1px solid var(--border);
   border-radius: var(--radius-2);
   background: var(--panel);
@@ -1184,6 +1218,26 @@ input:focus, textarea:focus, select:focus {
 .compact-field span {
   font-size: var(--text-10);
 }
+.dataset-table-select {
+  position: relative;
+}
+.dataset-table-select select {
+  height: 32px;
+  padding-right: 30px;
+  appearance: none;
+}
+.dataset-table-select::after {
+  content: "";
+  position: absolute;
+  right: 11px;
+  bottom: 12px;
+  width: 7px;
+  height: 7px;
+  border-right: 1.5px solid var(--chrome-600);
+  border-bottom: 1.5px solid var(--chrome-600);
+  transform: rotate(45deg);
+  pointer-events: none;
+}
 .dataset-page-count {
   white-space: nowrap;
   font-size: var(--text-11);
@@ -1255,6 +1309,13 @@ input:focus, textarea:focus, select:focus {
   min-width: 0;
   display: grid;
   gap: var(--space-2);
+}
+.dataset-stat-detail-grid section {
+  align-content: start;
+  padding: var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-2);
+  background: var(--panel-alt);
 }
 .dataset-detail-grid h3 {
   margin: 0;

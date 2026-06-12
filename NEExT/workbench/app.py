@@ -47,7 +47,7 @@ def create_app(workspace_path: Optional[Union[str, Path]] = None):
     optional workbench dependencies.
     """
     from fastapi import FastAPI, HTTPException
-    from fastapi.responses import JSONResponse
+    from fastapi.responses import JSONResponse, Response
     from fastapi.staticfiles import StaticFiles
 
     store = WorkbenchStore(resolve_workspace_path(workspace_path))
@@ -235,6 +235,18 @@ def create_app(workspace_path: Optional[Union[str, Path]] = None):
     def preview_project_dataset(project_id: str, dataset_id: str, table: str, limit: int = 20, offset: int = 0):
         try:
             return store.preview_dataset(project_id, dataset_id, table, limit=limit, offset=offset)
+        except Exception as exc:
+            raise api_exception(exc) from exc
+
+    @app.get("/api/projects/{project_id}/datasets/{dataset_id}/export/{table}")
+    def export_project_dataset(project_id: str, dataset_id: str, table: str):
+        try:
+            filename, content = store.export_dataset_csv(project_id, dataset_id, table)
+            return Response(
+                content=content,
+                media_type="text/csv",
+                headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+            )
         except Exception as exc:
             raise api_exception(exc) from exc
 

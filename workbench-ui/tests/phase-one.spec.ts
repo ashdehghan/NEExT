@@ -1,6 +1,7 @@
 import { expect, test } from "@playwright/test";
 import type { Page } from "@playwright/test";
 import { execFileSync } from "node:child_process";
+import fs from "node:fs";
 import path from "node:path";
 
 const TITLE_ONLY_COMMANDS = ["Import", "Create"] as const;
@@ -1049,6 +1050,22 @@ test("Dataset Explore graph search and navigation update Inspector", async ({ pa
   await expect(inspector).toContainText("2");
   await expect(inspector).toContainText("Degree");
   await expect(inspector).toContainText("Visible In Visual");
+
+  await exploreView.getByRole("button", { name: "Data", exact: true }).click();
+  const [download] = await Promise.all([
+    page.waitForEvent("download"),
+    exploreView.getByRole("button", { name: "Export CSV" }).click()
+  ]);
+  expect(download.suggestedFilename()).toBe("Tiny_Embedding_nodes.csv");
+  const downloadedPath = await download.path();
+  expect(downloadedPath).toBeTruthy();
+  const csv = fs.readFileSync(String(downloadedPath), "utf-8");
+  expect(csv).toContain("graph_id,node_id");
+  expect(csv).toContain("g1,0");
+
+  await exploreView.getByRole("button", { name: "Back to Datasets" }).click();
+  await expect(page.locator(".artifact-table-title")).toContainText("Datasets");
+  await expect(datasetRow).toHaveClass(/is-selected/);
 });
 
 test("Feature Explore shows statistics, PCA, data, and node inspector details", async ({ page }) => {

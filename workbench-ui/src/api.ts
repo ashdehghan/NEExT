@@ -645,6 +645,11 @@ export interface ModelAnalysis {
   metric_series: ModelMetricSeries[];
 }
 
+export interface DownloadPayload {
+  blob: Blob;
+  filename: string;
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, init);
   if (!response.ok) {
@@ -652,6 +657,20 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     throw new Error(String(detail.detail || response.statusText));
   }
   return response.json() as Promise<T>;
+}
+
+async function requestDownload(path: string): Promise<DownloadPayload> {
+  const response = await fetch(path);
+  if (!response.ok) {
+    const detail = await response.json().catch(() => ({ detail: response.statusText }));
+    throw new Error(String(detail.detail || response.statusText));
+  }
+  const disposition = response.headers.get("Content-Disposition") || "";
+  const filenameMatch = disposition.match(/filename="([^"]+)"/);
+  return {
+    blob: await response.blob(),
+    filename: filenameMatch?.[1] || "download.csv"
+  };
 }
 
 export const api = {
@@ -714,6 +733,8 @@ export const api = {
   },
   datasetPreview: (projectId: string, datasetId: string, table: DatasetPreviewTable, limit = 20, offset = 0) =>
     request<TabularPreview>(`/api/projects/${projectId}/datasets/${datasetId}/preview/${table}?limit=${limit}&offset=${offset}`),
+  datasetExport: (projectId: string, datasetId: string, table: DatasetPreviewTable) =>
+    requestDownload(`/api/projects/${projectId}/datasets/${datasetId}/export/${table}`),
   createFeature: (projectId: string, payload: FeatureCreatePayload) =>
     request<FeatureManifest>(`/api/projects/${projectId}/features`, {
       method: "POST",
