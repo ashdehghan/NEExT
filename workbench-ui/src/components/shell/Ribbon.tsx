@@ -49,7 +49,6 @@ const GROUPS: Record<MainTab, GroupDef[]> = {
       tools: [
         STRUCTURAL_TOOLS.import,
         STRUCTURAL_TOOLS.library,
-        STRUCTURAL_TOOLS.create,
         { label: "Datasets", icon: "datasets", command: "datasets" }
       ]
     },

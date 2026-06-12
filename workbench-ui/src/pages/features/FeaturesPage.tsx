@@ -1,10 +1,12 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode, type UIEvent } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import * as echarts from "echarts";
 import type { EChartsOption } from "echarts";
-import { ArrowLeft, ChevronLeft, ChevronRight, Eye, Play, RotateCcw, Save, Search, Settings2, Sigma, Trash2 } from "lucide-react";
+import { ArrowLeft, CheckCircle2, Code2, ChevronLeft, ChevronRight, Eye, Play, RotateCcw, Save, Search, Settings2, Sigma, Trash2 } from "lucide-react";
 import {
   api,
+  type CustomFeatureCreatePayload,
+  type CustomFeatureValidatePayload,
   type DatasetManifest,
   type FeatureAnalysis,
   type FeatureCatalogEntry,
@@ -21,6 +23,7 @@ interface FeatureLibraryViewProps {
   catalog: FeatureCatalogEntry[];
   loading: boolean;
   selectedCatalogId: string;
+  selectedDataset?: DatasetManifest;
   onSelectCatalog: (catalogId: string) => void;
   onConfigure: (catalogId: string) => void;
 }
@@ -28,8 +31,13 @@ interface FeatureLibraryViewProps {
 interface ConfigureFeatureViewProps {
   activeProjectId: string;
   feature?: FeatureCatalogEntry;
-  datasets: DatasetManifest[];
-  loading: boolean;
+  dataset?: DatasetManifest;
+  onCreated: (featureId: string) => void;
+}
+
+interface CreateFeatureViewProps {
+  activeProjectId: string;
+  dataset?: DatasetManifest;
   onCreated: (featureId: string) => void;
 }
 
@@ -64,6 +72,11 @@ function featureTypeLabel(entry: FeatureCatalogEntry): string {
   return entry.type === "structural_node_feature" ? "Structural node feature" : entry.type;
 }
 
+function featureMethodLabel(feature: FeatureManifest, catalogById: Map<string, FeatureCatalogEntry>): string {
+  if (feature.source_type === "custom_python_node_feature") return "Custom Python";
+  return catalogById.get(feature.source_feature_id)?.name || feature.source_feature_id;
+}
+
 function datasetInputId(feature: FeatureManifest): string {
   return feature.inputs.find((input) => input.role === "source_dataset" && input.artifact_kind === "dataset")?.artifact_id || "";
 }
@@ -88,6 +101,7 @@ export function FeatureLibraryView({
   catalog,
   loading,
   selectedCatalogId,
+  selectedDataset,
   onSelectCatalog,
   onConfigure
 }: FeatureLibraryViewProps) {
@@ -99,7 +113,7 @@ export function FeatureLibraryView({
             <FcIcon name="library" size={16} />
             Feature Library · {catalog.length} {catalog.length === 1 ? "feature" : "features"}
           </span>
-          <span className="muted">Define-only structural features</span>
+          <span className="muted">{selectedDataset ? `Dataset: ${selectedDataset.name}` : "Select a dataset first"}</span>
         </header>
         {loading ? (
           <div className="artifact-table-empty">
@@ -157,18 +171,12 @@ export function FeatureLibraryView({
   );
 }
 
-export function ConfigureFeatureView({ activeProjectId, feature, datasets, loading, onCreated }: ConfigureFeatureViewProps) {
+export function ConfigureFeatureView({ activeProjectId, feature, dataset, onCreated }: ConfigureFeatureViewProps) {
   const queryClient = useQueryClient();
-  const [datasetId, setDatasetId] = useState("");
   const [featureVectorLength, setFeatureVectorLength] = useState(3);
   const [normalizeFeatures, setNormalizeFeatures] = useState(true);
   const [nJobs, setNJobs] = useState(1);
   const [parallelBackend, setParallelBackend] = useState<"loky" | "threading">("loky");
-  const datasetIdsKey = useMemo(() => datasets.map((dataset) => dataset.id).join("|"), [datasets]);
-
-  useEffect(() => {
-    setDatasetId(datasets.length === 1 ? datasets[0].id : "");
-  }, [activeProjectId, datasetIdsKey, datasets, feature?.id]);
 
   const createFeature = useMutation({
     mutationFn: (payload: FeatureCreatePayload) => api.createFeature(activeProjectId, payload),
@@ -194,18 +202,15 @@ export function ConfigureFeatureView({ activeProjectId, feature, datasets, loadi
     );
   }
 
-  const noDatasets = !loading && datasets.length === 0;
   const paramsValid =
     Number.isInteger(featureVectorLength) && featureVectorLength >= 1 && featureVectorLength <= 10 && Number.isInteger(nJobs) && nJobs >= 1 && nJobs <= 32;
-  const canSave = Boolean(activeProjectId && datasetId && paramsValid && !createFeature.isPending);
+  const canSave = Boolean(activeProjectId && dataset?.id && paramsValid && !createFeature.isPending);
   const saveMessage = !activeProjectId
     ? "An active project is required."
-    : noDatasets
-      ? "A dataset is required before saving."
-      : datasets.length > 1 && !datasetId
-        ? "Choose a dataset."
-        : !paramsValid
-          ? "Feature vector length must be 1-10 and parallel jobs must be 1-32."
+    : !dataset
+      ? "Select a dataset before configuring features."
+      : !paramsValid
+        ? "Feature vector length must be 1-10 and parallel jobs must be 1-32."
         : "";
 
   return (
@@ -215,7 +220,7 @@ export function ConfigureFeatureView({ activeProjectId, feature, datasets, loadi
         event.preventDefault();
         if (!canSave) return;
         createFeature.mutate({
-          source_dataset_id: datasetId,
+          source_dataset_id: dataset!.id,
           source_feature_id: feature.id,
           params: {
             feature_vector_length: featureVectorLength,
@@ -238,23 +243,8 @@ export function ConfigureFeatureView({ activeProjectId, feature, datasets, loadi
       <div className="card-body">
         {createFeature.error ? <p className="error-text">{createFeature.error.message}</p> : null}
         {saveMessage ? <p className="muted form-note">{saveMessage}</p> : null}
+        {dataset ? <p className="muted form-note">Dataset: {dataset.name}</p> : null}
         <div className="field-grid">
-          <label className="field field-wide">
-            <span>Dataset</span>
-            <select
-              value={datasetId}
-              onChange={(event) => setDatasetId(event.target.value)}
-              disabled={!activeProjectId || loading || noDatasets}
-            >
-              {datasets.length === 1 ? null : <option value="">Choose dataset</option>}
-              {noDatasets ? <option value="">No datasets available</option> : null}
-              {datasets.map((dataset) => (
-                <option key={dataset.id} value={dataset.id}>
-                  {dataset.name}
-                </option>
-              ))}
-            </select>
-          </label>
           <label className="field">
             <span>Feature Vector Length</span>
             <input
@@ -290,6 +280,282 @@ export function ConfigureFeatureView({ activeProjectId, feature, datasets, loadi
         <button type="submit" className="btn btn-primary" disabled={!canSave}>
           <Save />
           {createFeature.isPending ? "Saving" : "Save"}
+        </button>
+      </footer>
+    </form>
+  );
+}
+
+const CUSTOM_FEATURE_TEMPLATE = `import pandas as pd
+
+def compute_feature(graph):
+    nodes = list(graph.sampled_nodes if graph.sampled_nodes is not None else graph.nodes)
+    try:
+        values = [float(graph.G.degree(node)) for node in nodes]
+    except TypeError:
+        values = [float(value) for value in graph.G.degree(nodes)]
+    df = pd.DataFrame({
+        "node_id": nodes,
+        "graph_id": graph.graph_id,
+        "custom_degree": values,
+    })
+    return df[["node_id", "graph_id", "custom_degree"]]
+`;
+
+const PYTHON_KEYWORDS = new Set([
+  "and",
+  "as",
+  "assert",
+  "break",
+  "class",
+  "continue",
+  "def",
+  "del",
+  "elif",
+  "else",
+  "except",
+  "False",
+  "finally",
+  "for",
+  "from",
+  "global",
+  "if",
+  "import",
+  "in",
+  "is",
+  "lambda",
+  "None",
+  "nonlocal",
+  "not",
+  "or",
+  "pass",
+  "raise",
+  "return",
+  "True",
+  "try",
+  "while",
+  "with",
+  "yield"
+]);
+
+const PYTHON_BUILTINS = new Set(["dict", "float", "int", "len", "list", "max", "min", "range", "set", "str", "sum", "tuple"]);
+
+function renderPythonTokens(source: string): ReactNode[] {
+  const tokens: ReactNode[] = [];
+  let index = 0;
+
+  const tokenPatterns: Array<[string, RegExp]> = [
+    ["syntax-comment", /^#[^\n]*/],
+    ["syntax-string", /^(?:[rRuUbBfF]{0,2})(?:"""[\s\S]*?"""|'''[\s\S]*?'''|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*')/],
+    ["syntax-number", /^\b\d+(?:\.\d+)?(?:e[+-]?\d+)?\b/i],
+    ["syntax-decorator", /^@[A-Za-z_][A-Za-z0-9_.]*/],
+    ["syntax-operator", /^[{}()[\].,:+\-*/%=<>!]+/]
+  ];
+
+  while (index < source.length) {
+    const remaining = source.slice(index);
+    const whitespace = remaining.match(/^\s+/);
+    if (whitespace) {
+      tokens.push(whitespace[0]);
+      index += whitespace[0].length;
+      continue;
+    }
+
+    const identifier = remaining.match(/^[A-Za-z_][A-Za-z0-9_]*/);
+    if (identifier) {
+      const value = identifier[0];
+      const className = PYTHON_KEYWORDS.has(value) ? "syntax-keyword" : PYTHON_BUILTINS.has(value) ? "syntax-builtin" : "";
+      tokens.push(
+        className ? (
+          <span key={index} className={className}>
+            {value}
+          </span>
+        ) : (
+          value
+        )
+      );
+      index += value.length;
+      continue;
+    }
+
+    const matched = tokenPatterns.find(([, pattern]) => pattern.test(remaining));
+    if (matched) {
+      const [className, pattern] = matched;
+      const value = remaining.match(pattern)?.[0] || "";
+      tokens.push(
+        <span key={index} className={className}>
+          {value}
+        </span>
+      );
+      index += value.length;
+      continue;
+    }
+
+    tokens.push(source[index]);
+    index += 1;
+  }
+
+  return tokens;
+}
+
+export function CreateFeatureView({ activeProjectId, dataset, onCreated }: CreateFeatureViewProps) {
+  const queryClient = useQueryClient();
+  const codeHighlightRef = useRef<HTMLPreElement | null>(null);
+  const [name, setName] = useState("");
+  const [description, setDescription] = useState("");
+  const [code, setCode] = useState(CUSTOM_FEATURE_TEMPLATE);
+  const [normalizeFeatures, setNormalizeFeatures] = useState(true);
+
+  useEffect(() => {
+    setName("");
+    setDescription("");
+    setCode(CUSTOM_FEATURE_TEMPLATE);
+    setNormalizeFeatures(true);
+  }, [activeProjectId]);
+
+  const customFeatureParams = useMemo(
+    () => ({
+      normalize_features: normalizeFeatures,
+      n_jobs: 1,
+      parallel_backend: "threading" as const
+    }),
+    [normalizeFeatures]
+  );
+
+  const validateCustomFeature = useMutation({
+    mutationFn: (payload: CustomFeatureValidatePayload) => api.validateCustomFeature(activeProjectId, payload)
+  });
+
+  const createCustomFeature = useMutation({
+    mutationFn: (payload: CustomFeatureCreatePayload) => api.createCustomFeature(activeProjectId, payload),
+    onSuccess: (created) => {
+      queryClient.setQueryData<FeatureManifest[]>(["projects", activeProjectId, "features"], (current = []) => [
+        created,
+        ...current.filter((featureItem) => featureItem.id !== created.id)
+      ]);
+      queryClient.invalidateQueries({ queryKey: ["projects", activeProjectId, "features"] });
+      onCreated(created.id);
+    }
+  });
+
+  useEffect(() => {
+    validateCustomFeature.reset();
+  }, [activeProjectId, code, dataset?.id, normalizeFeatures]);
+
+  const datasetComplete = dataset?.status === "completed";
+  const canValidate = Boolean(activeProjectId && dataset?.id && datasetComplete && code.trim() && !validateCustomFeature.isPending);
+  const canSave = Boolean(activeProjectId && dataset?.id && datasetComplete && name.trim() && code.trim() && !createCustomFeature.isPending);
+  const saveMessage = !activeProjectId
+    ? "An active project is required."
+    : !dataset
+      ? "Select a dataset before creating a custom feature."
+      : !datasetComplete
+        ? `Dataset ${dataset.name} must be completed before creating custom features.`
+        : !name.trim()
+          ? "Name is required."
+          : !code.trim()
+            ? "Python code is required."
+            : "";
+
+  const syncCodeHighlightScroll = (event: UIEvent<HTMLTextAreaElement>) => {
+    if (!codeHighlightRef.current) return;
+    codeHighlightRef.current.scrollTop = event.currentTarget.scrollTop;
+    codeHighlightRef.current.scrollLeft = event.currentTarget.scrollLeft;
+  };
+
+  return (
+    <form
+      className="card feature-create-card"
+      onSubmit={(event) => {
+        event.preventDefault();
+        if (!canSave) return;
+        createCustomFeature.mutate({
+          source_dataset_id: dataset!.id,
+          name: name.trim(),
+          description,
+          code,
+          params: customFeatureParams
+        });
+      }}
+    >
+      <header className="card-head">
+        <span className="card-head-fc">
+          <Code2 />
+        </span>
+        <div>
+          <h3>Create Custom Feature</h3>
+          <p className="form-subtitle">Trusted local Python</p>
+        </div>
+      </header>
+      <div className="card-body">
+        {createCustomFeature.error ? <p className="error-text">{createCustomFeature.error.message}</p> : null}
+        {saveMessage ? <p className="muted form-note">{saveMessage}</p> : null}
+        {dataset ? <p className="muted form-note">Dataset: {dataset.name}</p> : null}
+        <div className="field-grid">
+          <label className="field">
+            <span>Name</span>
+            <input type="text" value={name} onChange={(event) => setName(event.target.value)} maxLength={120} />
+          </label>
+          <label className="checkbox-field">
+            <input
+              type="checkbox"
+              checked={normalizeFeatures}
+              onChange={(event) => setNormalizeFeatures(event.target.checked)}
+            />
+            <span>Normalize Features</span>
+          </label>
+          <label className="field field-wide">
+            <span>Description</span>
+            <textarea value={description} onChange={(event) => setDescription(event.target.value)} rows={2} />
+          </label>
+          <label className="field field-wide">
+            <span>Python Code</span>
+            <div className="code-editor-shell">
+              <pre ref={codeHighlightRef} className="code-highlight" aria-hidden="true">
+                <code>
+                  {renderPythonTokens(code)}
+                  {code.endsWith("\n") ? " " : null}
+                </code>
+              </pre>
+              <textarea
+                className="code-editor"
+                value={code}
+                onChange={(event) => setCode(event.target.value)}
+                onScroll={syncCodeHighlightScroll}
+                rows={18}
+                spellCheck={false}
+              />
+            </div>
+          </label>
+        </div>
+      </div>
+      <footer className="card-foot">
+        {validateCustomFeature.error ? (
+          <p className="validation-feedback is-error">{validateCustomFeature.error.message}</p>
+        ) : validateCustomFeature.data ? (
+          <p className="validation-feedback is-success">
+            Valid feature output: {validateCustomFeature.data.columns.join(", ")}
+          </p>
+        ) : null}
+        <button
+          type="button"
+          className="btn"
+          disabled={!canValidate}
+          onClick={() => {
+            if (!canValidate) return;
+            validateCustomFeature.mutate({
+              source_dataset_id: dataset!.id,
+              code,
+              params: customFeatureParams
+            });
+          }}
+        >
+          <CheckCircle2 />
+          {validateCustomFeature.isPending ? "Validating" : "Validate"}
+        </button>
+        <button type="submit" className="btn btn-primary" disabled={!canSave}>
+          <Save />
+          {createCustomFeature.isPending ? "Saving" : "Save"}
         </button>
       </footer>
     </form>
@@ -390,7 +656,7 @@ export function ProjectFeaturesView({
               <tbody>
                 {features.map((feature) => {
                   const datasetName = datasetsById.get(datasetInputId(feature))?.name || "Unknown dataset";
-                  const methodName = catalogById.get(feature.source_feature_id)?.name || feature.source_feature_id;
+                  const methodName = featureMethodLabel(feature, catalogById);
                   const isRunnable = feature.status === "planned" || feature.status === "failed";
                   const isRunning = feature.status === "running" || (runFeature.isPending && runFeature.variables === feature.id);
                   const isChecked = checkedFeatureIds.includes(feature.id);

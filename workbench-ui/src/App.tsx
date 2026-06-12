@@ -37,10 +37,11 @@ import { Inspector } from "./components/panels/Inspector";
 import { JobsPanel } from "./components/panels/JobsPanel";
 import { CommandWindow } from "./components/panels/CommandWindow";
 import { ConfirmDialog } from "./components/primitives/ConfirmDialog";
+import { EmptyState } from "./components/primitives/EmptyState";
 import { CreateProjectView, ProjectsView, TrashView } from "./pages/home/ProjectsPage";
 import { SettingsView } from "./pages/home/SettingsPage";
 import { ConfigureDatasetView, DatasetExploreView, DatasetLibraryView, ProjectDatasetsView } from "./pages/datasets/DatasetsPage";
-import { ConfigureFeatureView, FeatureExploreView, FeatureLibraryView, ProjectFeaturesView } from "./pages/features/FeaturesPage";
+import { ConfigureFeatureView, CreateFeatureView, FeatureExploreView, FeatureLibraryView, ProjectFeaturesView } from "./pages/features/FeaturesPage";
 import { ConfigureEmbeddingView, EmbeddingExploreView, EmbeddingLibraryView, ProjectEmbeddingsView } from "./pages/embeddings/EmbeddingsPage";
 import { ConfigureModelView, ModelExploreView, ModelLibraryView, ProjectModelsView } from "./pages/models/ModelsPage";
 
@@ -401,6 +402,10 @@ export default function App() {
 
     return projectContext;
   }, [datasets, embeddings, features, models, project, selectedDataset, selectedEmbedding, selectedFeature, selectedModel]);
+  const activeLineageDataset = useMemo(
+    () => datasets.find((dataset) => dataset.id === selectionLineage.activeDatasetId),
+    [datasets, selectionLineage.activeDatasetId]
+  );
   const importedCatalogIds = useMemo(() => new Set(datasets.map((dataset) => dataset.source_catalog_id)), [datasets]);
   const jobs = projectJobsQuery.data || [];
   const isProjectSelected = Boolean(
@@ -813,7 +818,7 @@ export default function App() {
 
   const handleSelectFeatureCatalog = useCallback((catalogId: string) => {
     setSelectedFeatureCatalogId(catalogId);
-    setSelectedDatasetId("");
+    setSelectedDatasetId(selectionLineage.activeDatasetId);
     setSelectedCatalogId("");
     setSelectedFeatureId("");
     setSelectedEmbeddingId("");
@@ -837,11 +842,11 @@ export default function App() {
     setExploreEmbeddingGraphVisible(null);
     setExploreModelId("");
     setExploreModelIteration(null);
-  }, []);
+  }, [selectionLineage.activeDatasetId]);
 
   const handleConfigureFeatureCatalog = useCallback((catalogId: string) => {
     setSelectedFeatureCatalogId(catalogId);
-    setSelectedDatasetId("");
+    setSelectedDatasetId(selectionLineage.activeDatasetId);
     setSelectedCatalogId("");
     setSelectedFeatureId("");
     setSelectedEmbeddingId("");
@@ -866,7 +871,7 @@ export default function App() {
     setExploreModelId("");
     setExploreModelIteration(null);
     setRoute({ topTab: "features", command: "library" });
-  }, []);
+  }, [selectionLineage.activeDatasetId]);
 
   const handleSelectFeature = useCallback((featureId: string) => {
     setSelectedFeatureId(featureId);
@@ -1440,13 +1445,29 @@ export default function App() {
         />
       );
     }
+    if ((route.topTab === "features" && route.command === "library") || (route.topTab === "features" && route.command === "create")) {
+      if (!activeLineageDataset) {
+        return (
+          <div className="workflow">
+            <section className="artifact-table">
+              <header className="artifact-table-head">
+                <span className="artifact-table-title">Select a Dataset</span>
+                <span className="muted">Feature workflows are dataset-first</span>
+              </header>
+              <div className="artifact-table-empty">
+                <EmptyState compact>Select a dataset in the Left Panel before creating or configuring features.</EmptyState>
+              </div>
+            </section>
+          </div>
+        );
+      }
+    }
     if (route.topTab === "features" && route.command === "library" && configureFeatureCatalogId) {
       return (
         <ConfigureFeatureView
           activeProjectId={activeProjectId}
           feature={configuredFeatureCatalogEntry}
-          datasets={datasets}
-          loading={projectDatasetsQuery.isLoading}
+          dataset={activeLineageDataset}
           onCreated={handleFeatureCreated}
         />
       );
@@ -1457,8 +1478,18 @@ export default function App() {
           catalog={featureLibraryQuery.data || []}
           loading={featureLibraryQuery.isLoading}
           selectedCatalogId={selectedFeatureCatalogId}
+          selectedDataset={activeLineageDataset}
           onSelectCatalog={handleSelectFeatureCatalog}
           onConfigure={handleConfigureFeatureCatalog}
+        />
+      );
+    }
+    if (route.topTab === "features" && route.command === "create") {
+      return (
+        <CreateFeatureView
+          activeProjectId={activeProjectId}
+          dataset={activeLineageDataset}
+          onCreated={handleFeatureCreated}
         />
       );
     }

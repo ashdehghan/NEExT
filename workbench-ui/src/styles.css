@@ -593,6 +593,78 @@ textarea {
   min-height: 80px;
   resize: vertical;
 }
+.feature-create-card .card-body {
+  min-height: 0;
+  overflow: auto;
+}
+.feature-create-card .card-foot {
+  align-items: center;
+}
+.validation-feedback {
+  min-width: 0;
+  max-width: min(520px, 100%);
+  margin: 0 auto 0 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--text-12);
+  font-weight: 700;
+}
+.validation-feedback.is-success { color: #047857; }
+.validation-feedback.is-error { color: var(--err); }
+.code-editor-shell {
+  position: relative;
+  min-height: 260px;
+}
+.code-highlight,
+.code-editor {
+  min-height: 260px;
+  font-family: var(--font-mono);
+  font-size: var(--text-11);
+  line-height: 1.5;
+  tab-size: 4;
+  white-space: pre;
+}
+.code-highlight {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  margin: 0;
+  padding: 6px 8px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-2);
+  background: var(--panel);
+  color: var(--text);
+  overflow: hidden;
+  pointer-events: none;
+}
+.code-highlight code {
+  font-family: inherit;
+}
+.code-editor-shell .code-editor {
+  position: relative;
+  z-index: 1;
+  background: transparent;
+  border-color: transparent;
+  color: transparent;
+  caret-color: var(--text);
+  box-shadow: none;
+}
+.code-editor-shell .code-editor:focus {
+  border-color: var(--select-border);
+  box-shadow: 0 0 0 3px var(--select-bg);
+}
+.code-editor-shell .code-editor::selection {
+  background: rgba(49, 130, 206, .22);
+  color: transparent;
+}
+.syntax-keyword { color: #7c3aed; font-weight: 600; }
+.syntax-builtin { color: #0369a1; }
+.syntax-string { color: #047857; }
+.syntax-number { color: #b45309; }
+.syntax-comment { color: #6b7280; font-style: italic; }
+.syntax-decorator { color: #be123c; }
+.syntax-operator { color: #475569; }
 input:focus, textarea:focus, select:focus {
   outline: 0;
   border-color: var(--select-border);
@@ -1448,7 +1520,6 @@ input:focus, textarea:focus, select:focus {
   font-size: var(--text-11);
   margin: 0;
 }
-
 .confirm-backdrop {
   position: fixed;
   inset: 0;

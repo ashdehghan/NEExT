@@ -1303,6 +1303,271 @@ def test_feature_create_returns_api_errors_for_invalid_project_dataset_feature_o
         assert client.post(f"/api/projects/{project_id}/features", json=invalid_backend_payload).status_code == 422
 
 
+def test_custom_feature_create_validates_saves_runs_and_feeds_embeddings(monkeypatch):
+    pytest.importorskip("fastapi")
+    pytest.importorskip("pyarrow")
+
+    import pandas as pd
+    from fastapi.testclient import TestClient
+
+    import NEExT.workbench.dataset_library as dataset_library
+    from NEExT.workbench.app import create_app
+    from NEExT.workbench.dataset_library import CatalogDataset
+
+    with TemporaryDirectory() as tmpdir:
+        source_files = write_dataset_source_bundle(Path(tmpdir) / "source")
+        monkeypatch.setattr(
+            dataset_library,
+            "DATASET_CATALOG",
+            (
+                CatalogDataset(
+                    id="TINY",
+                    name="Tiny Dataset",
+                    description="local test bundle",
+                    domain="Tests",
+                    files=source_files,
+                    graph_count=2,
+                    node_count=4,
+                    edge_count=2,
+                    source="Test catalog",
+                ),
+            ),
+        )
+        client = TestClient(create_app(tmpdir))
+        project = client.post("/api/projects", json={"name": "Custom Feature Project"}).json()
+        project_id = project["id"]
+        dataset = client.post(f"/api/projects/{project_id}/datasets", json={"catalog_id": "TINY"}).json()
+        dataset_run = client.post(f"/api/projects/{project_id}/datasets/{dataset['id']}/run")
+        assert dataset_run.status_code == 200
+        assert wait_for_job(client, project_id, dataset_run.json()["id"])["status"] == "completed"
+
+        code = """
+import pandas as pd
+
+def compute_feature(graph):
+    nodes = list(graph.sampled_nodes if graph.sampled_nodes is not None else graph.nodes)
+    values = [float(graph.G.degree(node) + 1) for node in nodes]
+    df = pd.DataFrame({
+        "node_id": nodes,
+        "graph_id": graph.graph_id,
+        "degree_plus_one": values,
+    })
+    return df[["node_id", "graph_id", "degree_plus_one"]]
+"""
+        validation = client.post(
+            f"/api/projects/{project_id}/features/custom/validate",
+            json={
+                "source_dataset_id": dataset["id"],
+                "code": code,
+            },
+        )
+        assert validation.status_code == 200
+        assert validation.json() == {"valid": True, "columns": ["degree_plus_one"]}
+        assert client.get(f"/api/projects/{project_id}/features").json() == []
+
+        created = client.post(
+            f"/api/projects/{project_id}/features/custom",
+            json={
+                "source_dataset_id": dataset["id"],
+                "name": "Degree Plus One",
+                "description": "custom degree feature",
+                "code": code,
+                "params": {
+                    "normalize_features": False,
+                    "n_jobs": 1,
+                    "parallel_backend": "threading",
+                },
+            },
+        )
+        assert created.status_code == 200
+        feature = created.json()
+        feature_id = feature["id"]
+        assert_uuid4(feature_id)
+        assert feature["name"] == "Degree Plus One"
+        assert feature["description"] == "custom degree feature"
+        assert feature["source_type"] == "custom_python_node_feature"
+        assert feature["source_feature_id"] == feature_id
+        assert feature["source_code_file"] == "source/feature.py"
+        assert feature["operation"] == {
+            "operation_id": "neext.compute_node_features",
+            "operation_version": "1",
+            "params": {
+                "feature_list": [feature_id],
+                "feature_vector_length": 1,
+                "normalize_features": False,
+                "n_jobs": 1,
+                "parallel_backend": "threading",
+                "custom_feature_function": "compute_feature",
+                "custom_feature_code_file": "source/feature.py",
+            },
+        }
+        assert feature["expected_output"] == {
+            "artifact_kind": "feature",
+            "storage_format": "neext-feature-parquet-v1",
+            "columns": ["degree_plus_one"],
+        }
+        assert str(Path(tmpdir).resolve()) not in json.dumps(feature)
+        artifact_path = Path(tmpdir) / "projects" / project_id / "artifacts" / "features" / feature_id
+        assert (artifact_path / "source" / "feature.py").read_text(encoding="utf-8") == code
+
+        built_in = client.post(
+            f"/api/projects/{project_id}/features",
+            json={
+                "source_dataset_id": dataset["id"],
+                "source_feature_id": "degree_centrality",
+                "params": {
+                    "feature_vector_length": 2,
+                    "normalize_features": False,
+                    "n_jobs": 1,
+                    "parallel_backend": "threading",
+                },
+            },
+        )
+        assert built_in.status_code == 200
+        run = client.post(f"/api/projects/{project_id}/features/run-batch", json={"feature_ids": [feature_id, built_in.json()["id"]]})
+        assert run.status_code == 200
+        job = wait_for_job(client, project_id, run.json()["id"])
+        assert job["status"] == "completed"
+        assert f"Computing features: {feature_id}" in job["log"]
+        assert "Computing features: degree_centrality" in job["log"]
+
+        feature_after = client.get(f"/api/projects/{project_id}/features/{feature_id}").json()
+        assert feature_after["status"] == "completed"
+        output_path = artifact_path / "output" / "features.parquet"
+        output = pd.read_parquet(output_path)
+        assert list(output.columns) == ["node_id", "graph_id", "degree_plus_one"]
+        assert output["degree_plus_one"].tolist() == [2.0, 2.0, 2.0, 2.0]
+        preview = client.get(f"/api/projects/{project_id}/features/{feature_id}/preview")
+        assert preview.status_code == 200
+        assert preview.json()["columns"] == ["node_id", "graph_id", "degree_plus_one"]
+
+        embedding = client.post(
+            f"/api/projects/{project_id}/embeddings",
+            json={
+                "source_embedding_id": "approx_wasserstein",
+                "source_feature_ids": [feature_id],
+                "params": {"embedding_dimension": 2},
+            },
+        )
+        assert embedding.status_code == 200
+        assert embedding.json()["inputs"][0]["artifact_id"] == feature_id
+
+        defaulted = client.post(
+            f"/api/projects/{project_id}/features/custom",
+            json={
+                "source_dataset_id": dataset["id"],
+                "name": "Default Params",
+                "description": "",
+                "code": code,
+            },
+        )
+        assert defaulted.status_code == 200
+        assert defaulted.json()["operation"]["params"]["normalize_features"] is True
+        assert defaulted.json()["operation"]["params"]["n_jobs"] == 1
+        assert defaulted.json()["operation"]["params"]["parallel_backend"] == "threading"
+
+
+def test_custom_feature_create_rejects_unprepared_dataset_and_invalid_code(monkeypatch):
+    pytest.importorskip("fastapi")
+    pytest.importorskip("pyarrow")
+
+    from fastapi.testclient import TestClient
+
+    import NEExT.workbench.dataset_library as dataset_library
+    from NEExT.workbench.app import create_app
+    from NEExT.workbench.dataset_library import CatalogDataset
+
+    with TemporaryDirectory() as tmpdir:
+        source_files = write_dataset_source_bundle(Path(tmpdir) / "source")
+        monkeypatch.setattr(
+            dataset_library,
+            "DATASET_CATALOG",
+            (
+                CatalogDataset(
+                    id="TINY",
+                    name="Tiny Dataset",
+                    description="local test bundle",
+                    domain="Tests",
+                    files=source_files,
+                    graph_count=2,
+                    node_count=4,
+                    edge_count=2,
+                    source="Test catalog",
+                ),
+            ),
+        )
+        client = TestClient(create_app(tmpdir))
+        project = client.post("/api/projects", json={"name": "Invalid Custom Feature Project"}).json()
+        project_id = project["id"]
+        dataset = client.post(f"/api/projects/{project_id}/datasets", json={"catalog_id": "TINY"}).json()
+
+        base_payload = {
+            "source_dataset_id": dataset["id"],
+            "name": "Invalid Custom Feature",
+            "description": "",
+            "code": "def compute_feature(graph):\n    return None\n",
+            "params": {
+                "normalize_features": False,
+                "n_jobs": 1,
+                "parallel_backend": "threading",
+            },
+        }
+        unprepared = client.post(f"/api/projects/{project_id}/features/custom", json=base_payload)
+        assert unprepared.status_code == 400
+        assert "requires a completed dataset" in unprepared.json()["detail"]
+        unprepared_validation = client.post(
+            f"/api/projects/{project_id}/features/custom/validate",
+            json={"source_dataset_id": dataset["id"], "code": base_payload["code"]},
+        )
+        assert unprepared_validation.status_code == 400
+        assert "validation requires a completed dataset" in unprepared_validation.json()["detail"]
+
+        dataset_run = client.post(f"/api/projects/{project_id}/datasets/{dataset['id']}/run")
+        assert dataset_run.status_code == 200
+        assert wait_for_job(client, project_id, dataset_run.json()["id"])["status"] == "completed"
+
+        invalid_cases = [
+            ("missing function", "def not_the_function(graph):\n    return None\n", "compute_feature"),
+            (
+                "missing columns",
+                "import pandas as pd\n\ndef compute_feature(graph):\n    return pd.DataFrame({'node_id': graph.nodes})\n",
+                "node_id, graph_id",
+            ),
+            (
+                "non numeric",
+                "import pandas as pd\n\ndef compute_feature(graph):\n    nodes = list(graph.nodes)\n    return pd.DataFrame({'node_id': nodes, 'graph_id': graph.graph_id, 'label': ['x' for _ in nodes]})[['node_id', 'graph_id', 'label']]\n",
+                "numeric",
+            ),
+            (
+                "wrong nodes",
+                "import pandas as pd\n\ndef compute_feature(graph):\n    return pd.DataFrame({'node_id': [999], 'graph_id': graph.graph_id, 'value': [1.0]})[['node_id', 'graph_id', 'value']]\n",
+                "one row for each graph node",
+            ),
+            (
+                "missing import",
+                "import definitely_missing_workbench_package\n\ndef compute_feature(graph):\n    return None\n",
+                "Missing Python package: definitely_missing_workbench_package",
+            ),
+            (
+                "missing runtime import",
+                "def compute_feature(graph):\n    import definitely_missing_runtime_package\n    return None\n",
+                "Missing Python package: definitely_missing_runtime_package",
+            ),
+        ]
+        for _, code, expected_message in invalid_cases:
+            response = client.post(f"/api/projects/{project_id}/features/custom", json={**base_payload, "code": code})
+            assert response.status_code == 400
+            assert expected_message in response.json()["detail"]
+            validation_response = client.post(
+                f"/api/projects/{project_id}/features/custom/validate",
+                json={"source_dataset_id": dataset["id"], "code": code},
+            )
+            assert validation_response.status_code == 400
+            assert expected_message in validation_response.json()["detail"]
+
+        assert client.get(f"/api/projects/{project_id}/features").json() == []
+
+
 def test_feature_batch_run_auto_prepares_planned_dataset_and_writes_outputs(monkeypatch):
     pytest.importorskip("fastapi")
     pytest.importorskip("pyarrow")

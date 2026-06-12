@@ -372,7 +372,7 @@
           <p class="subtitle">Canonical planning dashboard for the NEExT core library and Workbench. This file is the shared human-agent interface for current state, active sprint work, backlog, and decisions.</p>
         </div>
         <div class="meta">
-          <span class="pill ready">Complete: Sprint 3</span>
+          <span class="pill ready">Complete: Sprint 5</span>
           <span class="pill ready">Tracked artifact</span>
           <span class="pill">Updated 2026-06-12</span>
         </div>
@@ -389,6 +389,8 @@
         <a href="#sprint">Completed Sprint 1</a>
         <a href="#sprint-2">Completed Sprint 2</a>
         <a href="#sprint-3">Completed Sprint 3</a>
+        <a href="#sprint-4">Completed Sprint 4</a>
+        <a href="#sprint-5">Completed Sprint 5</a>
         <a href="#roadmap">Sprint Roadmap</a>
         <a href="#current-state">Current State</a>
         <a href="#workbench-map">Workbench Map</a>
@@ -414,8 +416,8 @@
             </div>
             <div class="card">
               <strong>Lifecycle Dashboard</strong>
-              <p class="muted">Committed static HTML planning artifact for sprint state, handoff context, and current/future development tracking. Sprint 0, Sprint 1, Sprint 2, and Sprint 3 are complete.</p>
-              <span class="pill ready">Sprint 3 complete</span>
+              <p class="muted">Committed static HTML planning artifact for sprint state, handoff context, and current/future development tracking. Sprint 0, Sprint 1, Sprint 2, Sprint 3, Sprint 4, and Sprint 5 are complete.</p>
+              <span class="pill ready">Sprint 5 complete</span>
             </div>
           </div>
         </section>
@@ -609,6 +611,114 @@
           </div>
         </section>
 
+        <section id="sprint-4">
+          <h2>Completed Sprint: Sprint 4 - Custom Feature Create</h2>
+          <div class="grid two">
+            <div class="card">
+              <strong>Goal</strong>
+              <p>Make the Features Create command create real custom Python node feature artifacts while deferring ambiguous Dataset Create scope.</p>
+            </div>
+            <div class="card">
+              <strong>Acceptance Criteria</strong>
+              <ul class="checklist">
+                <li><input type="checkbox" checked> <span>Datasets no longer shows a Create ribbon command.</span></li>
+                <li><input type="checkbox" checked> <span>Features Create opens a Center View form for trusted local Python custom node features.</span></li>
+                <li><input type="checkbox" checked> <span>Save requires a completed Dataset artifact and validates <span class="mono">compute_feature(graph)</span> against one prepared graph before creating an artifact.</span></li>
+                <li><input type="checkbox" checked> <span>Custom feature source is stored as a relative artifact file and never exposes absolute paths through APIs.</span></li>
+                <li><input type="checkbox" checked> <span>Custom Feature artifacts run through the existing Feature execution flow and can feed Embedding creation.</span></li>
+                <li><input type="checkbox" checked> <span><span class="mono">AGENTS.md</span> and <span class="mono">CLAUDE.md</span> record the approved custom Feature Create rules.</span></li>
+              </ul>
+            </div>
+          </div>
+          <div class="card">
+            <h3>Custom Feature Contract</h3>
+            <table>
+              <thead>
+                <tr>
+                  <th>Area</th>
+                  <th>Decision</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Code shape</td>
+                  <td>Users define <span class="mono">compute_feature(graph)</span> in the Workbench editor. It returns a DataFrame ordered as <span class="mono">node_id</span>, <span class="mono">graph_id</span>, then numeric feature columns.</td>
+                </tr>
+                <tr>
+                  <td>Runtime</td>
+                  <td>Trusted local Python executes in the Workbench process. This is not a sandbox.</td>
+                </tr>
+                <tr>
+                  <td>Dataset gate</td>
+                  <td>Only completed Dataset artifacts are eligible because Save performs validation against prepared graph data.</td>
+                </tr>
+                <tr>
+                  <td>Persistence</td>
+                  <td>The Feature artifact stores source under a project-relative file path and uses the artifact UUID as the stable runtime feature key.</td>
+                </tr>
+                <tr>
+                  <td>Deferred</td>
+                  <td>Dataset Create, custom feature editing, custom feature import/export, sandboxing, and package/environment management remain future design work.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="card">
+            <h3>Verification</h3>
+            <ul>
+              <li><span class="mono">python3 -m py_compile NEExT/workbench/app.py NEExT/workbench/storage.py NEExT/workbench/schemas.py</span> passed.</li>
+              <li><span class="mono">python3 -m pytest tests/test_workbench.py</span> passed with 40 tests.</li>
+              <li><span class="mono">npm exec tsc</span> passed.</li>
+              <li><span class="mono">npm run test:e2e</span> passed with 16 browser tests.</li>
+            </ul>
+          </div>
+        </section>
+
+        <section id="sprint-5">
+          <h2>Completed Sprint: Sprint 5 - Dataset-First Feature Workflow</h2>
+          <div class="grid two">
+            <div class="card">
+              <strong>Goal</strong>
+              <p>Make Feature Library, built-in Feature Configure, and custom Feature Create follow the selected Dataset context instead of asking the user to choose a Dataset again.</p>
+            </div>
+            <div class="card">
+              <strong>Acceptance Criteria</strong>
+              <ul class="checklist">
+                <li><input type="checkbox" checked> <span>Feature Library and Feature Create require an active Dataset context.</span></li>
+                <li><input type="checkbox" checked> <span>Built-in Feature Configure uses the selected Dataset and no longer renders a Dataset dropdown.</span></li>
+                <li><input type="checkbox" checked> <span>Custom Feature Create shows name, description, normalize, code, Validate, and Save only.</span></li>
+                <li><input type="checkbox" checked> <span>Validate performs a dry run against prepared graph data and reports detected output columns without creating an artifact.</span></li>
+                <li><input type="checkbox" checked> <span>Missing Python packages are reported clearly and are not installed by Workbench.</span></li>
+              </ul>
+            </div>
+          </div>
+          <div class="card">
+            <h3>Feature Workflow Contract</h3>
+            <table>
+              <thead>
+                <tr>
+                  <th>Area</th>
+                  <th>Decision</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Context</td>
+                  <td>Feature creation is dataset-first. Users select a Project, then a Dataset, then configure built-in or custom Feature artifacts for that Dataset.</td>
+                </tr>
+                <tr>
+                  <td>Custom defaults</td>
+                  <td>Custom Feature Create uses fixed execution defaults for <span class="mono">n_jobs</span> and <span class="mono">parallel_backend</span>; the UI only exposes normalize as a runtime option.</td>
+                </tr>
+                <tr>
+                  <td>Validation</td>
+                  <td>Validate is advisory. Save repeats the same backend validation before creating the artifact.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
         <section id="roadmap">
           <h2>Sprint Roadmap</h2>
           <table>
@@ -647,9 +757,15 @@
               </tr>
               <tr>
                 <td><strong>Sprint 4</strong></td>
-                <td><span class="pill hold">Discovery</span></td>
-                <td>Dataset/Feature Create Page Discovery</td>
-                <td>Define what Create means separately from Library -> Configure before implementation.</td>
+                <td><span class="pill ready">Complete</span></td>
+                <td>Custom Feature Create</td>
+                <td>Implemented trusted custom Python Feature Create, validation-on-save, custom Feature execution, and removed ambiguous Dataset Create from the ribbon.</td>
+              </tr>
+              <tr>
+                <td><strong>Sprint 5</strong></td>
+                <td><span class="pill ready">Complete</span></td>
+                <td>Dataset-First Feature Workflow</td>
+                <td>Implemented dataset-context Feature Library/Create, simplified custom Feature Create controls, advisory Validate, and clear missing-package errors.</td>
               </tr>
             </tbody>
           </table>
@@ -675,7 +791,7 @@
                 <li><strong>Runtime:</strong> local single-user FastAPI backend with React release assets.</li>
                 <li><strong>Workspace:</strong> project-first persisted workspace under <span class="mono">~/NEExT-Workbench</span>.</li>
                 <li><strong>Artifacts:</strong> datasets, features, embeddings, models, and jobs are persisted as project artifacts.</li>
-                <li><strong>Execution:</strong> dataset preparation, feature execution, embedding execution, and model execution are real, local workflows.</li>
+                <li><strong>Execution:</strong> dataset preparation, built-in feature execution, custom Python feature execution, embedding execution, and model execution are real, local workflows.</li>
                 <li><strong>Lifecycle:</strong> project restore and dataset/feature/embedding/model delete, cascade, trash bundle, and bundle restore are available.</li>
                 <li><strong>Inspection:</strong> previews, analysis views, job records, command output, inspector context, and status surfaces are available.</li>
               </ul>
@@ -702,12 +818,12 @@
               <tr>
                 <td><strong>Datasets</strong></td>
                 <td>Configure curated library datasets, run preparation, preview tables, explore statistics, graph visuals, graph/node search, data, current-table CSV export, and delete with downstream cascade planning.</td>
-                <td>Arbitrary URL imports, archive, individual restore, broader import providers, and dataset bundle export.</td>
+                <td>Dataset Create, arbitrary URL imports, archive, individual restore, broader import providers, and dataset bundle export.</td>
               </tr>
               <tr>
                 <td><strong>Features</strong></td>
-                <td>Configure built-in structural node features, run single or batch jobs, preview outputs, explore statistics, PCA/direct plots, graph search, data, and delete with downstream cascade planning.</td>
-                <td>Feature editing, duplication, import/export, custom Workbench feature lifecycle beyond approved delete/restore.</td>
+                <td>Dataset-first built-in Feature Library configuration, trusted custom Python node Feature Create, advisory Validate, run single or batch jobs, preview outputs, explore statistics, PCA/direct plots, graph search, data, and delete with downstream cascade planning.</td>
+                <td>Feature editing, duplication, import/export, sandboxing, and package/environment management for custom code.</td>
               </tr>
               <tr>
                 <td><strong>Embeddings</strong></td>
@@ -733,7 +849,7 @@
             </div>
             <div class="flow-step">
               <h3>Feature</h3>
-              <p>One structural feature artifact targets one prepared dataset and writes feature output only on successful execution.</p>
+              <p>One built-in or custom Python node feature artifact targets one prepared dataset and writes feature output only on successful execution.</p>
             </div>
             <div class="flow-step">
               <h3>Embedding</h3>
@@ -791,9 +907,9 @@
               </tr>
               <tr>
                 <td><strong>Create Workflows</strong></td>
-                <td><span class="pill hold">Discovery</span></td>
-                <td>Define what Dataset Create and Feature Create mean relative to Library -> Configure workflows.</td>
-                <td>Do not implement empty Create pages until the workflow forms are explicitly scoped.</td>
+                <td><span class="pill hold">Partial</span></td>
+                <td>Define Dataset Create separately before restoring a Dataset Create command.</td>
+                <td>Feature Create is implemented for trusted custom Python node features. Dataset Create is intentionally hidden until its workflow is designed.</td>
               </tr>
               <tr>
                 <td><strong>Workbench Import/Export</strong></td>
@@ -933,13 +1049,48 @@
               </tr>
               <tr>
                 <td>2026-06-12</td>
-                <td>Keep Library and Configure workflow forms project-wide.</td>
-                <td>Creation workflows should not be silently constrained by navigation context unless that workflow is explicitly redesigned.</td>
+                <td>Keep Library and Configure workflow forms project-wide unless explicitly redesigned.</td>
+                <td>Feature Library, built-in Feature Configure, and custom Feature Create have since been explicitly redesigned as dataset-first workflows.</td>
               </tr>
               <tr>
                 <td>2026-06-12</td>
                 <td>Update <span class="mono">AGENTS.md</span> and <span class="mono">CLAUDE.md</span> for the Center View scoping rule.</td>
                 <td>The approved navigation behavior is a durable Workbench rule that future agents must preserve.</td>
+              </tr>
+              <tr>
+                <td>2026-06-12</td>
+                <td>Defer Dataset Create and remove the Dataset Create ribbon command.</td>
+                <td>Dataset Create remains ambiguous and should not ship as an empty or speculative workflow.</td>
+              </tr>
+              <tr>
+                <td>2026-06-12</td>
+                <td>Implement Feature Create as trusted custom Python node feature creation.</td>
+                <td>The NEExT core library already supports custom feature functions through <span class="mono">my_feature_methods</span>; Workbench now exposes that as a validated artifact workflow.</td>
+              </tr>
+              <tr>
+                <td>2026-06-12</td>
+                <td>Require validation-on-save for custom Feature Create.</td>
+                <td>Custom feature artifacts should not be created unless <span class="mono">compute_feature(graph)</span> returns the required DataFrame shape for one prepared graph.</td>
+              </tr>
+              <tr>
+                <td>2026-06-12</td>
+                <td>Update <span class="mono">AGENTS.md</span> and <span class="mono">CLAUDE.md</span> for Workbench custom Feature Create.</td>
+                <td>The approved custom feature runtime and validation contract is durable Workbench behavior.</td>
+              </tr>
+              <tr>
+                <td>2026-06-12</td>
+                <td>Make Feature Library, built-in Feature Configure, and custom Feature Create dataset-first workflows.</td>
+                <td>The user flow is Project selection, Dataset selection, then Feature creation for that selected Dataset.</td>
+              </tr>
+              <tr>
+                <td>2026-06-12</td>
+                <td>Add advisory custom Feature Validate without making it a Save prerequisite.</td>
+                <td>Validate helps users check code and output columns, while Save still repeats backend validation before artifact creation.</td>
+              </tr>
+              <tr>
+                <td>2026-06-12</td>
+                <td>Report missing Python packages clearly and do not auto-install them.</td>
+                <td>Workbench does not manage Python package installation for trusted custom feature code in this phase.</td>
               </tr>
             </tbody>
           </table>

@@ -415,8 +415,9 @@ class FeatureManifest(BaseModel):
     created_at: str
     updated_at: str
     inputs: list[ArtifactInputRef]
-    source_type: Literal["neext_structural_node_feature"] = "neext_structural_node_feature"
+    source_type: Literal["neext_structural_node_feature", "custom_python_node_feature"] = "neext_structural_node_feature"
     source_feature_id: str
+    source_code_file: Optional[str] = None
     operation: OperationSpec
     expected_output: FeatureExpectedOutput
     output_files: Optional[FeatureOutputFiles] = None
@@ -435,6 +436,31 @@ class FeatureCreateRequest(BaseModel):
     source_dataset_id: str = Field(min_length=1)
     source_feature_id: str = Field(min_length=1)
     params: FeatureCreateParams = Field(default_factory=FeatureCreateParams)
+
+
+class CustomFeatureCreateParams(BaseModel):
+    normalize_features: bool = True
+    n_jobs: int = Field(default=1, ge=1, le=32)
+    parallel_backend: Literal["loky", "threading"] = "threading"
+
+
+class CustomFeatureCreateRequest(BaseModel):
+    source_dataset_id: str = Field(min_length=1)
+    name: str = Field(min_length=1, max_length=120)
+    description: str = ""
+    code: str = Field(min_length=1)
+    params: CustomFeatureCreateParams = Field(default_factory=CustomFeatureCreateParams)
+
+
+class CustomFeatureValidateRequest(BaseModel):
+    source_dataset_id: str = Field(min_length=1)
+    code: str = Field(min_length=1)
+    params: CustomFeatureCreateParams = Field(default_factory=CustomFeatureCreateParams)
+
+
+class CustomFeatureValidationResponse(BaseModel):
+    valid: Literal[True] = True
+    columns: list[str]
 
 
 class FeatureRunBatchRequest(BaseModel):

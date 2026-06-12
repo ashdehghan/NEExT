@@ -19,6 +19,9 @@ from .schemas import (
     EmbeddingGraphDetail,
     EmbeddingGraphSearchResponse,
     EmbeddingRunBatchRequest,
+    CustomFeatureCreateRequest,
+    CustomFeatureValidateRequest,
+    CustomFeatureValidationResponse,
     FeatureAnalysis,
     FeatureCreateRequest,
     FeatureGraphDetail,
@@ -330,6 +333,20 @@ def create_app(workspace_path: Optional[Union[str, Path]] = None):
     def create_project_feature(project_id: str, request: FeatureCreateRequest):
         try:
             return store.create_feature(project_id, request)
+        except Exception as exc:
+            raise api_exception(exc) from exc
+
+    @app.post("/api/projects/{project_id}/features/custom")
+    def create_project_custom_feature(project_id: str, request: CustomFeatureCreateRequest):
+        try:
+            return store.create_custom_feature(project_id, request)
+        except Exception as exc:
+            raise api_exception(exc) from exc
+
+    @app.post("/api/projects/{project_id}/features/custom/validate", response_model=CustomFeatureValidationResponse)
+    def validate_project_custom_feature(project_id: str, request: CustomFeatureValidateRequest):
+        try:
+            return store.validate_custom_feature(project_id, request)
         except Exception as exc:
             raise api_exception(exc) from exc
 

@@ -1136,6 +1136,43 @@ test("Models Import and Create commands remain title-only", async ({ page }) => 
   }
 });
 
+test("Feature Create saves, runs, and previews custom Python features", async ({ page }) => {
+  const projectName = `Custom Feature Project ${Date.now()}`;
+  seedTinyEmbeddingProject(projectName);
+
+  await page.goto("/");
+  await expect(page.locator(".selection-panel .sel-item-name", { hasText: projectName })).toBeVisible();
+  await page.locator(".selection-panel .sel-section", { hasText: "Datasets" }).locator(".sel-item", { hasText: "Tiny Embedding" }).click();
+  await page.getByRole("button", { name: "FEATURES" }).click();
+  const ribbon = page.locator(".ribbon");
+
+  await ribbon.getByRole("button", { name: "Create" }).click();
+  await expect(page.getByRole("heading", { name: "Create Custom Feature" })).toBeVisible();
+  await expect(page.getByText("Dataset: Tiny Embedding")).toBeVisible();
+  await expect(page.getByLabel("Dataset")).toHaveCount(0);
+  await expect(page.getByLabel("Parallel Jobs")).toHaveCount(0);
+  await expect(page.getByLabel("Parallel Backend")).toHaveCount(0);
+  await page.getByLabel("Name").fill("Custom UI Degree");
+  await page.getByLabel("Normalize Features").uncheck();
+  await page.locator(".card-foot").getByRole("button", { name: "Validate" }).click();
+  await expect(page.getByText("Valid feature output: custom_degree")).toBeVisible();
+  await page.locator(".card-foot").getByRole("button", { name: "Save" }).click();
+
+  const customRow = page.locator("table tbody tr", { hasText: "Custom UI Degree" }).first();
+  await expect(customRow).toBeVisible();
+  await expect(customRow).toContainText("Tiny Embedding");
+  await expect(customRow).toContainText("Custom Python");
+  await expect(customRow).toContainText("planned");
+  await customRow.getByRole("button", { name: "Run" }).click();
+  await expect(customRow.locator(".status-pill")).toHaveText("completed", { timeout: 30_000 });
+  await customRow.getByRole("button", { name: "Preview" }).click();
+
+  await expect(page.locator(".artifact-table-title")).toContainText("Custom UI Degree Explore");
+  const featureExplore = page.locator(".feature-explore");
+  await featureExplore.getByRole("button", { name: "Data", exact: true }).click();
+  await expect(page.locator(".artifact-table .tbl thead")).toContainText("custom_degree");
+});
+
 test("Dataset Explore graph search and navigation update Inspector", async ({ page }) => {
   const projectName = `Explore Project ${Date.now()}`;
   seedTinyEmbeddingProject(projectName);
@@ -1451,17 +1488,8 @@ test("Datasets and Features run through planned artifacts and jobs", async ({ pa
   await page.getByRole("button", { name: "FEATURES" }).click();
   let ribbon = page.locator(".ribbon");
   await ribbon.getByRole("button", { name: "Library" }).click();
-  await expect(page.locator(".artifact-table .tbl thead th")).toHaveText(["Name", "Type", "Output", "Actions"]);
-  const initialPageRankRow = page.locator("table tbody tr", { hasText: "PageRank" }).first();
-  await expect(initialPageRankRow).toBeVisible();
-  await initialPageRankRow.click();
-  await expect(page.locator(".inspector-panel")).toContainText("Catalog Feature Details");
-  await expect(page.locator(".inspector-panel")).toContainText("neext.compute_node_features");
-  await initialPageRankRow.getByRole("button", { name: "Configure" }).click();
-  await expect(page.getByRole("heading", { name: "Configure PageRank" })).toBeVisible();
-  await expect(page.getByLabel("Dataset")).toBeVisible();
-  await expect(page.locator(".card-foot").getByRole("button", { name: "Save" })).toBeDisabled();
-  await expect(page.getByText("An active project is required.")).toBeVisible();
+  await expect(page.locator(".artifact-table-title")).toContainText("Select a Dataset");
+  await expect(page.locator(".artifact-table-empty")).toContainText("Select a dataset in the Left Panel");
 
   await page.getByRole("button", { name: "DATASETS" }).click();
   ribbon = page.locator(".ribbon");
@@ -1493,8 +1521,7 @@ test("Datasets and Features run through planned artifacts and jobs", async ({ pa
   await page.getByRole("button", { name: "DATASETS" }).click();
   await ribbon.getByRole("button", { name: "Import" }).click();
   await expect(page.locator(".document .title-only")).toHaveText("Import");
-  await ribbon.getByRole("button", { name: "Create" }).click();
-  await expect(page.locator(".document .title-only")).toHaveText("Create");
+  await expect(ribbon.getByRole("button", { name: "Create" })).toHaveCount(0);
 
   await ribbon.getByRole("button", { name: "Library" }).click();
   await mutagCatalogRow.click();
@@ -1571,10 +1598,15 @@ test("Datasets and Features run through planned artifacts and jobs", async ({ pa
   await expect(page.locator(".artifact-table-title")).toContainText("Features");
   await expect(page.locator(".artifact-table-empty")).toContainText("No features.");
   await ribbon.getByRole("button", { name: "Create" }).click();
-  await expect(page.locator(".document .title-only")).toHaveText("Create");
+  await expect(page.getByRole("heading", { name: "Create Custom Feature" })).toBeVisible();
+  await expect(page.getByText("Dataset: MUTAG")).toBeVisible();
+  await expect(page.getByLabel("Dataset")).toHaveCount(0);
+  await expect(page.getByLabel("Parallel Jobs")).toHaveCount(0);
+  await expect(page.getByLabel("Parallel Backend")).toHaveCount(0);
 
   await ribbon.getByRole("button", { name: "Library" }).click();
   await expect(page.locator(".artifact-table .tbl thead th")).toHaveText(["Name", "Type", "Output", "Actions"]);
+  await expect(page.getByText("Dataset: MUTAG")).toBeVisible();
   const pageRankRow = page.locator("table tbody tr", { hasText: "PageRank" }).first();
   await expect(pageRankRow).toBeVisible();
   await pageRankRow.click();
@@ -1585,9 +1617,8 @@ test("Datasets and Features run through planned artifacts and jobs", async ({ pa
 
   await pageRankRow.getByRole("button", { name: "Configure" }).click();
   await expect(page.getByRole("heading", { name: "Configure PageRank" })).toBeVisible();
-  const datasetSelect = page.getByLabel("Dataset");
-  await expect(datasetSelect).toBeVisible();
-  await expect(datasetSelect).toContainText("MUTAG");
+  await expect(page.getByText("Dataset: MUTAG")).toBeVisible();
+  await expect(page.getByLabel("Dataset")).toHaveCount(0);
   await expect(page.getByLabel("Feature Vector Length")).toHaveValue("3");
   await expect(page.getByLabel("Normalize Features")).toBeChecked();
   await expect(page.getByLabel("Parallel Jobs")).toHaveValue("1");

@@ -143,7 +143,8 @@ export function Inspector({
   const datasetDescription = dataset?.description.trim() || "None";
   const catalogDescription = catalogEntry?.description.trim() || "None";
   const featureDescription = feature?.description.trim() || "None";
-  const featureMethodName = featureCatalogEntry?.name || feature?.source_feature_id || "";
+  const featureMethodName =
+    feature?.source_type === "custom_python_node_feature" ? "Custom Python" : featureCatalogEntry?.name || feature?.source_feature_id || "";
   const featureCatalogDescription = selectedFeatureCatalogEntry?.description.trim() || "None";
   const embeddingDescription = embedding?.description.trim() || "None";
   const embeddingAlgorithmName = embeddingCatalogEntry?.name || embedding?.source_embedding_id || "";

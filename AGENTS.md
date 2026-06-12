@@ -74,7 +74,7 @@ NEExT Workbench is a local, single-user FastAPI + React desktop-style UI for res
 - Core graph/network functionality belongs in NEExT. Workbench should orchestrate, expose, and enhance real NEExT workflows instead of duplicating algorithms.
 - Do not build fake, stub, placeholder, or half-wired Workbench features. Every Workbench UI feature must have real behavior, real data, and user-path verification.
 - Phase one Workbench is project-first. The committed frontend may contain the shell architecture for Spaces, Ribbon Groups, Ribbon Commands, Left Panel, Center Panel, Right Panel, Command Window, and status bar, but speculative workflow details are not allowed until designed.
-- The current Workbench backend exposes health, workspace, project metadata, Dataset Library/project dataset APIs, Feature Library/project feature APIs, Embedding Library/project embedding APIs, Model Library/project model APIs, local serialized jobs, Dataset preparation, Feature execution, Embedding execution, Model execution, preview APIs, and artifact lifecycle v1. Arbitrary import/export beyond approved dataset current-table CSV export, prediction workflows, cancellation, permanent purge, archive, individual artifact restore, restore-as-copy, concurrency beyond the single worker, and broader execution behavior must still be designed and added layer by layer before code is introduced.
+- The current Workbench backend exposes health, workspace, project metadata, Dataset Library/project dataset APIs, Feature Library/project feature APIs, custom Python Feature Create, Embedding Library/project embedding APIs, Model Library/project model APIs, local serialized jobs, Dataset preparation, Feature execution, Embedding execution, Model execution, preview APIs, and artifact lifecycle v1. Arbitrary import/export beyond approved dataset current-table CSV export, prediction workflows, cancellation, permanent purge, archive, individual artifact restore, restore-as-copy, concurrency beyond the single worker, and broader execution behavior must still be designed and added layer by layer before code is introduced.
 - Do not keep dead Workbench code for later. Remove obsolete workflow code, dialogs, hooks, API clients, schemas, and storage helpers when the corresponding behavior is intentionally deferred.
 
 ### Workbench UI Vocabulary
@@ -108,7 +108,7 @@ Spaces (HOME, DATASETS, FEATURES, EMBEDDINGS, MODELS)
 - The Ribbon contains commands/subsections for the active Space.
 - The Left Panel shows current artifacts and selected elements.
 - The Center Panel is where primary dynamic workflow UI goes.
-- Artifact Store Center Views and Feature/Embedding/Model Explore chooser lists must match the Left Panel lineage scope. Project-only context shows project datasets only and no downstream artifacts; dataset, feature, embedding, and model contexts show downstream artifacts from that dataset branch. Library and Configure workflow forms remain project-wide unless explicitly redesigned.
+- Artifact Store Center Views and Feature/Embedding/Model Explore chooser lists must match the Left Panel lineage scope. Project-only context shows project datasets only and no downstream artifacts; dataset, feature, embedding, and model contexts show downstream artifacts from that dataset branch. Feature Library, built-in Feature Configure, and custom Feature Create are dataset-first workflows and require an active Dataset context. Other Library and Configure workflow forms remain project-wide unless explicitly redesigned.
 - The Right Panel contains system-level information such as the Inspector Panel and Jobs Panel.
 - The Command Window shows logs, errors, and command/job output.
 - Primary workflows must use Center Views, not random modals. New modal/dialog categories require explicit approval.
@@ -119,7 +119,7 @@ Initial Ribbon guidance:
   - `Project Management`: `Import`, `Create`, `Projects`
   - `App Management`: `Settings`, `Help`
 - `Datasets`
-  - `Dataset Management`: `Import`, `Library`, `Create`, `Datasets`
+  - `Dataset Management`: `Import`, `Library`, `Datasets`
 - `Features`
   - `Feature Management`: `Import`, `Library`, `Create`, `Features`
 - `Embeddings`
@@ -159,7 +159,7 @@ Approved Workbench project foundation:
 - Future non-dataset artifact folders should use `artifacts/<kind>/<artifact_uuid>/artifact.json`, with UUIDv4 artifact IDs and typed file references.
 - Artifact lineage is a general DAG represented by typed input references in artifact manifests. This must support one dataset to many feature sets, multiple feature sets to one embedding, one artifact to many downstream artifacts, and future multi-dataset workflows.
 - Configured Dataset artifacts are planned compute graph nodes until Dataset preparation runs. Dataset preparation uses NEExT graph construction and normalization semantics, writes a raw Parquet snapshot, prepared NEExT-ready graph Parquet files, complete source-to-internal mapping Parquet files, summary stats, and status/error metadata.
-- Feature artifacts define compute graph nodes and may execute once their configured Dataset input is prepared. One Feature artifact targets one Dataset artifact and one built-in structural node feature method, records one dataset input, stores an operation spec with stable operation ID and version, and writes feature output Parquet only on successful execution.
+- Feature artifacts define compute graph nodes and may execute once their configured Dataset input is prepared. One Feature artifact targets one Dataset artifact and records one dataset input. Built-in Feature Library artifacts reference one built-in structural node feature method and are configured from the active Dataset context. Custom Python Feature Create artifacts store trusted local Python source under the feature artifact, use the artifact UUID as the runtime feature key, require a `compute_feature(graph)` function, support advisory validation before save, validate again on save against the first prepared graph of a completed dataset, and write feature output Parquet only on successful execution.
 - Embedding Library entries are built-in graph embedding algorithm templates, not executable project artifacts. A catalog row must be configured into a project Embedding artifact before it can participate in the compute graph.
 - Embedding artifacts define compute graph nodes downstream of one or more Feature artifacts. All selected Feature inputs must reference the same Dataset. Embedding execution can auto-run planned or failed upstream Dataset preparation and Feature computation before computing graph-level embeddings.
 - Workbench persists Embedding manifests, graph embedding Parquet outputs, jobs, readable job logs, preview metadata, and output file metadata.
@@ -172,7 +172,7 @@ Approved Workbench project foundation:
 - Dataset manifests and APIs must expose only artifact/workspace/project-relative paths. Do not expose on-disk absolute project paths.
 - Feature execution depends on configured Dataset artifacts, never directly on Dataset Library catalog entries or source-shaped imported data. If a Feature run targets a planned Dataset, Workbench prepares the Dataset first.
 - Workbench persists raw snapshots, prepared graph data, mappings, jobs, readable job logs, preview metadata, and output files. Browser previews must stay limited/paginated and must not load complete large mapping or output files by default.
-- Do not add arbitrary URL imports, PyG/DGL/OGB providers, feature editing, embedding editing, model editing, feature duplication, embedding duplication, model duplication, model import/export, prediction workflows, feature-importance views, permanent purge, archive, cancellation, individual artifact restore, restore-as-copy, overwrite restore, additional status transitions, or broader artifact lifecycle behavior without explicit design approval.
+- Do not add arbitrary URL imports, PyG/DGL/OGB providers, Dataset Create, feature editing, embedding editing, model editing, feature duplication, embedding duplication, model duplication, model import/export, prediction workflows, feature-importance views, permanent purge, archive, cancellation, individual artifact restore, restore-as-copy, overwrite restore, additional status transitions, or broader artifact lifecycle behavior without explicit design approval.
 - Future project archives should contain `project.json` and `artifacts/` at zip root. If an imported project UUID already exists, import it as a copy with a new UUID and preserve the original UUID in metadata.
 - Do not keep dead Workbench code for later. Add import/export, prediction workflows, feature-importance views, cancellation, concurrency beyond the single local worker, additional storage categories, and broader execution behavior only after each layer is explicitly designed.
 
@@ -285,10 +285,12 @@ Temporary artifacts from Workbench development, including screenshots, traces, l
 
 ## Custom Feature Contract
 
-Custom node feature functions registered through `my_feature_methods` should accept one graph object and return a `pandas.DataFrame` with columns in this order:
+Custom node feature functions registered through `my_feature_methods` or Workbench Feature Create should accept one graph object and return a `pandas.DataFrame` with columns in this order:
 
 ```text
 node_id, graph_id, <feature columns...>
 ```
 
 Keep feature names stable and deterministic. For notebook-defined functions, remember the repo relies on `joblib`/cloudpickle-compatible behavior; avoid closing over unpicklable objects.
+
+Workbench custom Feature Create v1 is trusted local code execution, not a sandbox. The Center View requires an active completed Dataset artifact, a display name, and Python code defining `compute_feature(graph)`. Validate performs an advisory dry run against one prepared graph and Save repeats validation before creating the planned Feature artifact. Missing Python packages must be reported clearly; Workbench must not install packages automatically.

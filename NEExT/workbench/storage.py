@@ -20,7 +20,13 @@ from pydantic import ValidationError
 from .dataset_library import get_catalog_dataset, list_catalog_entries
 from .embedding_library import get_embedding_catalog_item, list_embedding_catalog_entries
 from .embedding_library import get_operation_definition as get_embedding_operation_definition
-from .feature_library import get_feature_catalog_item, get_operation_definition, list_feature_catalog_entries
+from .feature_library import (
+    NODE_FEATURE_OPERATION_ID,
+    NODE_FEATURE_OPERATION_VERSION,
+    get_feature_catalog_item,
+    get_operation_definition,
+    list_feature_catalog_entries,
+)
 from .model_library import get_model_catalog_item, list_model_catalog_entries
 from .model_library import get_operation_definition as get_model_operation_definition
 from .schemas import (
@@ -44,6 +50,10 @@ from .schemas import (
     DatasetStats,
     DatasetVisualEdge,
     DatasetVisualNode,
+    CustomFeatureCreateParams,
+    CustomFeatureCreateRequest,
+    CustomFeatureValidateRequest,
+    CustomFeatureValidationResponse,
     EmbeddingAnalysis,
     EmbeddingAnalysisAlgorithm,
     EmbeddingAnalysisFeature,
@@ -119,6 +129,8 @@ MODEL_MANIFEST_TYPE = "model"
 JOB_MANIFEST_TYPE = "job"
 MCP_SETTINGS_MANIFEST_TYPE = "mcp_settings"
 ARTIFACT_DELETION_BUNDLE_MANIFEST_TYPE = "artifact_deletion_bundle"
+CUSTOM_FEATURE_FUNCTION_NAME = "compute_feature"
+CUSTOM_FEATURE_OPERATION_FEATURE_VECTOR_LENGTH = 1
 ARTIFACT_KINDS = ("datasets", "features", "embeddings", "models")
 ARTIFACT_KIND_FOLDERS = {
     "dataset": "datasets",
@@ -800,6 +812,76 @@ class WorkbenchStore:
         except Exception:
             shutil.rmtree(artifact_path, ignore_errors=True)
             raise
+
+    def create_custom_feature(self, project_id: str, request: CustomFeatureCreateRequest) -> FeatureManifest:
+        project = self.read_project(project_id)
+        dataset = self.read_dataset(project.id, request.source_dataset_id)
+        if dataset.status != "completed" or dataset.prepared_data_files is None:
+            raise ValueError("Custom feature creation requires a completed dataset")
+
+        operation = get_operation_definition(NODE_FEATURE_OPERATION_ID, NODE_FEATURE_OPERATION_VERSION)
+        if operation is None:
+            raise ValueError(f"Unsupported feature operation: {NODE_FEATURE_OPERATION_ID}@{NODE_FEATURE_OPERATION_VERSION}")
+
+        feature_id = self._new_feature_id(project.id)
+        artifact_path = self.feature_path(project.id, feature_id)
+        artifact_path.mkdir(parents=True, exist_ok=False)
+
+        try:
+            columns = self._validate_custom_feature_code(project.id, dataset.id, feature_id, request.code)
+            source_code_file = "source/feature.py"
+            params = request.params.model_dump()
+            operation_params = {
+                "feature_list": [feature_id],
+                "feature_vector_length": CUSTOM_FEATURE_OPERATION_FEATURE_VECTOR_LENGTH,
+                "normalize_features": params["normalize_features"],
+                "n_jobs": params["n_jobs"],
+                "parallel_backend": params["parallel_backend"],
+                "custom_feature_function": CUSTOM_FEATURE_FUNCTION_NAME,
+                "custom_feature_code_file": source_code_file,
+            }
+            now = utc_now()
+            manifest = FeatureManifest(
+                id=feature_id,
+                project_id=project.id,
+                name=request.name.strip(),
+                description=request.description,
+                status="planned",
+                created_at=now,
+                updated_at=now,
+                inputs=[
+                    ArtifactInputRef(
+                        role="source_dataset",
+                        artifact_kind="dataset",
+                        artifact_id=dataset.id,
+                    )
+                ],
+                source_type="custom_python_node_feature",
+                source_feature_id=feature_id,
+                source_code_file=source_code_file,
+                operation=OperationSpec(
+                    operation_id=operation.operation_id,
+                    operation_version=operation.operation_version,
+                    params=operation_params,
+                ),
+                expected_output=FeatureExpectedOutput(columns=columns),
+            )
+            (artifact_path / "source").mkdir(parents=True, exist_ok=True)
+            (artifact_path / source_code_file).write_text(request.code, encoding="utf-8")
+            self._validate_feature_manifest(manifest)
+            self._write_json(artifact_path / "artifact.json", manifest.model_dump())
+            return manifest
+        except Exception:
+            shutil.rmtree(artifact_path, ignore_errors=True)
+            raise
+
+    def validate_custom_feature(self, project_id: str, request: CustomFeatureValidateRequest) -> CustomFeatureValidationResponse:
+        project = self.read_project(project_id)
+        dataset = self.read_dataset(project.id, request.source_dataset_id)
+        if dataset.status != "completed" or dataset.prepared_data_files is None:
+            raise ValueError("Custom feature validation requires a completed dataset")
+        columns = self._validate_custom_feature_code(project.id, dataset.id, "validation", request.code)
+        return CustomFeatureValidationResponse(columns=columns)
 
     def create_embedding(self, project_id: str, request: EmbeddingCreateRequest) -> EmbeddingManifest:
         project = self.read_project(project_id)
@@ -1644,6 +1726,89 @@ class WorkbenchStore:
             shutil.rmtree(target)
         source.replace(target)
 
+    def _custom_feature_import_error_message(self, exc: ImportError) -> str:
+        if isinstance(exc, ModuleNotFoundError) and exc.name:
+            return f"Missing Python package: {exc.name}. Install it in the Workbench Python environment and retry."
+        return f"Custom feature code could not import a required package: {exc}"
+
+    def _load_custom_feature_function_from_code(self, code: str, feature_id: str) -> Callable[[Any], Any]:
+        namespace: dict[str, Any] = {"__name__": f"neext_workbench_custom_feature_{feature_id}"}
+        try:
+            compiled = compile(code, f"<workbench-custom-feature:{feature_id}>", "exec")
+            exec(compiled, namespace)
+        except ImportError as exc:
+            raise ValueError(self._custom_feature_import_error_message(exc)) from exc
+        except Exception as exc:
+            raise ValueError(f"Custom feature code could not be loaded: {exc}") from exc
+
+        feature_function = namespace.get(CUSTOM_FEATURE_FUNCTION_NAME)
+        if not callable(feature_function):
+            raise ValueError(f"Custom feature code must define a callable {CUSTOM_FEATURE_FUNCTION_NAME}(graph)")
+        return feature_function
+
+    def _load_custom_feature_function(self, project_id: str, feature: FeatureManifest) -> Callable[[Any], Any]:
+        if feature.source_type != "custom_python_node_feature" or not feature.source_code_file:
+            raise ValueError(f"Feature {feature.name} is not a custom Python feature")
+        self._validate_relative_file_ref(feature.source_code_file)
+        artifact_path = self.feature_path(project_id, feature.id)
+        source_path = (artifact_path / PurePosixPath(feature.source_code_file)).resolve()
+        if artifact_path.resolve() not in source_path.parents:
+            raise ValueError("Custom feature source path escaped the feature artifact")
+        if not source_path.exists():
+            raise ValueError(f"Custom feature source file is missing for {feature.name}")
+        return self._load_custom_feature_function_from_code(source_path.read_text(encoding="utf-8"), feature.id)
+
+    def _validate_custom_feature_frame(self, result: Any, graph) -> list[str]:
+        import pandas as pd
+        from pandas.api.types import is_numeric_dtype
+
+        if not isinstance(result, pd.DataFrame):
+            raise ValueError("Custom feature function must return a pandas DataFrame")
+        columns = list(result.columns)
+        if len(columns) < 3:
+            raise ValueError("Custom feature DataFrame must include node_id, graph_id, and at least one feature column")
+        if columns[:2] != ["node_id", "graph_id"]:
+            raise ValueError("Custom feature DataFrame columns must start with node_id, graph_id")
+
+        feature_columns = columns[2:]
+        if len(set(feature_columns)) != len(feature_columns):
+            raise ValueError("Custom feature DataFrame feature columns must be unique")
+        if any(column in {"node_id", "graph_id"} for column in feature_columns):
+            raise ValueError("Custom feature columns cannot reuse node_id or graph_id")
+        for column in feature_columns:
+            if not is_numeric_dtype(result[column]):
+                raise ValueError(f"Custom feature column must be numeric: {column}")
+
+        nodes = list(graph.sampled_nodes if graph.sampled_nodes is not None else graph.nodes)
+        if len(result) != len(nodes):
+            raise ValueError("Custom feature DataFrame must contain exactly one row for each graph node")
+        if result[["node_id", "graph_id"]].duplicated().any():
+            raise ValueError("Custom feature DataFrame cannot contain duplicate node_id, graph_id rows")
+        if set(result["node_id"].tolist()) != set(nodes):
+            raise ValueError("Custom feature DataFrame node_id values must match the validation graph nodes")
+        if not (result["graph_id"] == graph.graph_id).all():
+            raise ValueError("Custom feature DataFrame graph_id values must match the validation graph")
+        return feature_columns
+
+    def _validate_custom_feature_code(self, project_id: str, dataset_id: str, feature_id: str, code: str) -> list[str]:
+        feature_function = self._load_custom_feature_function_from_code(code, feature_id)
+        collection = self._load_prepared_collection(project_id, dataset_id)
+        if not collection.graphs:
+            raise ValueError("Custom feature validation requires at least one prepared graph")
+        try:
+            validation_result = feature_function(collection.graphs[0])
+        except ImportError as exc:
+            raise ValueError(self._custom_feature_import_error_message(exc)) from exc
+        except Exception as exc:
+            raise ValueError(f"Custom feature validation failed: {exc}") from exc
+        return self._validate_custom_feature_frame(validation_result, collection.graphs[0])
+
+    def _feature_method_name(self, feature: FeatureManifest) -> str:
+        if feature.source_type == "custom_python_node_feature":
+            return "Custom Python"
+        catalog = get_feature_catalog_item(feature.source_feature_id)
+        return catalog.name if catalog else feature.source_feature_id
+
     def _compute_feature_artifacts(self, project_id: str, feature_ids: list[str], job_id: str) -> None:
         features = [self.read_feature(project_id, feature_id) for feature_id in feature_ids]
         dataset_id = self._feature_dataset_id(features[0])
@@ -1666,6 +1831,8 @@ class WorkbenchStore:
                     params["normalize_features"],
                     params["n_jobs"],
                     params["parallel_backend"],
+                    "custom" if feature.source_type == "custom_python_node_feature" else "catalog",
+                    feature.id if feature.source_type == "custom_python_node_feature" else "",
                 )
                 grouped_features.setdefault(key, []).append(feature)
 
@@ -1673,7 +1840,15 @@ class WorkbenchStore:
                 params = group[0].operation.params
                 feature_names = [feature.source_feature_id for feature in group]
                 self._log_job(project_id, job_id, f"Computing features: {', '.join(feature_names)}")
-                computed_df = self._compute_node_features(collection, feature_names, params).features_df
+                custom_methods = [
+                    {
+                        "feature_name": feature.source_feature_id,
+                        "feature_function": self._load_custom_feature_function(project_id, feature),
+                    }
+                    for feature in group
+                    if feature.source_type == "custom_python_node_feature"
+                ]
+                computed_df = self._compute_node_features(collection, feature_names, params, custom_methods=custom_methods).features_df
                 for feature in group:
                     expected_columns = list(feature.expected_output.columns)
                     output_df = computed_df.loc[:, ["node_id", "graph_id"] + expected_columns].copy()
@@ -1693,10 +1868,10 @@ class WorkbenchStore:
             self._log_job(project_id, job_id, f"Feature job failed: {exc}")
             raise
 
-    def _compute_node_features(self, collection, feature_names: list[str], params: dict[str, Any]):
+    def _compute_node_features(self, collection, feature_names: list[str], params: dict[str, Any], custom_methods: list[dict[str, Any]] | None = None):
         from NEExT.features import StructuralNodeFeatures
 
-        return StructuralNodeFeatures(
+        node_features = StructuralNodeFeatures(
             graph_collection=collection,
             feature_list=feature_names,
             feature_vector_length=params["feature_vector_length"],
@@ -1704,7 +1879,10 @@ class WorkbenchStore:
             show_progress=False,
             n_jobs=params["n_jobs"],
             parallel_backend=params["parallel_backend"],
-        ).compute()
+        )
+        for entry in custom_methods or []:
+            node_features.register_metric(entry["feature_name"], entry["feature_function"])
+        return node_features.compute()
 
     def _compute_embedding_artifacts(self, project_id: str, embedding_ids: list[str], job_id: str) -> None:
         for embedding_id in embedding_ids:
@@ -2487,7 +2665,6 @@ class WorkbenchStore:
         feature_columns = [column for column in features.columns if column not in {"graph_id", "node_id"}]
         numeric_feature_columns = [column for column in feature_columns if pd.api.types.is_numeric_dtype(features[column])]
         label_by_graph, graph_label_distribution = self._dataset_graph_label_maps(project_id, dataset)
-        catalog = get_feature_catalog_item(feature.source_feature_id)
 
         output_stats = feature.output_stats or FeatureOutputStats(row_count=int(len(features)), column_count=int(len(features.columns)))
         graph_coverage = FeatureCoverage(
@@ -2511,7 +2688,7 @@ class WorkbenchStore:
                 status=dataset.status,
                 prepared_stats=dataset.prepared_stats,
             ),
-            method=FeatureAnalysisMethod(id=feature.source_feature_id, name=catalog.name if catalog else feature.source_feature_id),
+            method=FeatureAnalysisMethod(id=feature.source_feature_id, name=self._feature_method_name(feature)),
             output_stats=output_stats,
             feature_columns=feature_columns,
             numeric_feature_columns=numeric_feature_columns,
@@ -2660,7 +2837,6 @@ class WorkbenchStore:
 
         source_features = []
         for feature in features:
-            feature_catalog = get_feature_catalog_item(feature.source_feature_id)
             source_features.append(
                 EmbeddingAnalysisFeature(
                     id=feature.id,
@@ -2668,7 +2844,7 @@ class WorkbenchStore:
                     status=feature.status,
                     method=FeatureAnalysisMethod(
                         id=feature.source_feature_id,
-                        name=feature_catalog.name if feature_catalog else feature.source_feature_id,
+                        name=self._feature_method_name(feature),
                     ),
                 )
             )
@@ -3229,7 +3405,6 @@ class WorkbenchStore:
                     continue
                 seen_feature_ids.add(feature_id)
                 feature = self.read_feature(project_id, feature_id)
-                feature_catalog = get_feature_catalog_item(feature.source_feature_id)
                 source_features.append(
                     EmbeddingAnalysisFeature(
                         id=feature.id,
@@ -3237,7 +3412,7 @@ class WorkbenchStore:
                         status=feature.status,
                         method=FeatureAnalysisMethod(
                             id=feature.source_feature_id,
-                            name=feature_catalog.name if feature_catalog else feature.source_feature_id,
+                            name=self._feature_method_name(feature),
                         ),
                     )
                 )
@@ -3448,18 +3623,37 @@ class WorkbenchStore:
         if input_ref.role != "source_dataset" or input_ref.artifact_kind != "dataset":
             raise ValueError("Feature manifests must reference a source dataset input")
         self._normalize_artifact_id(input_ref.artifact_id)
-        if get_feature_catalog_item(manifest.source_feature_id) is None:
-            raise ValueError("Feature manifest references an unknown feature catalog entry")
         if get_operation_definition(manifest.operation.operation_id, manifest.operation.operation_version) is None:
             raise ValueError("Feature manifest references an unsupported operation")
-        FeatureCreateParams.model_validate(
-            {
-                "feature_vector_length": manifest.operation.params.get("feature_vector_length"),
-                "normalize_features": manifest.operation.params.get("normalize_features"),
-                "n_jobs": manifest.operation.params.get("n_jobs"),
-                "parallel_backend": manifest.operation.params.get("parallel_backend"),
-            }
-        )
+        if manifest.source_type == "neext_structural_node_feature":
+            if get_feature_catalog_item(manifest.source_feature_id) is None:
+                raise ValueError("Feature manifest references an unknown feature catalog entry")
+            FeatureCreateParams.model_validate(
+                {
+                    "feature_vector_length": manifest.operation.params.get("feature_vector_length"),
+                    "normalize_features": manifest.operation.params.get("normalize_features"),
+                    "n_jobs": manifest.operation.params.get("n_jobs"),
+                    "parallel_backend": manifest.operation.params.get("parallel_backend"),
+                }
+            )
+            if manifest.source_code_file is not None:
+                raise ValueError("Catalog feature manifests cannot reference source code files")
+        elif manifest.source_type == "custom_python_node_feature":
+            self._normalize_artifact_id(manifest.source_feature_id)
+            if not manifest.source_code_file:
+                raise ValueError("Custom feature manifests must reference a source code file")
+            self._validate_relative_file_ref(manifest.source_code_file)
+            if manifest.operation.params.get("feature_vector_length") != CUSTOM_FEATURE_OPERATION_FEATURE_VECTOR_LENGTH:
+                raise ValueError("Custom feature manifests must use the Workbench custom feature vector length")
+            CustomFeatureCreateParams.model_validate(
+                {
+                    "normalize_features": manifest.operation.params.get("normalize_features"),
+                    "n_jobs": manifest.operation.params.get("n_jobs"),
+                    "parallel_backend": manifest.operation.params.get("parallel_backend"),
+                }
+            )
+        else:
+            raise ValueError("Unsupported feature source type")
         if manifest.operation.params.get("feature_list") != [manifest.source_feature_id]:
             raise ValueError("Feature manifest operation must target exactly one source feature")
         if manifest.output_files is not None:

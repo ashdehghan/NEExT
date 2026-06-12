@@ -279,8 +279,9 @@ export interface FeatureManifest {
   created_at: string;
   updated_at: string;
   inputs: ArtifactInputRef[];
-  source_type: "neext_structural_node_feature";
+  source_type: "neext_structural_node_feature" | "custom_python_node_feature";
   source_feature_id: string;
+  source_code_file?: string | null;
   operation: OperationSpec;
   expected_output: FeatureExpectedOutput;
   output_files?: { features: string } | null;
@@ -667,6 +668,33 @@ export interface FeatureCreatePayload {
   };
 }
 
+export interface CustomFeatureCreatePayload {
+  source_dataset_id: string;
+  name: string;
+  description: string;
+  code: string;
+  params: {
+    normalize_features: boolean;
+    n_jobs: number;
+    parallel_backend: "loky" | "threading";
+  };
+}
+
+export interface CustomFeatureValidatePayload {
+  source_dataset_id: string;
+  code: string;
+  params?: {
+    normalize_features: boolean;
+    n_jobs: number;
+    parallel_backend: "loky" | "threading";
+  };
+}
+
+export interface CustomFeatureValidationResponse {
+  valid: true;
+  columns: string[];
+}
+
 export interface EmbeddingCreatePayload {
   source_embedding_id: string;
   source_feature_ids: string[];
@@ -840,6 +868,18 @@ export const api = {
   },
   createFeature: (projectId: string, payload: FeatureCreatePayload) =>
     request<FeatureManifest>(`/api/projects/${projectId}/features`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    }),
+  createCustomFeature: (projectId: string, payload: CustomFeatureCreatePayload) =>
+    request<FeatureManifest>(`/api/projects/${projectId}/features/custom`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    }),
+  validateCustomFeature: (projectId: string, payload: CustomFeatureValidatePayload) =>
+    request<CustomFeatureValidationResponse>(`/api/projects/${projectId}/features/custom/validate`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload)
