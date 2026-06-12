@@ -1,6 +1,6 @@
 import { useState } from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { FilePlus2, Trash2 } from "lucide-react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { FilePlus2, RotateCcw, Trash2 } from "lucide-react";
 import { api, type ProjectManifest } from "../../api";
 import { ConfirmDialog } from "../../components/primitives/ConfirmDialog";
 import { EmptyState } from "../../components/primitives/EmptyState";
@@ -185,6 +185,145 @@ export function ProjectsView({
           onConfirm={confirmDelete}
         />
       ) : null}
+    </div>
+  );
+}
+
+export function TrashView() {
+  const queryClient = useQueryClient();
+  const trash = useQuery({ queryKey: ["trash"], queryFn: api.trash });
+
+  const invalidateAfterRestore = () => {
+    queryClient.invalidateQueries({ queryKey: ["trash"] });
+    queryClient.invalidateQueries({ queryKey: ["workspace"] });
+    queryClient.invalidateQueries({ queryKey: ["projects"] });
+  };
+
+  const restoreProject = useMutation({
+    mutationFn: (trashId: string) => api.restoreProject(trashId),
+    onSuccess: invalidateAfterRestore
+  });
+  const restoreArtifactDeletion = useMutation({
+    mutationFn: ({ projectId, bundleId }: { projectId: string; bundleId: string }) => api.restoreArtifactDeletion(projectId, bundleId),
+    onSuccess: invalidateAfterRestore
+  });
+
+  const projects = trash.data?.projects || [];
+  const bundles = trash.data?.artifact_deletions || [];
+
+  return (
+    <div className="workflow">
+      <section className="artifact-table">
+        <header className="artifact-table-head">
+          <span className="artifact-table-title">
+            <FcIcon name="trash" size={16} />
+            Trash · {projects.length + bundles.length} {projects.length + bundles.length === 1 ? "item" : "items"}
+          </span>
+          <span className="muted">Restore moves items back to their original IDs.</span>
+        </header>
+        {trash.error ? <p className="table-error">{trash.error.message}</p> : null}
+        {restoreProject.error ? <p className="table-error">{restoreProject.error.message}</p> : null}
+        {restoreArtifactDeletion.error ? <p className="table-error">{restoreArtifactDeletion.error.message}</p> : null}
+        {trash.isLoading ? (
+          <div className="artifact-table-empty">
+            <EmptyState compact>Loading trash.</EmptyState>
+          </div>
+        ) : projects.length === 0 && bundles.length === 0 ? (
+          <div className="artifact-table-empty">
+            <EmptyState compact>Trash is empty.</EmptyState>
+          </div>
+        ) : (
+          <div className="trash-stack">
+            <div className="trash-section">
+              <h3>Projects</h3>
+              {projects.length === 0 ? (
+                <p className="muted">No trashed projects.</p>
+              ) : (
+                <div className="artifact-table-scroll">
+                  <table className="tbl">
+                    <thead>
+                      <tr>
+                        <th>Name</th>
+                        <th>Description</th>
+                        <th>Trash Path</th>
+                        <th className="actions-col">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {projects.map((project) => (
+                        <tr key={project.trash_id}>
+                          <td>
+                            <strong>{project.name}</strong>
+                          </td>
+                          <td className="muted">{project.description}</td>
+                          <td className="muted mono">{project.trashed_path}</td>
+                          <td className="actions-cell">
+                            <button
+                              type="button"
+                              className="btn"
+                              disabled={restoreProject.isPending}
+                              onClick={() => restoreProject.mutate(project.trash_id)}
+                            >
+                              <RotateCcw />
+                              Restore
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+            <div className="trash-section">
+              <h3>Artifact Delete Bundles</h3>
+              {bundles.length === 0 ? (
+                <p className="muted">No trashed artifact bundles.</p>
+              ) : (
+                <div className="artifact-table-scroll">
+                  <table className="tbl">
+                    <thead>
+                      <tr>
+                        <th>Root</th>
+                        <th>Mode</th>
+                        <th>Artifacts</th>
+                        <th>Created</th>
+                        <th className="actions-col">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {bundles.map((bundle) => (
+                        <tr key={bundle.id}>
+                          <td>
+                            <strong>{bundle.root_artifact.name}</strong>
+                            <span className="muted"> · {bundle.root_artifact.artifact_kind}</span>
+                          </td>
+                          <td>
+                            <span className="status-pill is-idle">{bundle.delete_mode}</span>
+                          </td>
+                          <td>{bundle.artifacts.length}</td>
+                          <td className="muted mono">{bundle.created_at}</td>
+                          <td className="actions-cell">
+                            <button
+                              type="button"
+                              className="btn"
+                              disabled={restoreArtifactDeletion.isPending}
+                              onClick={() => restoreArtifactDeletion.mutate({ projectId: bundle.project_id, bundleId: bundle.id })}
+                            >
+                              <RotateCcw />
+                              Restore
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+      </section>
     </div>
   );
 }

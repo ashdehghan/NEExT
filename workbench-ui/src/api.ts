@@ -20,6 +20,77 @@ export interface ProjectDeletionSummary {
   trashed_path: string;
 }
 
+export type ArtifactKind = "dataset" | "feature" | "embedding" | "model";
+
+export interface LifecycleArtifactRef {
+  artifact_kind: ArtifactKind;
+  artifact_id: string;
+  name: string;
+  status: string;
+}
+
+export interface LifecycleJobRef {
+  id: string;
+  status: "queued" | "running";
+  operation_id: string;
+  target_artifacts: LifecycleArtifactRef[];
+}
+
+export interface ArtifactDeletionPlan {
+  project_id: string;
+  root_artifact: LifecycleArtifactRef;
+  artifacts: LifecycleArtifactRef[];
+  downstream_artifacts: LifecycleArtifactRef[];
+  active_jobs: LifecycleJobRef[];
+  requires_cascade: boolean;
+  can_delete: boolean;
+}
+
+export interface ArtifactDeletionSummary {
+  bundle_id: string;
+  project_id: string;
+  root_artifact: LifecycleArtifactRef;
+  artifacts: LifecycleArtifactRef[];
+  trashed_path: string;
+}
+
+export interface TrashArtifactRef extends LifecycleArtifactRef {
+  original_path: string;
+  trashed_path: string;
+}
+
+export interface ArtifactDeletionBundleManifest {
+  schema_version: string;
+  manifest_type: "artifact_deletion_bundle";
+  id: string;
+  project_id: string;
+  root_artifact: LifecycleArtifactRef;
+  artifacts: TrashArtifactRef[];
+  created_at: string;
+  updated_at: string;
+  delete_mode: "single" | "cascade";
+}
+
+export interface TrashedProjectEntry {
+  trash_id: string;
+  project_id: string;
+  name: string;
+  description: string;
+  trashed_path: string;
+}
+
+export interface TrashListing {
+  projects: TrashedProjectEntry[];
+  artifact_deletions: ArtifactDeletionBundleManifest[];
+}
+
+export interface RestoreSummary {
+  restored_kind: "project" | "artifact_deletion";
+  id: string;
+  name: string;
+  restored_path: string;
+}
+
 export interface DatasetStats {
   graph_count: number;
   node_count: number;
@@ -650,11 +721,32 @@ export interface DownloadPayload {
   filename: string;
 }
 
+export class ApiError extends Error {
+  status: number;
+  detail: unknown;
+
+  constructor(message: string, status: number, detail: unknown) {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+    this.detail = detail;
+  }
+}
+
+function errorMessage(detail: unknown, fallback: string): string {
+  if (typeof detail === "string") return detail;
+  if (detail && typeof detail === "object" && "message" in detail) {
+    return String((detail as { message?: unknown }).message || fallback);
+  }
+  return fallback;
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, init);
   if (!response.ok) {
-    const detail = await response.json().catch(() => ({ detail: response.statusText }));
-    throw new Error(String(detail.detail || response.statusText));
+    const payload = await response.json().catch(() => ({ detail: response.statusText }));
+    const detail = payload.detail ?? response.statusText;
+    throw new ApiError(errorMessage(detail, response.statusText), response.status, detail);
   }
   return response.json() as Promise<T>;
 }
@@ -662,8 +754,9 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 async function requestDownload(path: string): Promise<DownloadPayload> {
   const response = await fetch(path);
   if (!response.ok) {
-    const detail = await response.json().catch(() => ({ detail: response.statusText }));
-    throw new Error(String(detail.detail || response.statusText));
+    const payload = await response.json().catch(() => ({ detail: response.statusText }));
+    const detail = payload.detail ?? response.statusText;
+    throw new ApiError(errorMessage(detail, response.statusText), response.status, detail);
   }
   const disposition = response.headers.get("Content-Disposition") || "";
   const filenameMatch = disposition.match(/filename="([^"]+)"/);
@@ -680,6 +773,10 @@ export const api = {
   regenerateMcpSettings: () => request<McpSettingsResponse>("/api/mcp-settings/regenerate", { method: "POST" }),
   disableMcpSettings: () => request<McpSettingsResponse>("/api/mcp-settings/disable", { method: "POST" }),
   projects: () => request<ProjectManifest[]>("/api/projects"),
+  trash: () => request<TrashListing>("/api/trash"),
+  restoreProject: (trashId: string) => request<RestoreSummary>(`/api/trash/projects/${trashId}/restore`, { method: "POST" }),
+  restoreArtifactDeletion: (projectId: string, bundleId: string) =>
+    request<RestoreSummary>(`/api/projects/${projectId}/trash/artifact-deletions/${bundleId}/restore`, { method: "POST" }),
   project: (projectId: string) => request<ProjectManifest>(`/api/projects/${projectId}`),
   datasetLibrary: () => request<DatasetCatalogEntry[]>("/api/dataset-library"),
   featureLibrary: () => request<FeatureCatalogEntry[]>("/api/feature-library"),
@@ -735,6 +832,12 @@ export const api = {
     request<TabularPreview>(`/api/projects/${projectId}/datasets/${datasetId}/preview/${table}?limit=${limit}&offset=${offset}`),
   datasetExport: (projectId: string, datasetId: string, table: DatasetPreviewTable) =>
     requestDownload(`/api/projects/${projectId}/datasets/${datasetId}/export/${table}`),
+  artifactDeletionPlan: (projectId: string, artifactKind: ArtifactKind, artifactId: string) =>
+    request<ArtifactDeletionPlan>(`/api/projects/${projectId}/${artifactKind}s/${artifactId}/delete-plan`),
+  deleteArtifact: (projectId: string, artifactKind: ArtifactKind, artifactId: string, cascade: boolean) => {
+    const suffix = cascade ? "?cascade=true" : "";
+    return request<ArtifactDeletionSummary>(`/api/projects/${projectId}/${artifactKind}s/${artifactId}${suffix}`, { method: "DELETE" });
+  },
   createFeature: (projectId: string, payload: FeatureCreatePayload) =>
     request<FeatureManifest>(`/api/projects/${projectId}/features`, {
       method: "POST",

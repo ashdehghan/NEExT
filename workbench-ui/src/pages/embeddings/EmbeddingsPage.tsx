@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import * as echarts from "echarts";
 import type { EChartsOption } from "echarts";
-import { ArrowLeft, Box, ChevronLeft, ChevronRight, Eye, Play, RotateCcw, Save, Search, Settings2 } from "lucide-react";
+import { ArrowLeft, Box, ChevronLeft, ChevronRight, Eye, Play, RotateCcw, Save, Search, Settings2, Trash2 } from "lucide-react";
 import {
   api,
   type DatasetManifest,
@@ -45,6 +45,7 @@ interface ProjectEmbeddingsViewProps {
   selectedEmbeddingId: string;
   onSelectEmbedding: (embeddingId: string) => void;
   onPreviewEmbedding: (embeddingId: string) => void;
+  onDeleteArtifact: (artifactKind: "embedding", artifactId: string) => void;
 }
 
 interface EmbeddingExploreViewProps {
@@ -355,7 +356,8 @@ export function ProjectEmbeddingsView({
   loading,
   selectedEmbeddingId,
   onSelectEmbedding,
-  onPreviewEmbedding
+  onPreviewEmbedding,
+  onDeleteArtifact
 }: ProjectEmbeddingsViewProps) {
   const queryClient = useQueryClient();
   const datasetsById = useMemo(() => new Map(datasets.map((dataset) => [dataset.id, dataset])), [datasets]);
@@ -521,6 +523,18 @@ export function ProjectEmbeddingsView({
                               Preview
                             </button>
                           ) : null}
+                          <button
+                            type="button"
+                            className="icon-btn icon-btn-danger"
+                            aria-label={`Delete ${embedding.name}`}
+                            title={`Delete ${embedding.name}`}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              onDeleteArtifact("embedding", embedding.id);
+                            }}
+                          >
+                            <Trash2 />
+                          </button>
                         </td>
                       </tr>
                     );

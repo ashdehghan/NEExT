@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import * as echarts from "echarts";
 import type { EChartsOption } from "echarts";
-import { ArrowLeft, ChevronLeft, ChevronRight, Eye, Play, RotateCcw, Save, Search, Settings2, Sigma } from "lucide-react";
+import { ArrowLeft, ChevronLeft, ChevronRight, Eye, Play, RotateCcw, Save, Search, Settings2, Sigma, Trash2 } from "lucide-react";
 import {
   api,
   type DatasetManifest,
@@ -42,6 +42,7 @@ interface ProjectFeaturesViewProps {
   selectedFeatureId: string;
   onSelectFeature: (featureId: string) => void;
   onPreviewFeature: (featureId: string) => void;
+  onDeleteArtifact: (artifactKind: "feature", artifactId: string) => void;
 }
 
 interface FeatureExploreViewProps {
@@ -303,7 +304,8 @@ export function ProjectFeaturesView({
   loading,
   selectedFeatureId,
   onSelectFeature,
-  onPreviewFeature
+  onPreviewFeature,
+  onDeleteArtifact
 }: ProjectFeaturesViewProps) {
   const datasetsById = useMemo(() => new Map(datasets.map((dataset) => [dataset.id, dataset])), [datasets]);
   const catalogById = useMemo(() => new Map(catalog.map((entry) => [entry.id, entry])), [catalog]);
@@ -453,6 +455,18 @@ export function ProjectFeaturesView({
                             Preview
                           </button>
                         ) : null}
+                        <button
+                          type="button"
+                          className="icon-btn icon-btn-danger"
+                          aria-label={`Delete ${feature.name}`}
+                          title={`Delete ${feature.name}`}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            onDeleteArtifact("feature", feature.id);
+                          }}
+                        >
+                          <Trash2 />
+                        </button>
                       </td>
                     </tr>
                   );

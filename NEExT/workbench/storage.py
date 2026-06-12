@@ -24,6 +24,9 @@ from .feature_library import get_feature_catalog_item, get_operation_definition,
 from .model_library import get_model_catalog_item, list_model_catalog_entries
 from .model_library import get_operation_definition as get_model_operation_definition
 from .schemas import (
+    ArtifactDeletionBundleManifest,
+    ArtifactDeletionPlan,
+    ArtifactDeletionSummary,
     ArtifactError,
     ArtifactInputRef,
     DatasetAnalysis,
@@ -78,6 +81,8 @@ from .schemas import (
     JobArtifactRef,
     JobEvent,
     JobManifest,
+    LifecycleArtifactRef,
+    LifecycleJobRef,
     McpSettingsManifest,
     ModelAnalysis,
     ModelAnalysisAlgorithm,
@@ -97,7 +102,11 @@ from .schemas import (
     ProjectCreate,
     ProjectDeletionSummary,
     ProjectManifest,
+    RestoreSummary,
     TabularPreview,
+    TrashArtifactRef,
+    TrashedProjectEntry,
+    TrashListing,
 )
 
 SCHEMA_VERSION = "1"
@@ -109,7 +118,16 @@ EMBEDDING_MANIFEST_TYPE = "embedding"
 MODEL_MANIFEST_TYPE = "model"
 JOB_MANIFEST_TYPE = "job"
 MCP_SETTINGS_MANIFEST_TYPE = "mcp_settings"
+ARTIFACT_DELETION_BUNDLE_MANIFEST_TYPE = "artifact_deletion_bundle"
 ARTIFACT_KINDS = ("datasets", "features", "embeddings", "models")
+ARTIFACT_KIND_FOLDERS = {
+    "dataset": "datasets",
+    "feature": "features",
+    "embedding": "embeddings",
+    "model": "models",
+}
+ARTIFACT_FOLDER_KINDS = {folder: kind for kind, folder in ARTIFACT_KIND_FOLDERS.items()}
+ARTIFACT_KIND_ORDER = {"dataset": 0, "feature": 1, "embedding": 2, "model": 3}
 DATASET_PREP_OPERATION_ID = "neext.prepare_graph_collection"
 DATASET_EGONET_PREP_OPERATION_ID = "neext.prepare_single_graph_egonets"
 DATASET_PREP_OPERATION_VERSION = "1"
@@ -121,6 +139,12 @@ EMBEDDING_ANALYSIS_DEFAULT_MAX_POINTS = 5000
 
 def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+class WorkbenchConflictError(Exception):
+    def __init__(self, message: str, detail: dict[str, Any]):
+        super().__init__(message)
+        self.detail = {"message": message, **detail}
 
 
 class WorkbenchStore:
@@ -262,6 +286,130 @@ class WorkbenchStore:
         if jobs_root not in path.parents and path != jobs_root:
             raise ValueError("Job path escaped the project")
         return path
+
+    def artifact_path(self, project_id: str, artifact_kind: str, artifact_id: str) -> Path:
+        if artifact_kind == "dataset":
+            return self.dataset_path(project_id, artifact_id)
+        if artifact_kind == "feature":
+            return self.feature_path(project_id, artifact_id)
+        if artifact_kind == "embedding":
+            return self.embedding_path(project_id, artifact_id)
+        if artifact_kind == "model":
+            return self.model_path(project_id, artifact_id)
+        raise ValueError(f"Unsupported artifact kind: {artifact_kind}")
+
+    def _artifact_delete_bundle_path(self, project_id: str, bundle_id: str) -> Path:
+        project_segment = self._normalize_project_id(project_id)
+        bundle_segment = self._normalize_artifact_id(bundle_id)
+        root = (self.trash_projects_path / project_segment / "artifact-deletions").resolve()
+        path = (root / bundle_segment).resolve()
+        if root not in path.parents and path != root:
+            raise ValueError("Artifact deletion bundle path escaped the workspace trash")
+        return path
+
+    def _safe_trash_segment(self, value: str) -> str:
+        if not re.fullmatch(r"[A-Za-z0-9._-]+", value):
+            raise ValueError("Trash identifier contains unsupported characters")
+        return value
+
+    def _artifact_ref(self, artifact: DatasetManifest | FeatureManifest | EmbeddingManifest | ModelManifest) -> LifecycleArtifactRef:
+        manifest_type = str(artifact.manifest_type)
+        if manifest_type not in ARTIFACT_KIND_FOLDERS:
+            raise ValueError(f"Unsupported artifact kind: {manifest_type}")
+        return LifecycleArtifactRef(
+            artifact_kind=manifest_type,  # type: ignore[arg-type]
+            artifact_id=artifact.id,
+            name=artifact.name,
+            status=artifact.status,
+        )
+
+    def _read_artifact(self, project_id: str, artifact_kind: str, artifact_id: str) -> DatasetManifest | FeatureManifest | EmbeddingManifest | ModelManifest:
+        if artifact_kind == "dataset":
+            return self.read_dataset(project_id, artifact_id)
+        if artifact_kind == "feature":
+            return self.read_feature(project_id, artifact_id)
+        if artifact_kind == "embedding":
+            return self.read_embedding(project_id, artifact_id)
+        if artifact_kind == "model":
+            return self.read_model(project_id, artifact_id)
+        raise ValueError(f"Unsupported artifact kind: {artifact_kind}")
+
+    def _list_artifacts_by_kind(self, project_id: str) -> dict[tuple[str, str], LifecycleArtifactRef]:
+        artifacts: dict[tuple[str, str], LifecycleArtifactRef] = {}
+        for dataset in self.list_datasets(project_id):
+            ref = self._artifact_ref(dataset)
+            artifacts[(ref.artifact_kind, ref.artifact_id)] = ref
+        for feature in self.list_features(project_id):
+            ref = self._artifact_ref(feature)
+            artifacts[(ref.artifact_kind, ref.artifact_id)] = ref
+        for embedding in self.list_embeddings(project_id):
+            ref = self._artifact_ref(embedding)
+            artifacts[(ref.artifact_kind, ref.artifact_id)] = ref
+        for model in self.list_models(project_id):
+            ref = self._artifact_ref(model)
+            artifacts[(ref.artifact_kind, ref.artifact_id)] = ref
+        return artifacts
+
+    def _downstream_edges(self, project_id: str) -> dict[tuple[str, str], set[tuple[str, str]]]:
+        edges: dict[tuple[str, str], set[tuple[str, str]]] = {}
+        for artifact in [*self.list_features(project_id), *self.list_embeddings(project_id), *self.list_models(project_id)]:
+            downstream_ref = self._artifact_ref(artifact)
+            downstream_key = (downstream_ref.artifact_kind, downstream_ref.artifact_id)
+            for input_ref in artifact.inputs:
+                if input_ref.artifact_kind not in ARTIFACT_KIND_FOLDERS:
+                    continue
+                upstream_key = (input_ref.artifact_kind, input_ref.artifact_id)
+                edges.setdefault(upstream_key, set()).add(downstream_key)
+        return edges
+
+    def _sort_artifact_refs(self, refs: list[LifecycleArtifactRef]) -> list[LifecycleArtifactRef]:
+        return sorted(refs, key=lambda item: (ARTIFACT_KIND_ORDER[item.artifact_kind], item.name.lower(), item.artifact_id))
+
+    def _collect_downstream_refs(self, project_id: str, root_ref: LifecycleArtifactRef) -> list[LifecycleArtifactRef]:
+        artifacts = self._list_artifacts_by_kind(project_id)
+        edges = self._downstream_edges(project_id)
+        root_key = (root_ref.artifact_kind, root_ref.artifact_id)
+        seen: set[tuple[str, str]] = set()
+        pending = list(edges.get(root_key, set()))
+        while pending:
+            key = pending.pop(0)
+            if key in seen:
+                continue
+            seen.add(key)
+            pending.extend(sorted(edges.get(key, set()) - seen))
+        return self._sort_artifact_refs([artifacts[key] for key in seen if key in artifacts])
+
+    def _active_jobs_for_artifacts(self, project_id: str, artifact_refs: list[LifecycleArtifactRef]) -> list[LifecycleJobRef]:
+        artifact_keys = {(ref.artifact_kind, ref.artifact_id) for ref in artifact_refs}
+        refs_by_key = {(ref.artifact_kind, ref.artifact_id): ref for ref in artifact_refs}
+        active_jobs: list[LifecycleJobRef] = []
+        for job in self.list_jobs(project_id):
+            if job.status not in {"queued", "running"}:
+                continue
+            target_refs = [
+                refs_by_key[(target.artifact_kind, target.artifact_id)]
+                for target in job.target_artifacts
+                if (target.artifact_kind, target.artifact_id) in artifact_keys
+            ]
+            if target_refs:
+                active_jobs.append(
+                    LifecycleJobRef(
+                        id=job.id,
+                        status=job.status,
+                        operation_id=job.operation.operation_id,
+                        target_artifacts=target_refs,
+                    )
+                )
+        return active_jobs
+
+    def _read_artifact_deletion_bundle(self, bundle_file: Path) -> ArtifactDeletionBundleManifest:
+        payload = self._read_json(bundle_file)
+        if payload.get("schema_version") != SCHEMA_VERSION or payload.get("manifest_type") != ARTIFACT_DELETION_BUNDLE_MANIFEST_TYPE:
+            raise ValueError("Unsupported artifact deletion bundle manifest")
+        bundle = ArtifactDeletionBundleManifest.model_validate(payload)
+        self._normalize_artifact_id(bundle.id)
+        self._normalize_project_id(bundle.project_id)
+        return bundle
 
     def _create_project_artifact_dirs(self, project_path: Path) -> None:
         for artifact_kind in ARTIFACT_KINDS:
@@ -3406,6 +3554,181 @@ class WorkbenchStore:
         if manifest.output_files is not None:
             for data_file in manifest.output_files.model_dump(exclude_none=True).values():
                 self._validate_relative_file_ref(data_file)
+
+    def plan_artifact_deletion(self, project_id: str, artifact_kind: str, artifact_id: str) -> ArtifactDeletionPlan:
+        project = self.read_project(project_id)
+        root = self._artifact_ref(self._read_artifact(project.id, artifact_kind, artifact_id))
+        downstream = self._collect_downstream_refs(project.id, root)
+        artifacts = self._sort_artifact_refs([root, *downstream])
+        active_jobs = self._active_jobs_for_artifacts(project.id, artifacts)
+        return ArtifactDeletionPlan(
+            project_id=project.id,
+            root_artifact=root,
+            artifacts=artifacts,
+            downstream_artifacts=downstream,
+            active_jobs=active_jobs,
+            requires_cascade=bool(downstream),
+            can_delete=not active_jobs,
+        )
+
+    def delete_artifact(self, project_id: str, artifact_kind: str, artifact_id: str, *, cascade: bool = False) -> ArtifactDeletionSummary:
+        project = self.read_project(project_id)
+        plan = self.plan_artifact_deletion(project.id, artifact_kind, artifact_id)
+        if plan.active_jobs:
+            raise WorkbenchConflictError(
+                f"Cannot delete {plan.root_artifact.name} while queued or running jobs target it or its downstream artifacts",
+                {"deletion_plan": plan.model_dump()},
+            )
+        if plan.downstream_artifacts and not cascade:
+            raise WorkbenchConflictError(
+                f"Deleting {plan.root_artifact.name} also requires deleting downstream artifacts",
+                {"deletion_plan": plan.model_dump()},
+            )
+
+        bundle_id = str(uuid.uuid4())
+        bundle_path = self._artifact_delete_bundle_path(project.id, bundle_id)
+        bundle_artifact_root = bundle_path / "artifacts"
+        bundle_path.mkdir(parents=True, exist_ok=False)
+        moved: list[tuple[Path, Path]] = []
+        trash_refs: list[TrashArtifactRef] = []
+        try:
+            for ref in plan.artifacts:
+                source_path = self.artifact_path(project.id, ref.artifact_kind, ref.artifact_id)
+                folder = ARTIFACT_KIND_FOLDERS[ref.artifact_kind]
+                target_path = bundle_artifact_root / folder / ref.artifact_id
+                target_path.parent.mkdir(parents=True, exist_ok=True)
+                trash_refs.append(
+                    TrashArtifactRef(
+                        **ref.model_dump(),
+                        original_path=source_path.relative_to(self.workspace_path).as_posix(),
+                        trashed_path=target_path.relative_to(self.workspace_path).as_posix(),
+                    )
+                )
+                shutil.move(str(source_path), str(target_path))
+                moved.append((source_path, target_path))
+
+            now = utc_now()
+            bundle = ArtifactDeletionBundleManifest(
+                id=bundle_id,
+                project_id=project.id,
+                root_artifact=plan.root_artifact,
+                artifacts=trash_refs,
+                created_at=now,
+                updated_at=now,
+                delete_mode="cascade" if plan.downstream_artifacts else "single",
+            )
+            self._write_json(bundle_path / "bundle.json", bundle.model_dump())
+            return ArtifactDeletionSummary(
+                bundle_id=bundle.id,
+                project_id=project.id,
+                root_artifact=bundle.root_artifact,
+                artifacts=plan.artifacts,
+                trashed_path=bundle_path.relative_to(self.workspace_path).as_posix(),
+            )
+        except Exception:
+            for source_path, target_path in reversed(moved):
+                if target_path.exists() and not source_path.exists():
+                    source_path.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.move(str(target_path), str(source_path))
+            shutil.rmtree(bundle_path, ignore_errors=True)
+            raise
+
+    def list_trash(self) -> TrashListing:
+        projects: list[TrashedProjectEntry] = []
+        artifact_deletions: list[ArtifactDeletionBundleManifest] = []
+        if self.trash_projects_path.exists():
+            for project_trash_path in sorted(self.trash_projects_path.iterdir()):
+                if not project_trash_path.is_dir():
+                    continue
+                project_file = project_trash_path / "project.json"
+                if project_file.exists():
+                    try:
+                        project = self._read_project_manifest(project_file)
+                    except (ValueError, json.JSONDecodeError, ValidationError):
+                        project = None
+                    if project is not None:
+                        projects.append(
+                            TrashedProjectEntry(
+                                trash_id=project_trash_path.name,
+                                project_id=project.id,
+                                name=project.name,
+                                description=project.description,
+                                trashed_path=project_trash_path.relative_to(self.workspace_path).as_posix(),
+                            )
+                        )
+                for bundle_file in sorted((project_trash_path / "artifact-deletions").glob("*/bundle.json")):
+                    try:
+                        artifact_deletions.append(self._read_artifact_deletion_bundle(bundle_file))
+                    except (ValueError, json.JSONDecodeError, ValidationError):
+                        continue
+        return TrashListing(
+            projects=sorted(projects, key=lambda item: item.name.lower()),
+            artifact_deletions=sorted(artifact_deletions, key=lambda item: item.created_at, reverse=True),
+        )
+
+    def restore_project(self, trash_id: str) -> RestoreSummary:
+        trash_path = self.trash_projects_path / self._safe_trash_segment(trash_id)
+        project_file = trash_path / "project.json"
+        if not project_file.exists():
+            raise FileNotFoundError(f"Trashed project not found: {trash_id}")
+        project = self._read_project_manifest(project_file)
+        target_path = self.project_path(project.id)
+        if target_path.exists():
+            raise WorkbenchConflictError(
+                f"Cannot restore project {project.name} because a live project with the same ID already exists",
+                {"project_id": project.id, "trash_id": trash_id},
+            )
+        target_path.parent.mkdir(parents=True, exist_ok=True)
+        shutil.move(str(trash_path), str(target_path))
+        return RestoreSummary(
+            restored_kind="project",
+            id=project.id,
+            name=project.name,
+            restored_path=target_path.relative_to(self.workspace_path).as_posix(),
+        )
+
+    def restore_artifact_deletion(self, project_id: str, bundle_id: str) -> RestoreSummary:
+        project = self.read_project(project_id)
+        bundle_path = self._artifact_delete_bundle_path(project.id, bundle_id)
+        bundle_file = bundle_path / "bundle.json"
+        if not bundle_file.exists():
+            raise FileNotFoundError(f"Artifact deletion bundle not found: {bundle_id}")
+        bundle = self._read_artifact_deletion_bundle(bundle_file)
+        conflicts = []
+        targets: list[tuple[TrashArtifactRef, Path, Path]] = []
+        for artifact in bundle.artifacts:
+            source_path = self.workspace_path / artifact.trashed_path
+            target_path = self.workspace_path / artifact.original_path
+            targets.append((artifact, source_path, target_path))
+            if target_path.exists():
+                conflicts.append(artifact)
+            if not source_path.exists():
+                raise FileNotFoundError(f"Trashed artifact not found: {artifact.artifact_id}")
+        if conflicts:
+            raise WorkbenchConflictError(
+                f"Cannot restore {bundle.root_artifact.name} because one or more live artifact folders already exist",
+                {"conflicts": [artifact.model_dump() for artifact in conflicts], "bundle_id": bundle.id},
+            )
+
+        moved: list[tuple[Path, Path]] = []
+        try:
+            for _, source_path, target_path in targets:
+                target_path.parent.mkdir(parents=True, exist_ok=True)
+                shutil.move(str(source_path), str(target_path))
+                moved.append((source_path, target_path))
+            shutil.rmtree(bundle_path, ignore_errors=True)
+            return RestoreSummary(
+                restored_kind="artifact_deletion",
+                id=bundle.id,
+                name=bundle.root_artifact.name,
+                restored_path=self.project_path(project.id).relative_to(self.workspace_path).as_posix(),
+            )
+        except Exception:
+            for source_path, target_path in reversed(moved):
+                if target_path.exists() and not source_path.exists():
+                    source_path.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.move(str(target_path), str(source_path))
+            raise
 
     def delete_project(self, project_id: str) -> ProjectDeletionSummary:
         project = self.read_project(project_id)

@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import * as echarts from "echarts";
 import type { EChartsOption } from "echarts";
-import { ChevronLeft, ChevronRight, Database, Download, Eye, Play, RotateCcw, Save, Search, Settings2 } from "lucide-react";
+import { ChevronLeft, ChevronRight, Database, Download, Eye, Play, RotateCcw, Save, Search, Settings2, Trash2 } from "lucide-react";
 import {
   api,
   type DatasetCatalogEntry,
@@ -41,6 +41,7 @@ interface ProjectDatasetsViewProps {
   selectedDatasetId: string;
   onSelectDataset: (datasetId: string) => void;
   onPreviewDataset: (datasetId: string) => void;
+  onDeleteArtifact: (artifactKind: "dataset", artifactId: string) => void;
 }
 
 interface DatasetExploreViewProps {
@@ -420,7 +421,8 @@ export function ProjectDatasetsView({
   loading,
   selectedDatasetId,
   onSelectDataset,
-  onPreviewDataset
+  onPreviewDataset,
+  onDeleteArtifact
 }: ProjectDatasetsViewProps) {
   const queryClient = useQueryClient();
   const runDataset = useMutation({
@@ -519,6 +521,18 @@ export function ProjectDatasetsView({
                             Preview
                           </button>
                         ) : null}
+                        <button
+                          type="button"
+                          className="icon-btn icon-btn-danger"
+                          aria-label={`Delete ${dataset.name}`}
+                          title={`Delete ${dataset.name}`}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            onDeleteArtifact("dataset", dataset.id);
+                          }}
+                        >
+                          <Trash2 />
+                        </button>
                       </td>
                     </tr>
                   );

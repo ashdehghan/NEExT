@@ -372,9 +372,9 @@
           <p class="subtitle">Canonical planning dashboard for the NEExT core library and Workbench. This file is the shared human-agent interface for current state, active sprint work, backlog, and decisions.</p>
         </div>
         <div class="meta">
-          <span class="pill ready">Complete: Sprint 2</span>
+          <span class="pill ready">Complete: Sprint 3</span>
           <span class="pill ready">Tracked artifact</span>
-          <span class="pill">Updated 2026-06-11</span>
+          <span class="pill">Updated 2026-06-12</span>
         </div>
       </div>
       <div class="note">
@@ -388,6 +388,7 @@
         <a href="#status">Status Summary</a>
         <a href="#sprint">Completed Sprint 1</a>
         <a href="#sprint-2">Completed Sprint 2</a>
+        <a href="#sprint-3">Completed Sprint 3</a>
         <a href="#roadmap">Sprint Roadmap</a>
         <a href="#current-state">Current State</a>
         <a href="#workbench-map">Workbench Map</a>
@@ -413,8 +414,8 @@
             </div>
             <div class="card">
               <strong>Lifecycle Dashboard</strong>
-              <p class="muted">Committed static HTML planning artifact for sprint state, handoff context, and current/future development tracking. Sprint 0, Sprint 1, and Sprint 2 are complete.</p>
-              <span class="pill ready">Sprint 2 complete</span>
+              <p class="muted">Committed static HTML planning artifact for sprint state, handoff context, and current/future development tracking. Sprint 0, Sprint 1, Sprint 2, and Sprint 3 are complete.</p>
+              <span class="pill ready">Sprint 3 complete</span>
             </div>
           </div>
         </section>
@@ -435,6 +436,7 @@
                 <li><input type="checkbox" checked> <span>Dataset, feature, embedding, and model selection keep sibling artifacts visible within the same dataset branch.</span></li>
                 <li><input type="checkbox" checked> <span>Feature and embedding selection mark related downstream artifacts instead of hiding unrelated same-dataset artifacts.</span></li>
                 <li><input type="checkbox" checked> <span>Existing click-to-navigate behavior remains: selecting an artifact opens that artifact kind's Center View.</span></li>
+                <li><input type="checkbox" checked> <span>Artifact Store Center Views and Feature/Embedding/Model Explore chooser lists use the same branch scope as the Left Panel.</span></li>
               </ul>
             </div>
           </div>
@@ -453,7 +455,7 @@
               <thead>
                 <tr>
                   <th>Selected Context</th>
-                  <th>Left Panel Context To Show</th>
+                  <th>Left Panel and Scoped Center Context To Show</th>
                 </tr>
               </thead>
               <tbody>
@@ -479,6 +481,7 @@
                 </tr>
               </tbody>
             </table>
+            <p class="muted small">Scoped Center Views means Artifact Stores and Feature/Embedding/Model Explore chooser lists. Library and Configure workflow forms remain project-wide unless explicitly redesigned.</p>
           </div>
         </section>
 
@@ -541,6 +544,71 @@
           </div>
         </section>
 
+        <section id="sprint-3">
+          <h2>Completed Sprint: Sprint 3 - Artifact Lifecycle Management</h2>
+          <div class="grid two">
+            <div class="card">
+              <strong>Goal</strong>
+              <p>Add real deletion and restore behavior for Dataset, Feature, Embedding, and Model artifacts while respecting Workbench lineage, downstream dependencies, active jobs, and the existing Center View pattern.</p>
+            </div>
+            <div class="card">
+              <strong>Acceptance Criteria</strong>
+              <ul class="checklist">
+                <li><input type="checkbox" checked> <span>Artifact rows expose delete actions for datasets, features, embeddings, and models.</span></li>
+                <li><input type="checkbox" checked> <span>Delete planning reports direct and transitive downstream artifacts before destructive movement.</span></li>
+                <li><input type="checkbox" checked> <span>Leaf artifacts can be deleted directly; artifacts with downstream dependents require cascade confirmation.</span></li>
+                <li><input type="checkbox" checked> <span>Queued or running jobs targeting the delete set block deletion and explain the blocker.</span></li>
+                <li><input type="checkbox" checked> <span>Deleted artifacts move into a project-scoped trash bundle and can be restored as a bundle.</span></li>
+                <li><input type="checkbox" checked> <span>Project trash lists and restore actions are available through the Home Trash Center View.</span></li>
+                <li><input type="checkbox" checked> <span>Delete and restore APIs expose workspace-relative trash identifiers only, never absolute filesystem paths.</span></li>
+              </ul>
+            </div>
+          </div>
+          <div class="card">
+            <h3>Verification</h3>
+            <ul>
+              <li><span class="mono">python3 -m py_compile NEExT/workbench/app.py NEExT/workbench/storage.py NEExT/workbench/schemas.py</span> passed.</li>
+              <li><span class="mono">python3 -m pytest tests/test_workbench.py</span> passed with 38 tests.</li>
+              <li><span class="mono">npm exec tsc</span> passed.</li>
+              <li><span class="mono">npm run test:e2e</span> passed with 15 browser tests.</li>
+              <li><span class="mono">make neext-workbench</span> launched Workbench at <span class="mono">http://127.0.0.1:8765</span>.</li>
+            </ul>
+          </div>
+          <div class="card">
+            <h3>Lifecycle Contract</h3>
+            <table>
+              <thead>
+                <tr>
+                  <th>Area</th>
+                  <th>Decision</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Dependency analysis</td>
+                  <td>Downstream dependents are derived from artifact manifest <span class="mono">inputs</span>, covering datasets to features, features to embeddings, and embeddings to models.</td>
+                </tr>
+                <tr>
+                  <td>Delete behavior</td>
+                  <td>Leaf delete is allowed without cascade. Upstream delete requires cascade confirmation and moves the selected artifact plus downstream dependents together.</td>
+                </tr>
+                <tr>
+                  <td>Trash shape</td>
+                  <td>Artifact deletion creates one project-scoped bundle under workspace-relative trash. Completed and failed jobs remain in live job history.</td>
+                </tr>
+                <tr>
+                  <td>Restore behavior</td>
+                  <td>Artifact restore is bundle-only and blocks if any target artifact folder already exists. Project restore also blocks if the live project ID already exists.</td>
+                </tr>
+                <tr>
+                  <td>Deferred</td>
+                  <td>No permanent purge, archive, individual artifact restore, restore-as-copy, overwrite restore, cancellation, or broader artifact lifecycle behavior.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
         <section id="roadmap">
           <h2>Sprint Roadmap</h2>
           <table>
@@ -563,7 +631,7 @@
                 <td><strong>Sprint 1</strong></td>
                 <td><span class="pill ready">Complete</span></td>
                 <td>Selection Hierarchy and Lineage Context</td>
-                <td>Implemented stable dataset navigation, dataset-scoped downstream artifacts, and related downstream markers using existing artifact manifest inputs.</td>
+                <td>Implemented stable dataset navigation, dataset-scoped downstream artifacts, related downstream markers, and branch-scoped Artifact Store/Explore chooser Center Views using existing artifact manifest inputs.</td>
               </tr>
               <tr>
                 <td><strong>Sprint 2</strong></td>
@@ -573,9 +641,9 @@
               </tr>
               <tr>
                 <td><strong>Sprint 3</strong></td>
-                <td><span class="pill hold">Needs design</span></td>
-                <td>Artifact Lifecycle Management Design</td>
-                <td>Deletion/removal requires decisions about dependency blocking, cascade behavior, trash, and running jobs.</td>
+                <td><span class="pill ready">Complete</span></td>
+                <td>Artifact Lifecycle Management</td>
+                <td>Implemented delete planning, cascade delete, project-scoped trash bundles, Home Trash restore, project restore, and active-job blockers.</td>
               </tr>
               <tr>
                 <td><strong>Sprint 4</strong></td>
@@ -608,6 +676,7 @@
                 <li><strong>Workspace:</strong> project-first persisted workspace under <span class="mono">~/NEExT-Workbench</span>.</li>
                 <li><strong>Artifacts:</strong> datasets, features, embeddings, models, and jobs are persisted as project artifacts.</li>
                 <li><strong>Execution:</strong> dataset preparation, feature execution, embedding execution, and model execution are real, local workflows.</li>
+                <li><strong>Lifecycle:</strong> project restore and dataset/feature/embedding/model delete, cascade, trash bundle, and bundle restore are available.</li>
                 <li><strong>Inspection:</strong> previews, analysis views, job records, command output, inspector context, and status surfaces are available.</li>
               </ul>
             </div>
@@ -627,28 +696,28 @@
             <tbody>
               <tr>
                 <td><strong>Home</strong></td>
-                <td>Create/select projects, list projects, delete projects to workspace trash, view workspace status, configure MCP settings.</td>
-                <td>Project import/export and broader app settings beyond MCP.</td>
+                <td>Create/select projects, list projects, delete projects to workspace trash, restore projects, restore artifact deletion bundles, view workspace status, configure MCP settings.</td>
+                <td>Project import/export, permanent trash purge, and broader app settings beyond MCP.</td>
               </tr>
               <tr>
                 <td><strong>Datasets</strong></td>
-                <td>Configure curated library datasets, run preparation, preview tables, explore statistics, graph visuals, graph/node search, data, and current-table CSV export.</td>
-                <td>Arbitrary URL imports, dataset deletion, restore/archive, broader import providers, and dataset bundle export.</td>
+                <td>Configure curated library datasets, run preparation, preview tables, explore statistics, graph visuals, graph/node search, data, current-table CSV export, and delete with downstream cascade planning.</td>
+                <td>Arbitrary URL imports, archive, individual restore, broader import providers, and dataset bundle export.</td>
               </tr>
               <tr>
                 <td><strong>Features</strong></td>
-                <td>Configure built-in structural node features, run single or batch jobs, preview outputs, explore statistics, PCA/direct plots, graph search, and data.</td>
-                <td>Feature deletion, editing, duplication, import/export, custom Workbench feature lifecycle.</td>
+                <td>Configure built-in structural node features, run single or batch jobs, preview outputs, explore statistics, PCA/direct plots, graph search, data, and delete with downstream cascade planning.</td>
+                <td>Feature editing, duplication, import/export, custom Workbench feature lifecycle beyond approved delete/restore.</td>
               </tr>
               <tr>
                 <td><strong>Embeddings</strong></td>
-                <td>Configure graph embeddings from one or more feature artifacts, run single or batch jobs, preview outputs, explore statistics, PCA, search, and data.</td>
-                <td>Embedding deletion, editing, duplication, import/export, additional lifecycle actions.</td>
+                <td>Configure graph embeddings from one or more feature artifacts, run single or batch jobs, preview outputs, explore statistics, PCA, search, data, and delete with downstream cascade planning.</td>
+                <td>Embedding editing, duplication, import/export, and additional lifecycle actions.</td>
               </tr>
               <tr>
                 <td><strong>Models</strong></td>
-                <td>Configure supervised graph models from embeddings, run single or batch jobs, preview metrics, explore overview, metric charts, iterations, data, and lineage.</td>
-                <td>Model deletion, editing, duplication, import/export, prediction workflows, feature-importance views.</td>
+                <td>Configure supervised graph models from embeddings, run single or batch jobs, preview metrics, explore overview, metric charts, iterations, data, lineage, and leaf delete.</td>
+                <td>Model editing, duplication, import/export, prediction workflows, feature-importance views.</td>
               </tr>
             </tbody>
           </table>
@@ -680,6 +749,7 @@
             <span class="pill">Relative paths only</span>
             <span class="pill">Single local worker</span>
             <span class="pill">Auto-runs upstream planned/failed work</span>
+            <span class="pill">Trash bundles preserve delete sets</span>
           </div>
         </section>
 
@@ -705,7 +775,7 @@
                 <td><strong>Workbench Selection Hierarchy</strong></td>
                 <td><span class="pill ready">Complete</span></td>
                 <td>Monitor usability and decide whether a future sprint should replace section lists with a true nested tree navigator.</td>
-                <td>Sprint 1 implemented stable dataset lists, branch-scoped downstream artifacts, and related downstream markers.</td>
+                <td>Sprint 1 implemented stable dataset lists, branch-scoped downstream artifacts, related downstream markers, and matching Center View scoping for artifact stores and Explore choosers.</td>
               </tr>
               <tr>
                 <td><strong>Dataset Explore Experience</strong></td>
@@ -715,9 +785,9 @@
               </tr>
               <tr>
                 <td><strong>Workbench Artifact Lifecycle</strong></td>
-                <td><span class="pill hold">Needs design</span></td>
-                <td>Decide delete/remove behavior, dependency blocking, trash semantics, and immutable artifact rules per artifact kind.</td>
-                <td>Project deletion exists. Dataset, feature, embedding, and model deletion are intentionally not designed yet.</td>
+                <td><span class="pill ready">Complete</span></td>
+                <td>Monitor user flow and decide later whether permanent purge, archive, individual restore, restore-as-copy, or overwrite restore should exist.</td>
+                <td>Sprint 3 implemented artifact delete planning, cascade delete, trash bundles, bundle restore, project restore, and active-job blockers.</td>
               </tr>
               <tr>
                 <td><strong>Create Workflows</strong></td>
@@ -825,6 +895,51 @@
                 <td>2026-06-11</td>
                 <td>Complete Sprint 2 Dataset Explore implementation.</td>
                 <td>Automated checks and browser verification passed for layout polish, Back to Datasets, and current-table CSV export.</td>
+              </tr>
+              <tr>
+                <td>2026-06-12</td>
+                <td>Make Sprint 3 an artifact lifecycle implementation sprint.</td>
+                <td>The user approved deletion with downstream cascade confirmation, trash, and restore instead of manual one-by-one cleanup.</td>
+              </tr>
+              <tr>
+                <td>2026-06-12</td>
+                <td>Use delete planning before moving artifacts to trash.</td>
+                <td>Users need to see downstream datasets, features, embeddings, and models affected by a cascade before confirming the action.</td>
+              </tr>
+              <tr>
+                <td>2026-06-12</td>
+                <td>Restore artifact deletions only as bundles.</td>
+                <td>Bundle restore keeps the compute DAG coherent and avoids partial restoration of dependent artifact sets.</td>
+              </tr>
+              <tr>
+                <td>2026-06-12</td>
+                <td>Block deletion when queued or running jobs target any artifact in the delete set.</td>
+                <td>The single-worker job model should not lose or move artifacts that active jobs may still read or write.</td>
+              </tr>
+              <tr>
+                <td>2026-06-12</td>
+                <td>Update <span class="mono">AGENTS.md</span> and <span class="mono">CLAUDE.md</span> for approved artifact lifecycle v1.</td>
+                <td>The durable Workbench operating rules changed from project-only deletion to approved dataset, feature, embedding, model, project restore, and bundle restore behavior.</td>
+              </tr>
+              <tr>
+                <td>2026-06-12</td>
+                <td>Complete Sprint 3 artifact lifecycle implementation.</td>
+                <td>Backend tests, frontend type checks, Playwright E2E tests, and canonical Workbench launch verification passed.</td>
+              </tr>
+              <tr>
+                <td>2026-06-12</td>
+                <td>Make Artifact Store Center Views and Feature/Embedding/Model Explore chooser lists match the Left Panel lineage scope.</td>
+                <td>Top Spaces must not show broader downstream artifacts than the current branch shown in the Left Panel.</td>
+              </tr>
+              <tr>
+                <td>2026-06-12</td>
+                <td>Keep Library and Configure workflow forms project-wide.</td>
+                <td>Creation workflows should not be silently constrained by navigation context unless that workflow is explicitly redesigned.</td>
+              </tr>
+              <tr>
+                <td>2026-06-12</td>
+                <td>Update <span class="mono">AGENTS.md</span> and <span class="mono">CLAUDE.md</span> for the Center View scoping rule.</td>
+                <td>The approved navigation behavior is a durable Workbench rule that future agents must preserve.</td>
               </tr>
             </tbody>
           </table>

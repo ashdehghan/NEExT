@@ -34,6 +34,75 @@ class ProjectDeletionSummary(BaseModel):
     trashed_path: str
 
 
+class LifecycleArtifactRef(BaseModel):
+    artifact_kind: Literal["dataset", "feature", "embedding", "model"]
+    artifact_id: str
+    name: str
+    status: str
+
+
+class LifecycleJobRef(BaseModel):
+    id: str
+    status: Literal["queued", "running"]
+    operation_id: str
+    target_artifacts: list[LifecycleArtifactRef] = Field(default_factory=list)
+
+
+class ArtifactDeletionPlan(BaseModel):
+    project_id: str
+    root_artifact: LifecycleArtifactRef
+    artifacts: list[LifecycleArtifactRef]
+    downstream_artifacts: list[LifecycleArtifactRef] = Field(default_factory=list)
+    active_jobs: list[LifecycleJobRef] = Field(default_factory=list)
+    requires_cascade: bool
+    can_delete: bool
+
+
+class ArtifactDeletionSummary(BaseModel):
+    bundle_id: str
+    project_id: str
+    root_artifact: LifecycleArtifactRef
+    artifacts: list[LifecycleArtifactRef]
+    trashed_path: str
+
+
+class TrashArtifactRef(LifecycleArtifactRef):
+    original_path: str
+    trashed_path: str
+
+
+class ArtifactDeletionBundleManifest(BaseModel):
+    schema_version: str = "1"
+    manifest_type: Literal["artifact_deletion_bundle"] = "artifact_deletion_bundle"
+    id: str
+    project_id: str
+    root_artifact: LifecycleArtifactRef
+    artifacts: list[TrashArtifactRef]
+    created_at: str
+    updated_at: str
+    delete_mode: Literal["single", "cascade"]
+
+
+class TrashedProjectEntry(BaseModel):
+    trash_id: str
+    project_id: str
+    name: str
+    description: str = ""
+    trashed_path: str
+
+
+class TrashListing(BaseModel):
+    projects: list[TrashedProjectEntry] = Field(default_factory=list)
+    artifact_deletions: list[ArtifactDeletionBundleManifest] = Field(default_factory=list)
+
+
+class RestoreSummary(BaseModel):
+    restored_kind: Literal["project", "artifact_deletion"]
+    id: str
+    name: str
+    restored_path: str
+
+
 class DatasetStats(BaseModel):
     graph_count: int
     node_count: int

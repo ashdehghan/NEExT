@@ -13,7 +13,17 @@ import {
   useWorkspace,
   useProjects
 } from "./hooks/useWorkspace";
-import type { DatasetGraphSummary, DatasetManifest, EmbeddingManifest, FeatureManifest, ModelManifest } from "./api";
+import {
+  api,
+  type ArtifactDeletionPlan,
+  type ArtifactKind,
+  type DatasetGraphSummary,
+  type DatasetManifest,
+  type EmbeddingManifest,
+  type FeatureManifest,
+  type LifecycleArtifactRef,
+  type ModelManifest
+} from "./api";
 import type { MainTab } from "./types";
 import { titleCase } from "./types";
 
@@ -26,7 +36,8 @@ import { SelectionPanel } from "./components/panels/SelectionPanel";
 import { Inspector } from "./components/panels/Inspector";
 import { JobsPanel } from "./components/panels/JobsPanel";
 import { CommandWindow } from "./components/panels/CommandWindow";
-import { CreateProjectView, ProjectsView } from "./pages/home/ProjectsPage";
+import { ConfirmDialog } from "./components/primitives/ConfirmDialog";
+import { CreateProjectView, ProjectsView, TrashView } from "./pages/home/ProjectsPage";
 import { SettingsView } from "./pages/home/SettingsPage";
 import { ConfigureDatasetView, DatasetExploreView, DatasetLibraryView, ProjectDatasetsView } from "./pages/datasets/DatasetsPage";
 import { ConfigureFeatureView, FeatureExploreView, FeatureLibraryView, ProjectFeaturesView } from "./pages/features/FeaturesPage";
@@ -50,6 +61,7 @@ const HOME_TITLES: Record<string, string> = {
   import: "Import",
   create: "Create",
   projects: "Projects",
+  trash: "Trash",
   settings: "Settings",
   help: "Help"
 };
@@ -61,6 +73,10 @@ function viewTitle(route: Route): string {
 
 function TitleOnlyView({ title }: { title: string }) {
   return <h1 className="title-only">{title}</h1>;
+}
+
+function artifactKindLabel(kind: ArtifactKind): string {
+  return titleCase(kind);
 }
 
 function featureDatasetId(feature: FeatureManifest): string {
@@ -120,6 +136,9 @@ export default function App() {
   const [exploreEmbeddingGraphVisible, setExploreEmbeddingGraphVisible] = useState<boolean | null>(null);
   const [exploreModelId, setExploreModelId] = useState("");
   const [exploreModelIteration, setExploreModelIteration] = useState<number | null>(null);
+  const [artifactDeletePlan, setArtifactDeletePlan] = useState<ArtifactDeletionPlan | null>(null);
+  const [artifactDeleteError, setArtifactDeleteError] = useState("");
+  const [artifactDeleteBusy, setArtifactDeleteBusy] = useState(false);
 
   const workspaceQuery = useWorkspace();
   const projectsQuery = useProjects();
@@ -437,20 +456,20 @@ export default function App() {
   }, [activeProjectId]);
 
   useEffect(() => {
-    if (selectedDatasetId && datasets.length && !selectedDataset) {
+    if (selectedDatasetId && projectDatasetsQuery.data && !selectedDataset) {
       setSelectedDatasetId("");
     }
-  }, [datasets, selectedDataset, selectedDatasetId]);
+  }, [projectDatasetsQuery.data, selectedDataset, selectedDatasetId]);
 
   useEffect(() => {
-    if (exploreDatasetId && datasets.length && !datasets.some((dataset) => dataset.id === exploreDatasetId)) {
+    if (exploreDatasetId && projectDatasetsQuery.data && !datasets.some((dataset) => dataset.id === exploreDatasetId)) {
       setExploreDatasetId("");
       setExploreGraphId("");
       setExploreGraphSummary(null);
       setExploreNodeId("");
       setExploreNodeVisible(null);
     }
-  }, [datasets, exploreDatasetId]);
+  }, [datasets, exploreDatasetId, projectDatasetsQuery.data]);
 
   useEffect(() => {
     if (selectedCatalogId && datasetLibraryQuery.data?.length && !selectedCatalogEntry) {
@@ -459,18 +478,18 @@ export default function App() {
   }, [datasetLibraryQuery.data, selectedCatalogEntry, selectedCatalogId]);
 
   useEffect(() => {
-    if (selectedFeatureId && features.length && !selectedFeature) {
+    if (selectedFeatureId && projectFeaturesQuery.data && !selectedFeature) {
       setSelectedFeatureId("");
     }
-  }, [features, selectedFeature, selectedFeatureId]);
+  }, [projectFeaturesQuery.data, selectedFeature, selectedFeatureId]);
 
   useEffect(() => {
-    if (exploreFeatureId && features.length && !features.some((feature) => feature.id === exploreFeatureId)) {
+    if (exploreFeatureId && projectFeaturesQuery.data && !features.some((feature) => feature.id === exploreFeatureId)) {
       setExploreFeatureId("");
       setExploreFeatureGraphId("");
       setExploreFeatureGraphVisible(null);
     }
-  }, [exploreFeatureId, features]);
+  }, [exploreFeatureId, features, projectFeaturesQuery.data]);
 
   useEffect(() => {
     if (selectedFeatureCatalogId && featureLibraryQuery.data?.length && !selectedFeatureCatalogEntry) {
@@ -479,18 +498,18 @@ export default function App() {
   }, [featureLibraryQuery.data, selectedFeatureCatalogEntry, selectedFeatureCatalogId]);
 
   useEffect(() => {
-    if (selectedEmbeddingId && embeddings.length && !selectedEmbedding) {
+    if (selectedEmbeddingId && projectEmbeddingsQuery.data && !selectedEmbedding) {
       setSelectedEmbeddingId("");
     }
-  }, [embeddings, selectedEmbedding, selectedEmbeddingId]);
+  }, [projectEmbeddingsQuery.data, selectedEmbedding, selectedEmbeddingId]);
 
   useEffect(() => {
-    if (exploreEmbeddingId && embeddings.length && !embeddings.some((embedding) => embedding.id === exploreEmbeddingId)) {
+    if (exploreEmbeddingId && projectEmbeddingsQuery.data && !embeddings.some((embedding) => embedding.id === exploreEmbeddingId)) {
       setExploreEmbeddingId("");
       setExploreEmbeddingGraphId("");
       setExploreEmbeddingGraphVisible(null);
     }
-  }, [embeddings, exploreEmbeddingId]);
+  }, [embeddings, exploreEmbeddingId, projectEmbeddingsQuery.data]);
 
   useEffect(() => {
     if (selectedEmbeddingCatalogId && embeddingLibraryQuery.data?.length && !selectedEmbeddingCatalogEntry) {
@@ -499,17 +518,17 @@ export default function App() {
   }, [embeddingLibraryQuery.data, selectedEmbeddingCatalogEntry, selectedEmbeddingCatalogId]);
 
   useEffect(() => {
-    if (selectedModelId && models.length && !selectedModel) {
+    if (selectedModelId && projectModelsQuery.data && !selectedModel) {
       setSelectedModelId("");
     }
-  }, [models, selectedModel, selectedModelId]);
+  }, [projectModelsQuery.data, selectedModel, selectedModelId]);
 
   useEffect(() => {
-    if (exploreModelId && models.length && !exploreModel) {
+    if (exploreModelId && projectModelsQuery.data && !exploreModel) {
       setExploreModelId("");
       setExploreModelIteration(null);
     }
-  }, [exploreModel, exploreModelId, models]);
+  }, [exploreModel, exploreModelId, projectModelsQuery.data]);
 
   useEffect(() => {
     if (selectedModelCatalogId && modelLibraryQuery.data?.length && !selectedModelCatalogEntry) {
@@ -562,6 +581,7 @@ export default function App() {
   const refreshAll = useCallback(() => {
     queryClient.invalidateQueries({ queryKey: ["workspace"] });
     queryClient.invalidateQueries({ queryKey: ["mcp-settings"] });
+    queryClient.invalidateQueries({ queryKey: ["trash"] });
     queryClient.invalidateQueries({ queryKey: ["projects"] });
     queryClient.invalidateQueries({ queryKey: ["dataset-library"] });
     queryClient.invalidateQueries({ queryKey: ["feature-library"] });
@@ -575,6 +595,90 @@ export default function App() {
       queryClient.invalidateQueries({ queryKey: ["projects", activeProjectId, "jobs"] });
     }
   }, [activeProjectId, queryClient]);
+
+  const clearDeletedArtifactState = useCallback((artifacts: LifecycleArtifactRef[]) => {
+    const deletedDatasets = new Set(artifacts.filter((artifact) => artifact.artifact_kind === "dataset").map((artifact) => artifact.artifact_id));
+    const deletedFeatures = new Set(artifacts.filter((artifact) => artifact.artifact_kind === "feature").map((artifact) => artifact.artifact_id));
+    const deletedEmbeddings = new Set(artifacts.filter((artifact) => artifact.artifact_kind === "embedding").map((artifact) => artifact.artifact_id));
+    const deletedModels = new Set(artifacts.filter((artifact) => artifact.artifact_kind === "model").map((artifact) => artifact.artifact_id));
+    if (deletedDatasets.has(selectedDatasetId)) setSelectedDatasetId("");
+    if (deletedDatasets.has(exploreDatasetId)) {
+      setExploreDatasetId("");
+      setExploreGraphId("");
+      setExploreGraphSummary(null);
+      setExploreNodeId("");
+      setExploreNodeVisible(null);
+    }
+    if (deletedFeatures.has(selectedFeatureId)) setSelectedFeatureId("");
+    if (deletedFeatures.has(exploreFeatureId)) {
+      setExploreFeatureId("");
+      setExploreFeatureGraphId("");
+      setExploreFeatureGraphVisible(null);
+    }
+    if (deletedEmbeddings.has(selectedEmbeddingId)) setSelectedEmbeddingId("");
+    if (deletedEmbeddings.has(exploreEmbeddingId)) {
+      setExploreEmbeddingId("");
+      setExploreEmbeddingGraphId("");
+      setExploreEmbeddingGraphVisible(null);
+    }
+    if (deletedModels.has(selectedModelId)) setSelectedModelId("");
+    if (deletedModels.has(exploreModelId)) {
+      setExploreModelId("");
+      setExploreModelIteration(null);
+    }
+  }, [exploreDatasetId, exploreEmbeddingId, exploreFeatureId, exploreModelId, selectedDatasetId, selectedEmbeddingId, selectedFeatureId, selectedModelId]);
+
+  const handleRequestArtifactDelete = useCallback(
+    async (artifactKind: ArtifactKind, artifactId: string) => {
+      if (!activeProjectId) return;
+      setArtifactDeleteError("");
+      setArtifactDeleteBusy(true);
+      try {
+        const plan = await api.artifactDeletionPlan(activeProjectId, artifactKind, artifactId);
+        setArtifactDeletePlan(plan);
+      } catch (error) {
+        setArtifactDeletePlan(null);
+        setArtifactDeleteError(error instanceof Error ? error.message : String(error));
+      } finally {
+        setArtifactDeleteBusy(false);
+      }
+    },
+    [activeProjectId]
+  );
+
+  const closeArtifactDeleteDialog = useCallback(() => {
+    if (artifactDeleteBusy) return;
+    setArtifactDeletePlan(null);
+    setArtifactDeleteError("");
+  }, [artifactDeleteBusy]);
+
+  const confirmArtifactDelete = useCallback(async () => {
+    if (!artifactDeletePlan) {
+      closeArtifactDeleteDialog();
+      return;
+    }
+    if (artifactDeletePlan.active_jobs.length) {
+      closeArtifactDeleteDialog();
+      return;
+    }
+    setArtifactDeleteBusy(true);
+    setArtifactDeleteError("");
+    try {
+      await api.deleteArtifact(
+        artifactDeletePlan.project_id,
+        artifactDeletePlan.root_artifact.artifact_kind,
+        artifactDeletePlan.root_artifact.artifact_id,
+        artifactDeletePlan.requires_cascade
+      );
+      clearDeletedArtifactState(artifactDeletePlan.artifacts);
+      refreshAll();
+      setArtifactDeletePlan(null);
+    } catch (error) {
+      setArtifactDeleteError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setArtifactDeleteBusy(false);
+    }
+  }, [artifactDeletePlan, clearDeletedArtifactState, closeArtifactDeleteDialog, refreshAll]);
 
   const handleProjectCreated = useCallback((projectId: string) => {
     setActiveProjectId(projectId);
@@ -932,12 +1036,15 @@ export default function App() {
   }, []);
 
   const handleClearExploreFeature = useCallback(() => {
+    if (selectionLineage.activeDatasetId) {
+      setSelectedDatasetId(selectionLineage.activeDatasetId);
+    }
     setSelectedFeatureId("");
     setExploreFeatureId("");
     setExploreFeatureGraphId("");
     setExploreFeatureGraphVisible(null);
     setRoute({ topTab: "features", command: "explore" });
-  }, []);
+  }, [selectionLineage.activeDatasetId]);
 
   const handleExploreFeatureGraphChange = useCallback((graphId: string, visible: boolean | null) => {
     setExploreFeatureGraphId(graphId);
@@ -1089,12 +1196,15 @@ export default function App() {
   }, []);
 
   const handleClearExploreEmbedding = useCallback(() => {
+    if (selectionLineage.activeDatasetId) {
+      setSelectedDatasetId(selectionLineage.activeDatasetId);
+    }
     setSelectedEmbeddingId("");
     setExploreEmbeddingId("");
     setExploreEmbeddingGraphId("");
     setExploreEmbeddingGraphVisible(null);
     setRoute({ topTab: "embeddings", command: "explore" });
-  }, []);
+  }, [selectionLineage.activeDatasetId]);
 
   const handleExploreEmbeddingGraphChange = useCallback((graphId: string, visible: boolean | null) => {
     setExploreEmbeddingGraphId(graphId);
@@ -1242,11 +1352,14 @@ export default function App() {
   }, []);
 
   const handleClearExploreModel = useCallback(() => {
+    if (selectionLineage.activeDatasetId) {
+      setSelectedDatasetId(selectionLineage.activeDatasetId);
+    }
     setSelectedModelId("");
     setExploreModelId("");
     setExploreModelIteration(null);
     setRoute({ topTab: "models", command: "explore" });
-  }, []);
+  }, [selectionLineage.activeDatasetId]);
 
   const handleExploreModelIterationChange = useCallback((iteration: number | null) => {
     setExploreModelIteration(iteration);
@@ -1266,6 +1379,9 @@ export default function App() {
           onSelectProject={handleSelectProject}
         />
       );
+    }
+    if (route.topTab === "home" && route.command === "trash") {
+      return <TrashView />;
     }
     if (route.topTab === "home" && route.command === "settings") {
       return <SettingsView />;
@@ -1297,9 +1413,9 @@ export default function App() {
       return (
         <DatasetExploreView
           activeProjectId={activeProjectId}
-          datasets={datasets}
+          datasets={selectionLineage.datasets}
           loading={projectDatasetsQuery.isLoading}
-          selectedDatasetId={selectedDatasetId}
+          selectedDatasetId={selectionLineage.activeDatasetId}
           exploreDatasetId={exploreDatasetId}
           exploreGraphId={exploreGraphId}
           exploreNodeId={exploreNodeId}
@@ -1315,11 +1431,12 @@ export default function App() {
       return (
         <ProjectDatasetsView
           activeProjectId={activeProjectId}
-          datasets={datasets}
+          datasets={selectionLineage.datasets}
           loading={projectDatasetsQuery.isLoading}
-          selectedDatasetId={selectedDatasetId}
+          selectedDatasetId={selectionLineage.activeDatasetId}
           onSelectDataset={handleSelectDataset}
           onPreviewDataset={handleExploreDataset}
+          onDeleteArtifact={handleRequestArtifactDelete}
         />
       );
     }
@@ -1349,8 +1466,8 @@ export default function App() {
       return (
         <FeatureExploreView
           activeProjectId={activeProjectId}
-          features={features}
-          datasets={datasets}
+          features={selectionLineage.features}
+          datasets={selectionLineage.datasets}
           catalog={featureLibraryQuery.data || []}
           loading={projectFeaturesQuery.isLoading}
           selectedFeatureId={selectedFeatureId}
@@ -1367,13 +1484,14 @@ export default function App() {
       return (
         <ProjectFeaturesView
           activeProjectId={activeProjectId}
-          features={features}
-          datasets={datasets}
+          features={selectionLineage.features}
+          datasets={selectionLineage.datasets}
           catalog={featureLibraryQuery.data || []}
           loading={projectFeaturesQuery.isLoading}
           selectedFeatureId={selectedFeatureId}
           onSelectFeature={handleSelectFeature}
           onPreviewFeature={handleExploreFeature}
+          onDeleteArtifact={handleRequestArtifactDelete}
         />
       );
     }
@@ -1405,9 +1523,9 @@ export default function App() {
       return (
         <EmbeddingExploreView
           activeProjectId={activeProjectId}
-          embeddings={embeddings}
-          features={features}
-          datasets={datasets}
+          embeddings={selectionLineage.embeddings}
+          features={selectionLineage.features}
+          datasets={selectionLineage.datasets}
           catalog={embeddingLibraryQuery.data || []}
           loading={projectEmbeddingsQuery.isLoading}
           selectedEmbeddingId={selectedEmbeddingId}
@@ -1424,14 +1542,15 @@ export default function App() {
       return (
         <ProjectEmbeddingsView
           activeProjectId={activeProjectId}
-          embeddings={embeddings}
-          features={features}
-          datasets={datasets}
+          embeddings={selectionLineage.embeddings}
+          features={selectionLineage.features}
+          datasets={selectionLineage.datasets}
           catalog={embeddingLibraryQuery.data || []}
           loading={projectEmbeddingsQuery.isLoading}
           selectedEmbeddingId={selectedEmbeddingId}
           onSelectEmbedding={handleSelectEmbedding}
           onPreviewEmbedding={handleExploreEmbedding}
+          onDeleteArtifact={handleRequestArtifactDelete}
         />
       );
     }
@@ -1464,10 +1583,10 @@ export default function App() {
       return (
         <ModelExploreView
           activeProjectId={activeProjectId}
-          models={models}
-          embeddings={embeddings}
-          features={features}
-          datasets={datasets}
+          models={selectionLineage.models}
+          embeddings={selectionLineage.embeddings}
+          features={selectionLineage.features}
+          datasets={selectionLineage.datasets}
           catalog={modelLibraryQuery.data || []}
           loading={projectModelsQuery.isLoading}
           selectedModelId={selectedModelId}
@@ -1483,23 +1602,93 @@ export default function App() {
       return (
         <ProjectModelsView
           activeProjectId={activeProjectId}
-          models={models}
-          embeddings={embeddings}
-          features={features}
-          datasets={datasets}
+          models={selectionLineage.models}
+          embeddings={selectionLineage.embeddings}
+          features={selectionLineage.features}
+          datasets={selectionLineage.datasets}
           catalog={modelLibraryQuery.data || []}
           loading={projectModelsQuery.isLoading}
           selectedModelId={selectedModelId}
           onSelectModel={handleSelectModel}
           onPreviewModel={handleExploreModel}
+          onDeleteArtifact={handleRequestArtifactDelete}
         />
       );
     }
     return <TitleOnlyView title={title} />;
   }
 
+  const artifactDeleteDialog = artifactDeletePlan ? (
+    <ConfirmDialog
+      title={artifactDeletePlan.active_jobs.length ? "Delete Blocked" : artifactDeletePlan.requires_cascade ? "Delete Artifact Bundle" : "Delete Artifact"}
+      message={
+        artifactDeletePlan.active_jobs.length
+          ? `"${artifactDeletePlan.root_artifact.name}" cannot be deleted while queued or running jobs target the delete set.`
+          : artifactDeletePlan.requires_cascade
+            ? `Deleting "${artifactDeletePlan.root_artifact.name}" will also move downstream artifacts to project trash.`
+            : `Move "${artifactDeletePlan.root_artifact.name}" to project trash?`
+      }
+      confirmLabel={
+        artifactDeletePlan.active_jobs.length
+          ? "Close"
+          : artifactDeletePlan.requires_cascade
+            ? artifactDeleteBusy
+              ? "Deleting"
+              : "Delete bundle"
+            : artifactDeleteBusy
+              ? "Deleting"
+              : "Delete artifact"
+      }
+      busy={artifactDeleteBusy}
+      error={artifactDeleteError}
+      onCancel={closeArtifactDeleteDialog}
+      onConfirm={confirmArtifactDelete}
+    >
+      {artifactDeletePlan.downstream_artifacts.length ? (
+        <div className="confirm-detail">
+          <strong>Downstream artifacts</strong>
+          <ul>
+            {artifactDeletePlan.downstream_artifacts.map((artifact) => (
+              <li key={`${artifact.artifact_kind}-${artifact.artifact_id}`}>
+                <span>{artifact.name}</span>
+                <span className="muted">
+                  {artifactKindLabel(artifact.artifact_kind)} · {artifact.status}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+      {artifactDeletePlan.active_jobs.length ? (
+        <div className="confirm-detail">
+          <strong>Active jobs</strong>
+          <ul>
+            {artifactDeletePlan.active_jobs.map((job) => (
+              <li key={job.id}>
+                <span>{job.operation_id}</span>
+                <span className="muted">
+                  {job.status} · {job.id}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+    </ConfirmDialog>
+  ) : artifactDeleteError ? (
+    <ConfirmDialog
+      title="Delete Artifact"
+      message={artifactDeleteError}
+      confirmLabel="Close"
+      busy={artifactDeleteBusy}
+      onCancel={closeArtifactDeleteDialog}
+      onConfirm={closeArtifactDeleteDialog}
+    />
+  ) : null;
+
   return (
-    <DesktopShell
+    <>
+      <DesktopShell
       topTabs={
         <TopTabs activeTab={route.topTab} onSelect={setActiveTab} onRefresh={refreshAll} />
       }
@@ -1598,6 +1787,8 @@ export default function App() {
           version={workspaceQuery.data?.version}
         />
       }
-    />
+      />
+      {artifactDeleteDialog}
+    </>
   );
 }

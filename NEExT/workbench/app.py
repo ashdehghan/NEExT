@@ -8,6 +8,8 @@ from typing import Optional, Union
 
 from .paths import resolve_workspace_path
 from .schemas import (
+    ArtifactDeletionPlan,
+    ArtifactDeletionSummary,
     DatasetAnalysis,
     DatasetCreateRequest,
     DatasetGraphSearchResponse,
@@ -29,6 +31,8 @@ from .schemas import (
     ModelCreateRequest,
     ModelRunBatchRequest,
     ProjectCreate,
+    RestoreSummary,
+    TrashListing,
     WorkspaceInfo,
 )
 from .storage import (
@@ -37,6 +41,7 @@ from .storage import (
     FEATURE_ANALYSIS_DEFAULT_MAX_FIT_ROWS,
     FEATURE_ANALYSIS_DEFAULT_MAX_POINTS,
     WorkbenchStore,
+    WorkbenchConflictError,
 )
 
 
@@ -57,6 +62,8 @@ def create_app(workspace_path: Optional[Union[str, Path]] = None):
     def api_exception(exc: Exception) -> HTTPException:
         if isinstance(exc, FileNotFoundError):
             return HTTPException(status_code=404, detail=str(exc))
+        if isinstance(exc, WorkbenchConflictError):
+            return HTTPException(status_code=409, detail=exc.detail)
         if isinstance(exc, ValueError):
             return HTTPException(status_code=400, detail=str(exc))
         return HTTPException(status_code=500, detail=str(exc))
@@ -203,6 +210,27 @@ def create_app(workspace_path: Optional[Union[str, Path]] = None):
         except Exception as exc:
             raise api_exception(exc) from exc
 
+    @app.get("/api/trash", response_model=TrashListing)
+    def list_trash() -> TrashListing:
+        try:
+            return store.list_trash()
+        except Exception as exc:
+            raise api_exception(exc) from exc
+
+    @app.post("/api/trash/projects/{trash_id}/restore", response_model=RestoreSummary)
+    def restore_project(trash_id: str) -> RestoreSummary:
+        try:
+            return store.restore_project(trash_id)
+        except Exception as exc:
+            raise api_exception(exc) from exc
+
+    @app.post("/api/projects/{project_id}/trash/artifact-deletions/{bundle_id}/restore", response_model=RestoreSummary)
+    def restore_artifact_deletion(project_id: str, bundle_id: str) -> RestoreSummary:
+        try:
+            return store.restore_artifact_deletion(project_id, bundle_id)
+        except Exception as exc:
+            raise api_exception(exc) from exc
+
     @app.get("/api/projects/{project_id}/datasets")
     def list_project_datasets(project_id: str):
         try:
@@ -221,6 +249,20 @@ def create_app(workspace_path: Optional[Union[str, Path]] = None):
     def get_project_dataset(project_id: str, dataset_id: str):
         try:
             return store.read_dataset(project_id, dataset_id)
+        except Exception as exc:
+            raise api_exception(exc) from exc
+
+    @app.get("/api/projects/{project_id}/datasets/{dataset_id}/delete-plan", response_model=ArtifactDeletionPlan)
+    def plan_project_dataset_delete(project_id: str, dataset_id: str) -> ArtifactDeletionPlan:
+        try:
+            return store.plan_artifact_deletion(project_id, "dataset", dataset_id)
+        except Exception as exc:
+            raise api_exception(exc) from exc
+
+    @app.delete("/api/projects/{project_id}/datasets/{dataset_id}", response_model=ArtifactDeletionSummary)
+    def delete_project_dataset(project_id: str, dataset_id: str, cascade: bool = False) -> ArtifactDeletionSummary:
+        try:
+            return store.delete_artifact(project_id, "dataset", dataset_id, cascade=cascade)
         except Exception as exc:
             raise api_exception(exc) from exc
 
@@ -298,6 +340,20 @@ def create_app(workspace_path: Optional[Union[str, Path]] = None):
         except Exception as exc:
             raise api_exception(exc) from exc
 
+    @app.get("/api/projects/{project_id}/features/{feature_id}/delete-plan", response_model=ArtifactDeletionPlan)
+    def plan_project_feature_delete(project_id: str, feature_id: str) -> ArtifactDeletionPlan:
+        try:
+            return store.plan_artifact_deletion(project_id, "feature", feature_id)
+        except Exception as exc:
+            raise api_exception(exc) from exc
+
+    @app.delete("/api/projects/{project_id}/features/{feature_id}", response_model=ArtifactDeletionSummary)
+    def delete_project_feature(project_id: str, feature_id: str, cascade: bool = False) -> ArtifactDeletionSummary:
+        try:
+            return store.delete_artifact(project_id, "feature", feature_id, cascade=cascade)
+        except Exception as exc:
+            raise api_exception(exc) from exc
+
     @app.post("/api/projects/{project_id}/features/{feature_id}/run")
     def run_project_feature(project_id: str, feature_id: str):
         try:
@@ -366,6 +422,20 @@ def create_app(workspace_path: Optional[Union[str, Path]] = None):
         except Exception as exc:
             raise api_exception(exc) from exc
 
+    @app.get("/api/projects/{project_id}/embeddings/{embedding_id}/delete-plan", response_model=ArtifactDeletionPlan)
+    def plan_project_embedding_delete(project_id: str, embedding_id: str) -> ArtifactDeletionPlan:
+        try:
+            return store.plan_artifact_deletion(project_id, "embedding", embedding_id)
+        except Exception as exc:
+            raise api_exception(exc) from exc
+
+    @app.delete("/api/projects/{project_id}/embeddings/{embedding_id}", response_model=ArtifactDeletionSummary)
+    def delete_project_embedding(project_id: str, embedding_id: str, cascade: bool = False) -> ArtifactDeletionSummary:
+        try:
+            return store.delete_artifact(project_id, "embedding", embedding_id, cascade=cascade)
+        except Exception as exc:
+            raise api_exception(exc) from exc
+
     @app.post("/api/projects/{project_id}/embeddings/{embedding_id}/run")
     def run_project_embedding(project_id: str, embedding_id: str):
         try:
@@ -431,6 +501,20 @@ def create_app(workspace_path: Optional[Union[str, Path]] = None):
     def get_project_model(project_id: str, model_id: str):
         try:
             return store.read_model(project_id, model_id)
+        except Exception as exc:
+            raise api_exception(exc) from exc
+
+    @app.get("/api/projects/{project_id}/models/{model_id}/delete-plan", response_model=ArtifactDeletionPlan)
+    def plan_project_model_delete(project_id: str, model_id: str) -> ArtifactDeletionPlan:
+        try:
+            return store.plan_artifact_deletion(project_id, "model", model_id)
+        except Exception as exc:
+            raise api_exception(exc) from exc
+
+    @app.delete("/api/projects/{project_id}/models/{model_id}", response_model=ArtifactDeletionSummary)
+    def delete_project_model(project_id: str, model_id: str, cascade: bool = False) -> ArtifactDeletionSummary:
+        try:
+            return store.delete_artifact(project_id, "model", model_id, cascade=cascade)
         except Exception as exc:
             raise api_exception(exc) from exc
 

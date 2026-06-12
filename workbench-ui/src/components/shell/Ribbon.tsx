@@ -2,7 +2,7 @@ import { ToolButton } from "./ToolButton";
 import type { FcIconName } from "../primitives/FcIcon";
 import type { MainTab } from "../../types";
 
-export type RibbonCommand = "import" | "create" | "projects" | "settings" | "help" | "library" | "explore" | MainTab;
+export type RibbonCommand = "import" | "create" | "projects" | "trash" | "settings" | "help" | "library" | "explore" | MainTab;
 
 interface RibbonProps {
   activeTab: MainTab;
@@ -31,7 +31,8 @@ const GROUPS: Record<MainTab, GroupDef[]> = {
       tools: [
         STRUCTURAL_TOOLS.import,
         STRUCTURAL_TOOLS.create,
-        { label: "Projects", icon: "projects", command: "projects" }
+        { label: "Projects", icon: "projects", command: "projects" },
+        { label: "Trash", icon: "trash", command: "trash" }
       ]
     },
     {

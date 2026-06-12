@@ -4,6 +4,7 @@ import {
   FcComboChart,
   FcDatabase,
   FcDataSheet,
+  FcEmptyTrash,
   FcLibrary,
   FcOpenedFolder,
   FcPackage,
@@ -23,6 +24,7 @@ export const FC_ICONS = {
   embeddings: FcPackage,
   models: FcBarChart,
   explore: FcComboChart,
+  trash: FcEmptyTrash,
   settings: FcSettings,
   help: FcReadingEbook
 } as const satisfies Record<string, IconType>;

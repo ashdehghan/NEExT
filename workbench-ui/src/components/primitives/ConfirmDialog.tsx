@@ -1,3 +1,5 @@
+import type { ReactNode } from "react";
+
 interface ConfirmDialogProps {
   title: string;
   message: string;
@@ -5,6 +7,7 @@ interface ConfirmDialogProps {
   cancelLabel?: string;
   busy?: boolean;
   error?: string;
+  children?: ReactNode;
   onCancel: () => void;
   onConfirm: () => void;
 }
@@ -16,6 +19,7 @@ export function ConfirmDialog({
   cancelLabel = "Cancel",
   busy = false,
   error,
+  children,
   onCancel,
   onConfirm
 }: ConfirmDialogProps) {
@@ -27,6 +31,7 @@ export function ConfirmDialog({
         </header>
         <div className="confirm-body">
           <p>{message}</p>
+          {children}
           {error ? <p className="error-text">{error}</p> : null}
         </div>
         <footer className="confirm-foot">

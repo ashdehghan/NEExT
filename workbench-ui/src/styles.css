@@ -917,8 +917,12 @@ input:focus, textarea:focus, select:focus {
 .actions-cell {
   width: 72px;
   text-align: center;
+  white-space: nowrap;
 }
-.actions-cell-wide { width: 112px; }
+.actions-cell-wide { width: 160px; }
+.actions-cell > button + button {
+  margin-left: var(--space-2);
+}
 .tbl tbody tr { cursor: pointer; }
 .tbl tbody tr:hover td { background: var(--chrome-50); }
 .tbl tr.is-selected td { background: var(--select-bg); }
@@ -946,9 +950,21 @@ input:focus, textarea:focus, select:focus {
 .icon-btn:disabled { opacity: .45; cursor: not-allowed; }
 .icon-btn:disabled:hover { background: transparent; color: var(--chrome-600); }
 .icon-btn svg { width: 14px; height: 14px; }
+.actions-cell .icon-btn-danger {
+  width: 28px;
+  height: 28px;
+  border: 1px solid var(--border-strong);
+  background: var(--panel);
+  color: var(--err);
+  box-shadow: var(--shadow-rest);
+}
 .icon-btn-danger:hover {
   background: #f6dedb;
   color: var(--err);
+}
+.actions-cell .icon-btn-danger:hover {
+  border-color: #d7a5a0;
+  background: #f9ecea;
 }
 
 .status-pill {
@@ -1468,6 +1484,32 @@ input:focus, textarea:focus, select:focus {
   padding: var(--space-4);
 }
 .confirm-body p { margin: 0; }
+.confirm-detail {
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-2);
+  background: var(--panel-alt);
+}
+.confirm-detail strong {
+  font-size: var(--text-11);
+}
+.confirm-detail ul {
+  display: grid;
+  gap: var(--space-2);
+  max-height: 180px;
+  margin: 0;
+  padding: 0;
+  overflow: auto;
+  list-style: none;
+}
+.confirm-detail li {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  font-size: var(--text-11);
+}
 .confirm-foot {
   display: flex;
   justify-content: flex-end;
@@ -1475,6 +1517,22 @@ input:focus, textarea:focus, select:focus {
   padding: var(--space-3) var(--space-4);
   background: var(--panel-alt);
   border-top: 1px solid var(--border);
+}
+
+.trash-stack {
+  display: grid;
+  gap: var(--space-4);
+  padding: var(--space-3);
+  overflow: auto;
+}
+.trash-section {
+  display: grid;
+  gap: var(--space-2);
+  min-height: 0;
+}
+.trash-section h3 {
+  margin: 0;
+  font-size: var(--text-12);
 }
 
 @media (max-width: 1180px) {

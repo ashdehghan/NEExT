@@ -150,6 +150,47 @@ def wait_for_job(client, project_id: str, job_id: str, timeout_s: float = 10.0) 
     raise AssertionError(f"Timed out waiting for job {job_id}")
 
 
+def create_planned_lifecycle_chain(client, project_id: str) -> dict:
+    dataset = client.post(f"/api/projects/{project_id}/datasets", json={"catalog_id": "TINY"}).json()
+    feature = client.post(
+        f"/api/projects/{project_id}/features",
+        json={
+            "source_dataset_id": dataset["id"],
+            "source_feature_id": "page_rank",
+            "params": {
+                "feature_vector_length": 2,
+                "normalize_features": False,
+                "n_jobs": 1,
+                "parallel_backend": "threading",
+            },
+        },
+    ).json()
+    embedding = client.post(
+        f"/api/projects/{project_id}/embeddings",
+        json={
+            "source_embedding_id": "approx_wasserstein",
+            "source_feature_ids": [feature["id"]],
+            "params": {"embedding_dimension": 2},
+        },
+    ).json()
+    model = client.post(
+        f"/api/projects/{project_id}/models",
+        json={
+            "source_model_id": "random_forest",
+            "source_embedding_ids": [embedding["id"]],
+            "params": {
+                "task_type": "classifier",
+                "sample_size": 1,
+                "test_size": 0.5,
+                "balance_dataset": False,
+                "n_jobs": 1,
+                "parallel_backend": "thread",
+            },
+        },
+    ).json()
+    return {"dataset": dataset, "feature": feature, "embedding": embedding, "model": model}
+
+
 def test_workbench_health_and_workspace_load():
     pytest.importorskip("fastapi")
 
@@ -3495,3 +3536,248 @@ def test_project_delete_trash_collision_uses_suffixed_folder():
         assert (moved_path / "project.json").is_file()
         assert sentinel.read_text(encoding="utf-8") == "existing trash"
         assert not (Path(tmpdir) / "projects" / project_id).exists()
+
+
+def test_artifact_deletion_plan_cascade_delete_and_restore(monkeypatch):
+    pytest.importorskip("fastapi")
+
+    from fastapi.testclient import TestClient
+
+    import NEExT.workbench.dataset_library as dataset_library
+    from NEExT.workbench.app import create_app
+    from NEExT.workbench.dataset_library import CatalogDataset
+
+    with TemporaryDirectory() as tmpdir:
+        source_files = write_dataset_source_bundle(Path(tmpdir) / "source")
+        monkeypatch.setattr(
+            dataset_library,
+            "DATASET_CATALOG",
+            (
+                CatalogDataset(
+                    id="TINY",
+                    name="Tiny Dataset",
+                    description="local test bundle",
+                    domain="Tests",
+                    files=source_files,
+                    graph_count=2,
+                    node_count=4,
+                    edge_count=2,
+                    source="Test catalog",
+                ),
+            ),
+        )
+        client = TestClient(create_app(tmpdir))
+        project = client.post("/api/projects", json={"name": "Lifecycle Project"}).json()
+        project_id = project["id"]
+        chain = create_planned_lifecycle_chain(client, project_id)
+
+        plan = client.get(f"/api/projects/{project_id}/datasets/{chain['dataset']['id']}/delete-plan")
+        assert plan.status_code == 200
+        plan_payload = plan.json()
+        assert plan_payload["requires_cascade"] is True
+        assert plan_payload["can_delete"] is True
+        assert [item["artifact_kind"] for item in plan_payload["downstream_artifacts"]] == ["feature", "embedding", "model"]
+        assert [item["artifact_id"] for item in plan_payload["artifacts"]] == [
+            chain["dataset"]["id"],
+            chain["feature"]["id"],
+            chain["embedding"]["id"],
+            chain["model"]["id"],
+        ]
+
+        blocked = client.delete(f"/api/projects/{project_id}/datasets/{chain['dataset']['id']}")
+        assert blocked.status_code == 409
+        assert "downstream artifacts" in blocked.json()["detail"]["message"]
+        assert blocked.json()["detail"]["deletion_plan"]["root_artifact"]["artifact_id"] == chain["dataset"]["id"]
+
+        deleted = client.delete(f"/api/projects/{project_id}/datasets/{chain['dataset']['id']}?cascade=true")
+        assert deleted.status_code == 200
+        summary = deleted.json()
+        assert_uuid4(summary["bundle_id"])
+        assert summary["root_artifact"]["artifact_kind"] == "dataset"
+        assert summary["trashed_path"].startswith(f"trash/projects/{project_id}/artifact-deletions/")
+        assert str(Path(tmpdir).resolve()) not in json.dumps(summary)
+        assert not (Path(tmpdir) / "projects" / project_id / "artifacts" / "datasets" / chain["dataset"]["id"]).exists()
+        assert not (Path(tmpdir) / "projects" / project_id / "artifacts" / "features" / chain["feature"]["id"]).exists()
+        assert client.get(f"/api/projects/{project_id}/datasets/{chain['dataset']['id']}").status_code == 404
+        assert client.get(f"/api/projects/{project_id}/features/{chain['feature']['id']}").status_code == 404
+        assert client.get(f"/api/projects/{project_id}/embeddings/{chain['embedding']['id']}").status_code == 404
+        assert client.get(f"/api/projects/{project_id}/models/{chain['model']['id']}").status_code == 404
+
+        trash = client.get("/api/trash")
+        assert trash.status_code == 200
+        assert trash.json()["projects"] == []
+        bundles = trash.json()["artifact_deletions"]
+        assert [bundle["id"] for bundle in bundles] == [summary["bundle_id"]]
+        assert bundles[0]["delete_mode"] == "cascade"
+        assert [item["artifact_kind"] for item in bundles[0]["artifacts"]] == ["dataset", "feature", "embedding", "model"]
+        assert str(Path(tmpdir).resolve()) not in json.dumps(trash.json())
+
+        restored = client.post(f"/api/projects/{project_id}/trash/artifact-deletions/{summary['bundle_id']}/restore")
+        assert restored.status_code == 200
+        assert restored.json() == {
+            "restored_kind": "artifact_deletion",
+            "id": summary["bundle_id"],
+            "name": "Tiny Dataset",
+            "restored_path": f"projects/{project_id}",
+        }
+        assert client.get(f"/api/projects/{project_id}/datasets/{chain['dataset']['id']}").status_code == 200
+        assert client.get(f"/api/projects/{project_id}/features/{chain['feature']['id']}").status_code == 200
+        assert client.get(f"/api/projects/{project_id}/embeddings/{chain['embedding']['id']}").status_code == 200
+        assert client.get(f"/api/projects/{project_id}/models/{chain['model']['id']}").status_code == 200
+        assert client.get("/api/trash").json()["artifact_deletions"] == []
+
+
+def test_leaf_artifact_delete_keeps_completed_job_history_and_restore_blocks_on_collision(monkeypatch):
+    pytest.importorskip("fastapi")
+
+    from fastapi.testclient import TestClient
+
+    import NEExT.workbench.dataset_library as dataset_library
+    from NEExT.workbench.app import create_app
+    from NEExT.workbench.dataset_library import CatalogDataset
+    from NEExT.workbench.schemas import JobArtifactRef, OperationSpec
+
+    with TemporaryDirectory() as tmpdir:
+        source_files = write_dataset_source_bundle(Path(tmpdir) / "source")
+        monkeypatch.setattr(
+            dataset_library,
+            "DATASET_CATALOG",
+            (
+                CatalogDataset(
+                    id="TINY",
+                    name="Tiny Dataset",
+                    description="local test bundle",
+                    domain="Tests",
+                    files=source_files,
+                    graph_count=2,
+                    node_count=4,
+                    edge_count=2,
+                    source="Test catalog",
+                ),
+            ),
+        )
+        client = TestClient(create_app(tmpdir))
+        project = client.post("/api/projects", json={"name": "Leaf Delete Project"}).json()
+        project_id = project["id"]
+        chain = create_planned_lifecycle_chain(client, project_id)
+        store = client.app.state.store
+        job = store._create_job(
+            project_id,
+            OperationSpec(operation_id="neext.train_graph_model", operation_version="1", params={"model_ids": [chain["model"]["id"]]}),
+            [JobArtifactRef(artifact_kind="model", artifact_id=chain["model"]["id"])],
+        )
+        store._mark_job_completed(project_id, job.id)
+
+        deleted = client.delete(f"/api/projects/{project_id}/models/{chain['model']['id']}")
+        assert deleted.status_code == 200
+        bundle_id = deleted.json()["bundle_id"]
+        assert client.get(f"/api/projects/{project_id}/models/{chain['model']['id']}").status_code == 404
+        jobs = client.get(f"/api/projects/{project_id}/jobs")
+        assert jobs.status_code == 200
+        assert jobs.json()[0]["id"] == job.id
+        assert jobs.json()[0]["status"] == "completed"
+
+        live_collision_path = Path(tmpdir) / "projects" / project_id / "artifacts" / "models" / chain["model"]["id"]
+        live_collision_path.mkdir(parents=True)
+        (live_collision_path / "sentinel.txt").write_text("collision", encoding="utf-8")
+        blocked_restore = client.post(f"/api/projects/{project_id}/trash/artifact-deletions/{bundle_id}/restore")
+        assert blocked_restore.status_code == 409
+        assert "live artifact folders already exist" in blocked_restore.json()["detail"]["message"]
+        assert blocked_restore.json()["detail"]["conflicts"][0]["artifact_id"] == chain["model"]["id"]
+
+
+def test_artifact_delete_blocks_queued_or_running_target_jobs(monkeypatch):
+    pytest.importorskip("fastapi")
+
+    from fastapi.testclient import TestClient
+
+    import NEExT.workbench.dataset_library as dataset_library
+    from NEExT.workbench.app import create_app
+    from NEExT.workbench.dataset_library import CatalogDataset
+    from NEExT.workbench.schemas import JobArtifactRef, OperationSpec
+
+    with TemporaryDirectory() as tmpdir:
+        source_files = write_dataset_source_bundle(Path(tmpdir) / "source")
+        monkeypatch.setattr(
+            dataset_library,
+            "DATASET_CATALOG",
+            (
+                CatalogDataset(
+                    id="TINY",
+                    name="Tiny Dataset",
+                    description="local test bundle",
+                    domain="Tests",
+                    files=source_files,
+                    graph_count=2,
+                    node_count=4,
+                    edge_count=2,
+                    source="Test catalog",
+                ),
+            ),
+        )
+        client = TestClient(create_app(tmpdir))
+        project = client.post("/api/projects", json={"name": "Active Job Project"}).json()
+        project_id = project["id"]
+        chain = create_planned_lifecycle_chain(client, project_id)
+        store = client.app.state.store
+        job = store._create_job(
+            project_id,
+            OperationSpec(operation_id="neext.train_graph_model", operation_version="1", params={"model_ids": [chain["model"]["id"]]}),
+            [JobArtifactRef(artifact_kind="model", artifact_id=chain["model"]["id"])],
+        )
+
+        plan = client.get(f"/api/projects/{project_id}/models/{chain['model']['id']}/delete-plan")
+        assert plan.status_code == 200
+        assert plan.json()["can_delete"] is False
+        assert plan.json()["active_jobs"][0]["id"] == job.id
+
+        blocked = client.delete(f"/api/projects/{project_id}/models/{chain['model']['id']}")
+        assert blocked.status_code == 409
+        assert "queued or running jobs" in blocked.json()["detail"]["message"]
+        assert blocked.json()["detail"]["deletion_plan"]["active_jobs"][0]["id"] == job.id
+        assert client.get(f"/api/projects/{project_id}/models/{chain['model']['id']}").status_code == 200
+
+
+def test_project_restore_and_restore_collision():
+    pytest.importorskip("fastapi")
+
+    from fastapi.testclient import TestClient
+
+    from NEExT.workbench.app import create_app
+
+    with TemporaryDirectory() as tmpdir:
+        client = TestClient(create_app(tmpdir))
+        project = client.post("/api/projects", json={"name": "Restore Me", "description": "restore test"}).json()
+        project_id = project["id"]
+        deleted = client.delete(f"/api/projects/{project_id}")
+        assert deleted.status_code == 200
+
+        trash = client.get("/api/trash")
+        assert trash.status_code == 200
+        assert trash.json()["projects"] == [
+            {
+                "trash_id": project_id,
+                "project_id": project_id,
+                "name": "Restore Me",
+                "description": "restore test",
+                "trashed_path": f"trash/projects/{project_id}",
+            }
+        ]
+
+        restored = client.post(f"/api/trash/projects/{project_id}/restore")
+        assert restored.status_code == 200
+        assert restored.json() == {
+            "restored_kind": "project",
+            "id": project_id,
+            "name": "Restore Me",
+            "restored_path": f"projects/{project_id}",
+        }
+        assert client.get(f"/api/projects/{project_id}").status_code == 200
+
+        second_delete = client.delete(f"/api/projects/{project_id}")
+        assert second_delete.status_code == 200
+        collision_path = Path(tmpdir) / "projects" / project_id
+        collision_path.mkdir(parents=True)
+        blocked = client.post(f"/api/trash/projects/{project_id}/restore")
+        assert blocked.status_code == 409
+        assert "live project with the same ID already exists" in blocked.json()["detail"]["message"]

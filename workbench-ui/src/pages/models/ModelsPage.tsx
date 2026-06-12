@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import * as echarts from "echarts";
 import type { EChartsOption } from "echarts";
-import { ArrowLeft, BarChart3, Eye, Play, RotateCcw, Save, Settings2 } from "lucide-react";
+import { ArrowLeft, BarChart3, Eye, Play, RotateCcw, Save, Settings2, Trash2 } from "lucide-react";
 import {
   api,
   type DatasetManifest,
@@ -47,6 +47,7 @@ interface ProjectModelsViewProps {
   selectedModelId: string;
   onSelectModel: (modelId: string) => void;
   onPreviewModel: (modelId: string) => void;
+  onDeleteArtifact: (artifactKind: "model", artifactId: string) => void;
 }
 
 interface ModelExploreViewProps {
@@ -431,7 +432,8 @@ export function ProjectModelsView({
   loading,
   selectedModelId,
   onSelectModel,
-  onPreviewModel
+  onPreviewModel,
+  onDeleteArtifact
 }: ProjectModelsViewProps) {
   const queryClient = useQueryClient();
   const embeddingsById = useMemo(() => new Map(embeddings.map((embedding) => [embedding.id, embedding])), [embeddings]);
@@ -595,6 +597,18 @@ export function ProjectModelsView({
                               Preview
                             </button>
                           ) : null}
+                          <button
+                            type="button"
+                            className="icon-btn icon-btn-danger"
+                            aria-label={`Delete ${model.name}`}
+                            title={`Delete ${model.name}`}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              onDeleteArtifact("model", model.id);
+                            }}
+                          >
+                            <Trash2 />
+                          </button>
                         </td>
                       </tr>
                     );

@@ -731,6 +731,7 @@ test("loads the packaged Workbench shell and creates a project", async ({ page }
   await expect(ribbon.getByRole("button", { name: "Import" })).toBeVisible();
   await expect(ribbon.getByRole("button", { name: "Create" })).toBeVisible();
   await expect(ribbon.getByRole("button", { name: "Projects" })).toBeVisible();
+  await expect(ribbon.getByRole("button", { name: "Trash" })).toBeVisible();
   await expect(ribbon.getByRole("button", { name: "Settings" })).toBeVisible();
   await expect(ribbon.getByRole("button", { name: "Help" })).toBeVisible();
 
@@ -820,6 +821,15 @@ test("Projects table deletes projects through confirmation", async ({ page }) =>
   await expect(inspector).not.toContainText(projectName);
   await expect(page.locator(".status-bar")).not.toContainText(projectName);
   await expect(page.locator(".artifact-table-title")).toContainText("Projects");
+
+  await ribbon.getByRole("button", { name: "Trash" }).click();
+  await expect(page.locator(".artifact-table-title")).toContainText("Trash");
+  const trashProjectRow = page.locator("table tbody tr", { hasText: projectName });
+  await expect(trashProjectRow).toBeVisible();
+  await trashProjectRow.getByRole("button", { name: "Restore" }).click();
+  await expect(trashProjectRow).toHaveCount(0);
+  await ribbon.getByRole("button", { name: "Projects" }).click();
+  await expect(page.locator("table tbody tr", { hasText: projectName })).toBeVisible();
 });
 
 test("Home commands switch center views", async ({ page }) => {
@@ -838,6 +848,9 @@ test("Home commands switch center views", async ({ page }) => {
   await ribbon.getByRole("button", { name: "Help" }).click();
   await expect(page.locator(".document .title-only")).toHaveText("Help");
 
+  await ribbon.getByRole("button", { name: "Trash" }).click();
+  await expect(page.locator(".artifact-table-title")).toContainText("Trash");
+
   await ribbon.getByRole("button", { name: "Create" }).click();
   await expect(page.getByRole("heading", { name: "Create Project" })).toBeVisible();
 
@@ -845,11 +858,12 @@ test("Home commands switch center views", async ({ page }) => {
   await expect(page.locator(".artifact-table-title")).toContainText("Projects");
 });
 
-test("Left Panel scopes artifacts by dataset and marks selected lineage relationships", async ({ page }) => {
+test("Left Panel and Center Views scope artifacts by dataset and mark selected lineage relationships", async ({ page }) => {
   const projectName = `Lineage Project ${Date.now()}`;
   seedLineageSelectionProject(projectName);
 
   await page.goto("/");
+  const ribbon = page.locator(".ribbon");
   const selection = page.locator(".selection-panel");
   const section = (title: string) => selection.locator(".sel-section", { hasText: title });
   const item = (title: string, name: string) => section(title).locator(".sel-item", { hasText: name });
@@ -894,6 +908,37 @@ test("Left Panel scopes artifacts by dataset and marks selected lineage relation
   await item("Datasets", "Lineage Alpha").click();
   await expect(selection.locator(".sel-context")).toHaveText("Context: Dataset Lineage Alpha");
 
+  await page.getByRole("button", { name: "FEATURES" }).click();
+  await expect(page.locator(".artifact-table-title")).toContainText("Features · 2 features");
+  await expect(page.locator(".document table tbody tr", { hasText: "Lineage Alpha - PageRank" })).toBeVisible();
+  await expect(page.locator(".document table tbody tr", { hasText: "Lineage Alpha - Degree Centrality" })).toBeVisible();
+  await expect(page.locator(".document table tbody tr", { hasText: "Lineage Beta - PageRank" })).toHaveCount(0);
+  await ribbon.getByRole("button", { name: "Explore" }).click();
+  await expect(page.locator(".artifact-table-title")).toContainText("Feature Explore");
+  await expect(page.locator(".document table tbody tr", { hasText: "Lineage Alpha - PageRank" })).toBeVisible();
+  await expect(page.locator(".document table tbody tr", { hasText: "Lineage Alpha - Degree Centrality" })).toBeVisible();
+  await expect(page.locator(".document table tbody tr", { hasText: "Lineage Beta - PageRank" })).toHaveCount(0);
+
+  await page.getByRole("button", { name: "EMBEDDINGS" }).click();
+  await expect(page.locator(".artifact-table-title")).toContainText("Embeddings · 2 embeddings");
+  await expect(page.locator(".document table tbody tr", { hasText: "Alpha Page Embedding" })).toBeVisible();
+  await expect(page.locator(".document table tbody tr", { hasText: "Alpha Combined Embedding" })).toBeVisible();
+  await expect(page.locator(".document table tbody tr", { hasText: "Beta Page Embedding" })).toHaveCount(0);
+  await ribbon.getByRole("button", { name: "Explore" }).click();
+  await expect(page.locator(".artifact-table-title")).toContainText("Embedding Explore");
+  await expect(page.locator(".document table tbody tr", { hasText: "Alpha Page Embedding" })).toBeVisible();
+  await expect(page.locator(".document table tbody tr", { hasText: "Alpha Combined Embedding" })).toBeVisible();
+  await expect(page.locator(".document table tbody tr", { hasText: "Beta Page Embedding" })).toHaveCount(0);
+
+  await page.getByRole("button", { name: "MODELS" }).click();
+  await expect(page.locator(".artifact-table-title")).toContainText("Models - 1 model");
+  await expect(page.locator(".document table tbody tr", { hasText: "Alpha Classifier" })).toBeVisible();
+  await expect(page.locator(".document table tbody tr", { hasText: "Beta Classifier" })).toHaveCount(0);
+  await ribbon.getByRole("button", { name: "Explore" }).click();
+  await expect(page.locator(".artifact-table-title")).toContainText("Model Explore");
+  await expect(page.locator(".document table tbody tr", { hasText: "Alpha Classifier" })).toBeVisible();
+  await expect(page.locator(".document table tbody tr", { hasText: "Beta Classifier" })).toHaveCount(0);
+
   await item("Features", "Lineage Alpha - PageRank").click();
   await expect(selection.locator(".sel-context")).toHaveText("Context: Feature Lineage Alpha - PageRank");
   await expect(section("Datasets").locator(".sel-count")).toHaveText("2");
@@ -907,7 +952,9 @@ test("Left Panel scopes artifacts by dataset and marks selected lineage relation
   await expect(item("Embeddings", "Alpha Combined Embedding")).toHaveClass(/is-related/);
   await expect(item("Models", "Alpha Classifier")).toHaveClass(/is-related/);
   await expect(page.locator(".artifact-table-title")).toContainText("Features");
-  await expect(page.locator(".document table tbody tr", { hasText: "Lineage Beta - PageRank" })).toBeVisible();
+  await expect(page.locator(".document table tbody tr", { hasText: "Lineage Alpha - PageRank" })).toBeVisible();
+  await expect(page.locator(".document table tbody tr", { hasText: "Lineage Alpha - Degree Centrality" })).toBeVisible();
+  await expect(page.locator(".document table tbody tr", { hasText: "Lineage Beta - PageRank" })).toHaveCount(0);
 
   await item("Embeddings", "Alpha Combined Embedding").click();
   await expect(selection.locator(".sel-context")).toHaveText("Context: Embedding Alpha Combined Embedding");
@@ -922,7 +969,9 @@ test("Left Panel scopes artifacts by dataset and marks selected lineage relation
   await expect(item("Embeddings", "Alpha Page Embedding")).toBeVisible();
   await expect(item("Models", "Alpha Classifier")).toHaveClass(/is-related/);
   await expect(page.locator(".artifact-table-title")).toContainText("Embeddings");
-  await expect(page.locator(".document table tbody tr", { hasText: "Beta Page Embedding" })).toBeVisible();
+  await expect(page.locator(".document table tbody tr", { hasText: "Alpha Page Embedding" })).toBeVisible();
+  await expect(page.locator(".document table tbody tr", { hasText: "Alpha Combined Embedding" })).toBeVisible();
+  await expect(page.locator(".document table tbody tr", { hasText: "Beta Page Embedding" })).toHaveCount(0);
 
   await item("Models", "Alpha Classifier").click();
   await expect(selection.locator(".sel-context")).toHaveText("Context: Model Alpha Classifier");
@@ -935,7 +984,8 @@ test("Left Panel scopes artifacts by dataset and marks selected lineage relation
   await expect(item("Embeddings", "Alpha Combined Embedding")).toBeVisible();
   await expect(item("Models", "Beta Classifier")).toHaveCount(0);
   await expect(page.locator(".artifact-table-title")).toContainText("Models");
-  await expect(page.locator(".document table tbody tr", { hasText: "Beta Classifier" })).toBeVisible();
+  await expect(page.locator(".document table tbody tr", { hasText: "Alpha Classifier" })).toBeVisible();
+  await expect(page.locator(".document table tbody tr", { hasText: "Beta Classifier" })).toHaveCount(0);
 
   await item("Project", projectName).click();
   await expect(selection.locator(".sel-context")).toHaveText(`Context: Project ${projectName}`);
@@ -946,6 +996,82 @@ test("Left Panel scopes artifacts by dataset and marks selected lineage relation
   await expect(item("Features", "Lineage Alpha - PageRank")).toHaveCount(0);
   await expect(item("Embeddings", "Alpha Page Embedding")).toHaveCount(0);
   await expect(item("Models", "Alpha Classifier")).toHaveCount(0);
+
+  await page.getByRole("button", { name: "FEATURES" }).click();
+  await expect(page.locator(".artifact-table-title")).toContainText("Features · 0 features");
+  await expect(page.locator(".artifact-table-empty")).toContainText("No features.");
+  await page.getByRole("button", { name: "EMBEDDINGS" }).click();
+  await expect(page.locator(".artifact-table-title")).toContainText("Embeddings · 0 embeddings");
+  await expect(page.locator(".artifact-table-empty")).toContainText("No embeddings.");
+  await page.getByRole("button", { name: "MODELS" }).click();
+  await expect(page.locator(".artifact-table-title")).toContainText("Models - 0 models");
+  await expect(page.locator(".artifact-table-empty")).toContainText("No models.");
+});
+
+test("Artifact lifecycle deletes, cascades, and restores from Home Trash", async ({ page }) => {
+  const projectName = `Lifecycle Project ${Date.now()}`;
+  seedLineageSelectionProject(projectName);
+
+  await page.goto("/");
+  const ribbon = page.locator(".ribbon");
+  const selection = page.locator(".selection-panel");
+  const alphaDatasetItem = selection.locator(".sel-section", { hasText: "Datasets" }).locator(".sel-item", { hasText: "Lineage Alpha" });
+  const betaDatasetItem = selection.locator(".sel-section", { hasText: "Datasets" }).locator(".sel-item", { hasText: "Lineage Beta" });
+
+  await alphaDatasetItem.click();
+  await page.getByRole("button", { name: "MODELS" }).click();
+  const alphaModelRow = page.locator("table tbody tr", { hasText: "Alpha Classifier" });
+  await expect(alphaModelRow).toBeVisible();
+  await alphaModelRow.getByRole("button", { name: "Delete Alpha Classifier" }).click();
+  let dialog = page.getByRole("dialog", { name: "Delete Artifact" });
+  await expect(dialog).toContainText('Move "Alpha Classifier" to project trash?');
+  await dialog.getByRole("button", { name: "Cancel" }).click();
+  await expect(alphaModelRow).toBeVisible();
+
+  await alphaModelRow.getByRole("button", { name: "Delete Alpha Classifier" }).click();
+  dialog = page.getByRole("dialog", { name: "Delete Artifact" });
+  await dialog.getByRole("button", { name: "Delete artifact" }).click();
+  await expect(page.locator("table tbody tr", { hasText: "Alpha Classifier" })).toHaveCount(0);
+  await expect(page.locator(".artifact-table-empty")).toContainText("No models.");
+
+  await betaDatasetItem.click();
+  await page.getByRole("button", { name: "MODELS" }).click();
+  await expect(page.locator("table tbody tr", { hasText: "Beta Classifier" })).toBeVisible();
+
+  await page.getByRole("button", { name: "HOME", exact: true }).click();
+  await ribbon.getByRole("button", { name: "Trash" }).click();
+  let trashRow = page.locator("table tbody tr", { hasText: "Alpha Classifier" });
+  await expect(trashRow).toBeVisible();
+  await trashRow.getByRole("button", { name: "Restore" }).click();
+  await expect(trashRow).toHaveCount(0);
+
+  await alphaDatasetItem.click();
+  await page.getByRole("button", { name: "MODELS" }).click();
+  await expect(page.locator("table tbody tr", { hasText: "Alpha Classifier" })).toBeVisible();
+
+  await page.getByRole("button", { name: "DATASETS" }).click();
+  const alphaDatasetRow = page.locator("table tbody tr", { hasText: "Lineage Alpha" });
+  await expect(alphaDatasetRow).toBeVisible();
+  await alphaDatasetRow.getByRole("button", { name: "Delete Lineage Alpha" }).click();
+  dialog = page.getByRole("dialog", { name: "Delete Artifact Bundle" });
+  await expect(dialog).toContainText('Deleting "Lineage Alpha" will also move downstream artifacts to project trash.');
+  await expect(dialog).toContainText("Lineage Alpha - PageRank");
+  await expect(dialog).toContainText("Alpha Combined Embedding");
+  await expect(dialog).toContainText("Alpha Classifier");
+  await dialog.getByRole("button", { name: "Delete bundle" }).click();
+  await expect(page.locator("table tbody tr", { hasText: "Lineage Alpha" })).toHaveCount(0);
+  await expect(page.locator("table tbody tr", { hasText: "Lineage Beta" })).toBeVisible();
+
+  await page.getByRole("button", { name: "HOME", exact: true }).click();
+  await ribbon.getByRole("button", { name: "Trash" }).click();
+  trashRow = page.locator("table tbody tr", { hasText: "Lineage Alpha" });
+  await expect(trashRow).toBeVisible();
+  await trashRow.getByRole("button", { name: "Restore" }).click();
+  await expect(trashRow).toHaveCount(0);
+
+  await page.getByRole("button", { name: "DATASETS" }).click();
+  await expect(page.locator("table tbody tr", { hasText: "Lineage Alpha" })).toBeVisible();
+  await expect(page.locator("table tbody tr", { hasText: "Lineage Beta" })).toBeVisible();
 });
 
 test("Home Settings enables, regenerates, and disables local MCP setup", async ({ page }) => {
@@ -1074,6 +1200,10 @@ test("Feature Explore shows statistics, PCA, data, and node inspector details", 
 
   await page.goto("/");
   await expect(page.locator(".selection-panel .sel-item-name", { hasText: projectName })).toBeVisible();
+  await page
+    .locator(".selection-panel .sel-section", { hasText: "Datasets" })
+    .locator(".sel-item", { hasText: "Tiny Feature Explore" })
+    .click();
   await page.getByRole("button", { name: "FEATURES" }).click();
 
   const ribbon = page.locator(".ribbon");
@@ -1162,6 +1292,10 @@ test("Embedding Explore shows statistics, PCA, data, and graph inspector details
 
   await page.goto("/");
   await expect(page.locator(".selection-panel .sel-item-name", { hasText: projectName })).toBeVisible();
+  await page
+    .locator(".selection-panel .sel-section", { hasText: "Datasets" })
+    .locator(".sel-item", { hasText: "Tiny Embedding Explore" })
+    .click();
   await page.getByRole("button", { name: "EMBEDDINGS" }).click();
 
   const ribbon = page.locator(".ribbon");
@@ -1722,11 +1856,15 @@ test("Models library configures, runs, batches, and previews persisted artifacts
 
   await page.reload();
   await expect(page.locator(".selection-panel .sel-item-name", { hasText: projectName })).toBeVisible();
+  await page
+    .locator(".selection-panel .sel-section", { hasText: "Datasets" })
+    .locator(".sel-item", { hasText: "Tiny Model" })
+    .click();
   await page.getByRole("button", { name: "MODELS" }).click();
   await ribbon.getByRole("button", { name: "Models" }).click();
   const modelRows = page.locator("table tbody tr", { hasText: "Tiny Model - Random Forest Classifier" });
   await expect(modelRows).toHaveCount(3);
-  await expect(page.locator(".selection-panel .sel-section", { hasText: "Models" }).locator(".sel-count")).toHaveText("0");
+  await expect(page.locator(".selection-panel .sel-section", { hasText: "Models" }).locator(".sel-count")).toHaveText("3");
   await modelRows.nth(0).locator("input[type='checkbox']").check();
   await modelRows.nth(1).locator("input[type='checkbox']").check();
   await page.getByRole("button", { name: "Run Selected" }).click();
