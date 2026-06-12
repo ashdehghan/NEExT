@@ -78,7 +78,6 @@ const GROUPS: Record<MainTab, GroupDef[]> = {
       tools: [
         STRUCTURAL_TOOLS.import,
         STRUCTURAL_TOOLS.library,
-        STRUCTURAL_TOOLS.create,
         { label: "Embeddings", icon: "embeddings", command: "embeddings" }
       ]
     },

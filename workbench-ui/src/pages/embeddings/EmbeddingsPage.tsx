@@ -22,6 +22,7 @@ interface EmbeddingLibraryViewProps {
   catalog: EmbeddingCatalogEntry[];
   loading: boolean;
   selectedCatalogId: string;
+  selectedDataset?: DatasetManifest;
   onSelectCatalog: (catalogId: string) => void;
   onConfigure: (catalogId: string) => void;
 }
@@ -30,8 +31,9 @@ interface ConfigureEmbeddingViewProps {
   activeProjectId: string;
   embedding?: EmbeddingCatalogEntry;
   features: FeatureManifest[];
-  datasets: DatasetManifest[];
+  dataset?: DatasetManifest;
   loading: boolean;
+  initialSelectedFeatureId?: string;
   onCreated: (embeddingId: string) => void;
 }
 
@@ -94,6 +96,7 @@ export function EmbeddingLibraryView({
   catalog,
   loading,
   selectedCatalogId,
+  selectedDataset,
   onSelectCatalog,
   onConfigure
 }: EmbeddingLibraryViewProps) {
@@ -105,7 +108,7 @@ export function EmbeddingLibraryView({
             <FcIcon name="library" size={16} />
             Embedding Library · {catalog.length} {catalog.length === 1 ? "algorithm" : "algorithms"}
           </span>
-          <span className="muted">{activeProjectId ? "Project target active" : "No active project"}</span>
+          <span className="muted">{selectedDataset ? `Dataset: ${selectedDataset.name}` : activeProjectId ? "Select a dataset first" : "No active project"}</span>
         </header>
         {loading ? (
           <div className="artifact-table-empty">
@@ -168,19 +171,22 @@ export function ConfigureEmbeddingView({
   activeProjectId,
   embedding,
   features,
-  datasets,
   loading,
+  dataset,
+  initialSelectedFeatureId = "",
   onCreated
 }: ConfigureEmbeddingViewProps) {
   const queryClient = useQueryClient();
   const [selectedFeatureIds, setSelectedFeatureIds] = useState<string[]>([]);
   const [embeddingDimension, setEmbeddingDimension] = useState(3);
-  const datasetsById = useMemo(() => new Map(datasets.map((dataset) => [dataset.id, dataset])), [datasets]);
+  const initialFeatureId = initialSelectedFeatureId && features.some((feature) => feature.id === initialSelectedFeatureId)
+    ? initialSelectedFeatureId
+    : "";
 
   useEffect(() => {
-    setSelectedFeatureIds([]);
+    setSelectedFeatureIds(initialFeatureId ? [initialFeatureId] : []);
     setEmbeddingDimension(3);
-  }, [activeProjectId, embedding?.id]);
+  }, [activeProjectId, embedding?.id, dataset?.id, initialFeatureId]);
 
   useEffect(() => {
     setSelectedFeatureIds((current) => current.filter((featureId) => features.some((feature) => feature.id === featureId)));
@@ -198,22 +204,22 @@ export function ConfigureEmbeddingView({
     () => selectedFeatureIds.map((featureId) => features.find((feature) => feature.id === featureId)).filter(Boolean) as FeatureManifest[],
     [features, selectedFeatureIds]
   );
-  const selectedDatasetIds = useMemo(() => new Set(selectedFeatures.map(featureDatasetId).filter(Boolean)), [selectedFeatures]);
-  const selectedDataset =
-    selectedDatasetIds.size === 1 ? datasetsById.get(Array.from(selectedDatasetIds)[0]) : undefined;
   const paramsValid = Number.isInteger(embeddingDimension) && embeddingDimension >= 1 && embeddingDimension <= 128;
-  const canSave = Boolean(activeProjectId && embedding && selectedFeatureIds.length > 0 && selectedDataset && paramsValid);
+  const selectedFeaturesInDataset = selectedFeatures.every((feature) => dataset?.id && featureDatasetId(feature) === dataset.id);
+  const canSave = Boolean(activeProjectId && embedding && dataset?.id && selectedFeatureIds.length > 0 && selectedFeaturesInDataset && paramsValid);
   const saveBlockedMessage = !activeProjectId
     ? "An active project is required."
-    : !loading && features.length === 0
-      ? "A feature artifact is required before saving."
-      : selectedFeatureIds.length === 0
-        ? "Select at least one feature."
-        : !selectedDataset
-          ? "Selected features must share one dataset."
-          : !paramsValid
-            ? "Embedding dimension must be 1-128."
-            : "";
+    : !dataset
+      ? "Select a dataset before configuring embeddings."
+      : !loading && features.length === 0
+        ? "A feature artifact is required before saving."
+        : selectedFeatureIds.length === 0
+          ? "Select at least one feature."
+          : !selectedFeaturesInDataset
+            ? "Selected features must belong to the active dataset."
+            : !paramsValid
+              ? "Embedding dimension must be 1-128."
+              : "";
 
   const createEmbedding = useMutation({
     mutationFn: (payload: EmbeddingCreatePayload) => api.createEmbedding(activeProjectId, payload),
@@ -266,7 +272,7 @@ export function ConfigureEmbeddingView({
       <div className="card-body">
         {createEmbedding.error ? <p className="error-text">{createEmbedding.error.message}</p> : null}
         {saveBlockedMessage ? <p className="muted form-note">{saveBlockedMessage}</p> : null}
-        {selectedDataset ? <p className="muted form-note">Dataset: {selectedDataset.name}</p> : null}
+        {dataset ? <p className="muted form-note">Dataset: {dataset.name}</p> : null}
         <div className="field-grid">
           <label className="field">
             <span>Algorithm</span>
@@ -325,7 +331,7 @@ export function ConfigureEmbeddingView({
                       <td>
                         <strong>{feature.name}</strong>
                       </td>
-                      <td>{datasetsById.get(featureDatasetId(feature))?.name || "Unknown dataset"}</td>
+                      <td>{dataset?.name || "Unknown dataset"}</td>
                       <td>
                         <span className={`status-pill ${feature.status === "completed" ? "is-ready" : "is-idle"}`}>{feature.status}</span>
                       </td>

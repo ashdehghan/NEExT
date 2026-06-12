@@ -1672,8 +1672,20 @@ test("Embeddings library configures, batches, runs, and previews persisted artif
   await expect(page.locator(".artifact-table-title")).toContainText("Embeddings");
   await expect(page.locator(".artifact-table-empty")).toContainText("No embeddings.");
   await expect(page.locator(".selection-panel .sel-section", { hasText: "Features" }).locator(".sel-count")).toHaveText("0");
+  await expect(ribbon.getByRole("button", { name: "Create" })).toHaveCount(0);
 
   await ribbon.getByRole("button", { name: "Library" }).click();
+  await expect(page.locator(".artifact-table-title")).toContainText("Select a Dataset");
+  await expect(page.locator(".artifact-table-empty")).toContainText("Select a dataset in the Left Panel before configuring embeddings.");
+  await expect(page.locator(".artifact-table .tbl")).toHaveCount(0);
+
+  await page
+    .locator(".selection-panel .sel-section", { hasText: "Datasets" })
+    .locator(".sel-item", { hasText: "Tiny Embedding" })
+    .click();
+  await page.getByRole("button", { name: "EMBEDDINGS" }).click();
+  await ribbon.getByRole("button", { name: "Library" }).click();
+  await expect(page.getByText("Dataset: Tiny Embedding")).toBeVisible();
   await expect(page.locator(".artifact-table .tbl thead th")).toHaveText(["Name", "Algorithm", "Output", "Actions"]);
   const approxRow = page.locator("table tbody tr", { hasText: "Approx Wasserstein" }).first();
   await expect(approxRow).toBeVisible();
@@ -1712,12 +1724,21 @@ test("Embeddings library configures, batches, runs, and previews persisted artif
   await expect(inspector).toContainText("Dimension");
   await expect(inspector).toContainText("2");
 
+  await page
+    .locator(".selection-panel .sel-section", { hasText: "Features" })
+    .locator(".sel-item", { hasText: "Tiny Embedding - PageRank" })
+    .click();
+  await expect(page.locator(".selection-panel .sel-context")).toContainText("Context: Feature Tiny Embedding - PageRank");
+  await page.getByRole("button", { name: "EMBEDDINGS" }).click();
   await ribbon.getByRole("button", { name: "Library" }).click();
   const secondApproxRow = page.locator("table tbody tr", { hasText: "Approx Wasserstein" }).first();
   await expect(secondApproxRow).toBeVisible();
   await secondApproxRow.getByRole("button", { name: "Configure" }).click();
   await page.getByLabel("Embedding Dimension").fill("1");
-  await page.locator(".feature-picker table tbody tr", { hasText: "Tiny Embedding - PageRank" }).click();
+  const preselectedPageRankRow = page.locator(".feature-picker table tbody tr", { hasText: "Tiny Embedding - PageRank" });
+  const unselectedDegreeRow = page.locator(".feature-picker table tbody tr", { hasText: "Tiny Embedding - Degree Centrality" });
+  await expect(preselectedPageRankRow.locator("input[type='checkbox']")).toBeChecked();
+  await expect(unselectedDegreeRow.locator("input[type='checkbox']")).not.toBeChecked();
   await page.locator(".card-foot").getByRole("button", { name: "Save" }).click();
 
   const approxEmbeddingRows = page.locator("table tbody tr", { hasText: "Tiny Embedding - Approx Wasserstein Embedding" });
@@ -1914,4 +1935,6 @@ test("removed workflow controls are absent", async ({ page }) => {
   await expect(page.getByRole("button", { name: "Importance" })).toHaveCount(0);
   await expect(page.getByText("Default n_jobs")).toHaveCount(0);
   await expect(page.getByText("Clear visible log")).toHaveCount(0);
+  await page.getByRole("button", { name: "EMBEDDINGS" }).click();
+  await expect(page.locator(".ribbon").getByRole("button", { name: "Create" })).toHaveCount(0);
 });

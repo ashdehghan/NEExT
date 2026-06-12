@@ -406,6 +406,13 @@ export default function App() {
     () => datasets.find((dataset) => dataset.id === selectionLineage.activeDatasetId),
     [datasets, selectionLineage.activeDatasetId]
   );
+  const activeLineageFeatureId = useMemo(
+    () =>
+      selectedFeature && selectionLineage.activeDatasetId && featureDatasetId(selectedFeature) === selectionLineage.activeDatasetId
+        ? selectedFeature.id
+        : "",
+    [selectedFeature, selectionLineage.activeDatasetId]
+  );
   const importedCatalogIds = useMemo(() => new Set(datasets.map((dataset) => dataset.source_catalog_id)), [datasets]);
   const jobs = projectJobsQuery.data || [];
   const isProjectSelected = Boolean(
@@ -1057,10 +1064,14 @@ export default function App() {
   }, []);
 
   const handleSelectEmbeddingCatalog = useCallback((catalogId: string) => {
+    const initialFeatureId =
+      selectedFeature && selectionLineage.activeDatasetId && featureDatasetId(selectedFeature) === selectionLineage.activeDatasetId
+        ? selectedFeature.id
+        : "";
     setSelectedEmbeddingCatalogId(catalogId);
-    setSelectedDatasetId("");
+    setSelectedDatasetId(initialFeatureId ? "" : selectionLineage.activeDatasetId);
     setSelectedCatalogId("");
-    setSelectedFeatureId("");
+    setSelectedFeatureId(initialFeatureId);
     setSelectedFeatureCatalogId("");
     setSelectedEmbeddingId("");
     setSelectedModelId("");
@@ -1082,13 +1093,17 @@ export default function App() {
     setExploreEmbeddingGraphVisible(null);
     setExploreModelId("");
     setExploreModelIteration(null);
-  }, []);
+  }, [selectedFeature, selectionLineage.activeDatasetId]);
 
   const handleConfigureEmbeddingCatalog = useCallback((catalogId: string) => {
+    const initialFeatureId =
+      selectedFeature && selectionLineage.activeDatasetId && featureDatasetId(selectedFeature) === selectionLineage.activeDatasetId
+        ? selectedFeature.id
+        : "";
     setSelectedEmbeddingCatalogId(catalogId);
-    setSelectedDatasetId("");
+    setSelectedDatasetId(initialFeatureId ? "" : selectionLineage.activeDatasetId);
     setSelectedCatalogId("");
-    setSelectedFeatureId("");
+    setSelectedFeatureId(initialFeatureId);
     setSelectedFeatureCatalogId("");
     setSelectedEmbeddingId("");
     setSelectedModelId("");
@@ -1111,7 +1126,7 @@ export default function App() {
     setExploreModelId("");
     setExploreModelIteration(null);
     setRoute({ topTab: "embeddings", command: "library" });
-  }, []);
+  }, [selectedFeature, selectionLineage.activeDatasetId]);
 
   const handleSelectEmbedding = useCallback((embeddingId: string) => {
     setSelectedEmbeddingId(embeddingId);
@@ -1526,14 +1541,32 @@ export default function App() {
         />
       );
     }
+    if (route.topTab === "embeddings" && route.command === "library") {
+      if (!activeLineageDataset) {
+        return (
+          <div className="workflow">
+            <section className="artifact-table">
+              <header className="artifact-table-head">
+                <span className="artifact-table-title">Select a Dataset</span>
+                <span className="muted">Embedding workflows are dataset-first</span>
+              </header>
+              <div className="artifact-table-empty">
+                <EmptyState compact>Select a dataset in the Left Panel before configuring embeddings.</EmptyState>
+              </div>
+            </section>
+          </div>
+        );
+      }
+    }
     if (route.topTab === "embeddings" && route.command === "library" && configureEmbeddingCatalogId) {
       return (
         <ConfigureEmbeddingView
           activeProjectId={activeProjectId}
           embedding={configuredEmbeddingCatalogEntry}
-          features={features}
-          datasets={datasets}
-          loading={projectFeaturesQuery.isLoading || projectDatasetsQuery.isLoading}
+          features={selectionLineage.features}
+          dataset={activeLineageDataset}
+          loading={projectFeaturesQuery.isLoading}
+          initialSelectedFeatureId={activeLineageFeatureId}
           onCreated={handleEmbeddingCreated}
         />
       );
@@ -1545,6 +1578,7 @@ export default function App() {
           catalog={embeddingLibraryQuery.data || []}
           loading={embeddingLibraryQuery.isLoading}
           selectedCatalogId={selectedEmbeddingCatalogId}
+          selectedDataset={activeLineageDataset}
           onSelectCatalog={handleSelectEmbeddingCatalog}
           onConfigure={handleConfigureEmbeddingCatalog}
         />
