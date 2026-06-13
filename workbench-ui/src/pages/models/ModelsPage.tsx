@@ -22,6 +22,7 @@ interface ModelLibraryViewProps {
   catalog: ModelCatalogEntry[];
   loading: boolean;
   selectedCatalogId: string;
+  selectedDataset?: DatasetManifest;
   onSelectCatalog: (catalogId: string) => void;
   onConfigure: (catalogId: string) => void;
 }
@@ -31,8 +32,9 @@ interface ConfigureModelViewProps {
   model?: ModelCatalogEntry;
   embeddings: EmbeddingManifest[];
   features: FeatureManifest[];
-  datasets: DatasetManifest[];
+  dataset?: DatasetManifest;
   loading: boolean;
+  initialSelectedEmbeddingId?: string;
   onCreated: (modelId: string) => void;
 }
 
@@ -109,6 +111,7 @@ export function ModelLibraryView({
   catalog,
   loading,
   selectedCatalogId,
+  selectedDataset,
   onSelectCatalog,
   onConfigure
 }: ModelLibraryViewProps) {
@@ -120,7 +123,7 @@ export function ModelLibraryView({
             <FcIcon name="library" size={16} />
             Model Library - {catalog.length} {catalog.length === 1 ? "algorithm" : "algorithms"}
           </span>
-          <span className="muted">{activeProjectId ? "Project target active" : "No active project"}</span>
+          <span className="muted">{selectedDataset ? `Dataset: ${selectedDataset.name}` : activeProjectId ? "Select a dataset first" : "No active project"}</span>
         </header>
         {loading ? (
           <div className="artifact-table-empty">
@@ -184,8 +187,9 @@ export function ConfigureModelView({
   model,
   embeddings,
   features,
-  datasets,
   loading,
+  dataset,
+  initialSelectedEmbeddingId = "",
   onCreated
 }: ConfigureModelViewProps) {
   const queryClient = useQueryClient();
@@ -196,17 +200,19 @@ export function ConfigureModelView({
   const [balanceDataset, setBalanceDataset] = useState(false);
   const [nJobs, setNJobs] = useState(1);
   const [parallelBackend, setParallelBackend] = useState<"thread" | "process">("thread");
-  const datasetsById = useMemo(() => new Map(datasets.map((dataset) => [dataset.id, dataset])), [datasets]);
+  const initialEmbeddingId = initialSelectedEmbeddingId && embeddings.some((embedding) => embedding.id === initialSelectedEmbeddingId)
+    ? initialSelectedEmbeddingId
+    : "";
 
   useEffect(() => {
-    setSelectedEmbeddingIds([]);
+    setSelectedEmbeddingIds(initialEmbeddingId ? [initialEmbeddingId] : []);
     setTaskType("classifier");
     setSampleSize(5);
     setTestSize(0.3);
     setBalanceDataset(false);
     setNJobs(1);
     setParallelBackend("thread");
-  }, [activeProjectId, model?.id]);
+  }, [activeProjectId, model?.id, dataset?.id, initialEmbeddingId]);
 
   useEffect(() => {
     setSelectedEmbeddingIds((current) => current.filter((embeddingId) => embeddings.some((embedding) => embedding.id === embeddingId)));
@@ -224,11 +230,7 @@ export function ConfigureModelView({
     () => selectedEmbeddingIds.map((embeddingId) => embeddings.find((embedding) => embedding.id === embeddingId)).filter(Boolean) as EmbeddingManifest[],
     [embeddings, selectedEmbeddingIds]
   );
-  const selectedDatasetIds = useMemo(
-    () => new Set(selectedEmbeddings.map((embedding) => embeddingDatasetId(embedding, features)).filter(Boolean)),
-    [features, selectedEmbeddings]
-  );
-  const selectedDataset = selectedDatasetIds.size === 1 ? datasetsById.get(Array.from(selectedDatasetIds)[0]) : undefined;
+  const selectedEmbeddingsInDataset = selectedEmbeddings.every((embedding) => dataset?.id && embeddingDatasetId(embedding, features) === dataset.id);
   const paramsValid =
     Number.isInteger(sampleSize) &&
     sampleSize >= 1 &&
@@ -239,18 +241,20 @@ export function ConfigureModelView({
     Number.isInteger(nJobs) &&
     nJobs >= 1 &&
     nJobs <= 32;
-  const canSave = Boolean(activeProjectId && model && selectedEmbeddingIds.length > 0 && selectedDataset && paramsValid);
+  const canSave = Boolean(activeProjectId && model && dataset?.id && selectedEmbeddingIds.length > 0 && selectedEmbeddingsInDataset && paramsValid);
   const saveBlockedMessage = !activeProjectId
     ? "An active project is required."
-    : !loading && embeddings.length === 0
-      ? "An embedding artifact is required before saving."
-      : selectedEmbeddingIds.length === 0
-        ? "Select at least one embedding."
-        : !selectedDataset
-          ? "Selected embeddings must share one dataset."
-          : !paramsValid
-            ? "Sample size must be 1-100, test size 0.05-0.95, and parallel jobs 1-32."
-            : "";
+    : !dataset
+      ? "Select a dataset before configuring models."
+      : !loading && embeddings.length === 0
+        ? "An embedding artifact is required before saving."
+        : selectedEmbeddingIds.length === 0
+          ? "Select at least one embedding."
+          : !selectedEmbeddingsInDataset
+            ? "Selected embeddings must belong to the active dataset."
+            : !paramsValid
+              ? "Sample size must be 1-100, test size 0.05-0.95, and parallel jobs 1-32."
+              : "";
 
   const createModel = useMutation({
     mutationFn: (payload: ModelCreatePayload) => api.createModel(activeProjectId, payload),
@@ -308,7 +312,7 @@ export function ConfigureModelView({
       <div className="card-body">
         {createModel.error ? <p className="error-text">{createModel.error.message}</p> : null}
         {saveBlockedMessage ? <p className="muted form-note">{saveBlockedMessage}</p> : null}
-        {selectedDataset ? <p className="muted form-note">Dataset: {selectedDataset.name}</p> : null}
+        {dataset ? <p className="muted form-note">Dataset: {dataset.name}</p> : null}
         <div className="field-grid">
           <label className="field">
             <span>Algorithm</span>
@@ -379,7 +383,6 @@ export function ConfigureModelView({
               ) : (
                 embeddings.map((embedding) => {
                   const isChecked = selectedEmbeddingIds.includes(embedding.id);
-                  const datasetName = datasetsById.get(embeddingDatasetId(embedding, features))?.name || "Unknown dataset";
                   return (
                     <tr
                       key={embedding.id}
@@ -400,7 +403,7 @@ export function ConfigureModelView({
                       <td>
                         <strong>{embedding.name}</strong>
                       </td>
-                      <td>{datasetName}</td>
+                      <td>{dataset?.name || "Unknown dataset"}</td>
                       <td>
                         <span className={`status-pill ${embedding.status === "completed" ? "is-ready" : "is-idle"}`}>{embedding.status}</span>
                       </td>

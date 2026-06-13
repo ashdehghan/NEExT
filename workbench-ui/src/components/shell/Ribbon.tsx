@@ -92,7 +92,6 @@ const GROUPS: Record<MainTab, GroupDef[]> = {
       tools: [
         STRUCTURAL_TOOLS.import,
         STRUCTURAL_TOOLS.library,
-        STRUCTURAL_TOOLS.create,
         { label: "Models", icon: "models", command: "models" }
       ]
     },

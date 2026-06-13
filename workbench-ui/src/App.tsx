@@ -413,6 +413,13 @@ export default function App() {
         : "",
     [selectedFeature, selectionLineage.activeDatasetId]
   );
+  const activeLineageEmbeddingId = useMemo(
+    () =>
+      selectedEmbedding && selectionLineage.activeDatasetId && selectionLineage.embeddings.some((embedding) => embedding.id === selectedEmbedding.id)
+        ? selectedEmbedding.id
+        : "",
+    [selectedEmbedding, selectionLineage.activeDatasetId, selectionLineage.embeddings]
+  );
   const importedCatalogIds = useMemo(() => new Set(datasets.map((dataset) => dataset.source_catalog_id)), [datasets]);
   const jobs = projectJobsQuery.data || [];
   const isProjectSelected = Boolean(
@@ -1232,12 +1239,16 @@ export default function App() {
   }, []);
 
   const handleSelectModelCatalog = useCallback((catalogId: string) => {
+    const initialEmbeddingId =
+      selectedEmbedding && selectionLineage.activeDatasetId && selectionLineage.embeddings.some((embedding) => embedding.id === selectedEmbedding.id)
+        ? selectedEmbedding.id
+        : "";
     setSelectedModelCatalogId(catalogId);
-    setSelectedDatasetId("");
+    setSelectedDatasetId(initialEmbeddingId ? "" : selectionLineage.activeDatasetId);
     setSelectedCatalogId("");
     setSelectedFeatureId("");
     setSelectedFeatureCatalogId("");
-    setSelectedEmbeddingId("");
+    setSelectedEmbeddingId(initialEmbeddingId);
     setSelectedEmbeddingCatalogId("");
     setSelectedModelId("");
     setConfigureDatasetCatalogId("");
@@ -1257,15 +1268,19 @@ export default function App() {
     setExploreEmbeddingGraphVisible(null);
     setExploreModelId("");
     setExploreModelIteration(null);
-  }, []);
+  }, [selectedEmbedding, selectionLineage.activeDatasetId, selectionLineage.embeddings]);
 
   const handleConfigureModelCatalog = useCallback((catalogId: string) => {
+    const initialEmbeddingId =
+      selectedEmbedding && selectionLineage.activeDatasetId && selectionLineage.embeddings.some((embedding) => embedding.id === selectedEmbedding.id)
+        ? selectedEmbedding.id
+        : "";
     setSelectedModelCatalogId(catalogId);
-    setSelectedDatasetId("");
+    setSelectedDatasetId(initialEmbeddingId ? "" : selectionLineage.activeDatasetId);
     setSelectedCatalogId("");
     setSelectedFeatureId("");
     setSelectedFeatureCatalogId("");
-    setSelectedEmbeddingId("");
+    setSelectedEmbeddingId(initialEmbeddingId);
     setSelectedEmbeddingCatalogId("");
     setSelectedModelId("");
     setConfigureDatasetCatalogId("");
@@ -1286,7 +1301,7 @@ export default function App() {
     setExploreModelId("");
     setExploreModelIteration(null);
     setRoute({ topTab: "models", command: "library" });
-  }, []);
+  }, [selectedEmbedding, selectionLineage.activeDatasetId, selectionLineage.embeddings]);
 
   const handleSelectModel = useCallback((modelId: string) => {
     setSelectedModelId(modelId);
@@ -1619,15 +1634,33 @@ export default function App() {
         />
       );
     }
+    if (route.topTab === "models" && route.command === "library") {
+      if (!activeLineageDataset) {
+        return (
+          <div className="workflow">
+            <section className="artifact-table">
+              <header className="artifact-table-head">
+                <span className="artifact-table-title">Select a Dataset</span>
+                <span className="muted">Model workflows are dataset-first</span>
+              </header>
+              <div className="artifact-table-empty">
+                <EmptyState compact>Select a dataset in the Left Panel before configuring models.</EmptyState>
+              </div>
+            </section>
+          </div>
+        );
+      }
+    }
     if (route.topTab === "models" && route.command === "library" && configureModelCatalogId) {
       return (
         <ConfigureModelView
           activeProjectId={activeProjectId}
           model={configuredModelCatalogEntry}
-          embeddings={embeddings}
-          features={features}
-          datasets={datasets}
-          loading={projectEmbeddingsQuery.isLoading || projectFeaturesQuery.isLoading || projectDatasetsQuery.isLoading}
+          embeddings={selectionLineage.embeddings}
+          features={selectionLineage.features}
+          dataset={activeLineageDataset}
+          loading={projectEmbeddingsQuery.isLoading || projectFeaturesQuery.isLoading}
+          initialSelectedEmbeddingId={activeLineageEmbeddingId}
           onCreated={handleModelCreated}
         />
       );
@@ -1639,6 +1672,7 @@ export default function App() {
           catalog={modelLibraryQuery.data || []}
           loading={modelLibraryQuery.isLoading}
           selectedCatalogId={selectedModelCatalogId}
+          selectedDataset={activeLineageDataset}
           onSelectCatalog={handleSelectModelCatalog}
           onConfigure={handleConfigureModelCatalog}
         />

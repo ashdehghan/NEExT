@@ -372,7 +372,7 @@
           <p class="subtitle">Canonical planning dashboard for the NEExT core library and Workbench. This file is the shared human-agent interface for current state, active sprint work, backlog, and decisions.</p>
         </div>
         <div class="meta">
-          <span class="pill ready">Complete: Sprint 6</span>
+          <span class="pill ready">Complete: Sprint 7</span>
           <span class="pill ready">Tracked artifact</span>
           <span class="pill">Updated 2026-06-12</span>
         </div>
@@ -392,6 +392,7 @@
         <a href="#sprint-4">Completed Sprint 4</a>
         <a href="#sprint-5">Completed Sprint 5</a>
         <a href="#sprint-6">Completed Sprint 6</a>
+        <a href="#sprint-7">Completed Sprint 7</a>
         <a href="#roadmap">Sprint Roadmap</a>
         <a href="#current-state">Current State</a>
         <a href="#workbench-map">Workbench Map</a>
@@ -417,8 +418,8 @@
             </div>
             <div class="card">
               <strong>Lifecycle Dashboard</strong>
-              <p class="muted">Committed static HTML planning artifact for sprint state, handoff context, and current/future development tracking. Sprint 0, Sprint 1, Sprint 2, Sprint 3, Sprint 4, Sprint 5, and Sprint 6 are complete.</p>
-              <span class="pill ready">Sprint 6 complete</span>
+              <p class="muted">Committed static HTML planning artifact for sprint state, handoff context, and current/future development tracking. Sprint 0, Sprint 1, Sprint 2, Sprint 3, Sprint 4, Sprint 5, Sprint 6, and Sprint 7 are complete.</p>
+              <span class="pill ready">Sprint 7 complete</span>
             </div>
           </div>
         </section>
@@ -484,7 +485,7 @@
                 </tr>
               </tbody>
             </table>
-            <p class="muted small">Scoped Center Views means Artifact Stores and Feature/Embedding/Model Explore chooser lists. Library and Configure workflow forms remain project-wide unless explicitly redesigned; Feature Library/Configure/Create and Embedding Library/Configure are now dataset-first.</p>
+            <p class="muted small">Scoped Center Views means Artifact Stores and Feature/Embedding/Model Explore chooser lists. Library and Configure workflow forms remain project-wide unless explicitly redesigned; Feature Library/Configure/Create, Embedding Library/Configure, and Model Library/Configure are now dataset-first.</p>
           </div>
         </section>
 
@@ -775,6 +776,65 @@
           </div>
         </section>
 
+        <section id="sprint-7">
+          <h2>Completed Sprint: Sprint 7 - Dataset-First Model Workflow</h2>
+          <div class="grid two">
+            <div class="card">
+              <strong>Goal</strong>
+              <p>Make Model Library and built-in Model Configure follow the selected Dataset context and remove the ambiguous Model Create entry point until it is designed.</p>
+            </div>
+            <div class="card">
+              <strong>Acceptance Criteria</strong>
+              <ul class="checklist">
+                <li><input type="checkbox" checked> <span>Models no longer shows a Create ribbon command.</span></li>
+                <li><input type="checkbox" checked> <span>Model Library requires an active Dataset context and shows a Select Dataset gate from project-only context.</span></li>
+                <li><input type="checkbox" checked> <span>Model Library displays the active Dataset name when a Dataset branch is selected.</span></li>
+                <li><input type="checkbox" checked> <span>Built-in Model Configure no longer renders a Dataset chooser and lists only Embedding artifacts from the active Dataset branch.</span></li>
+                <li><input type="checkbox" checked> <span>If an Embedding is selected before opening Model Configure, that Embedding is preselected while sibling Embeddings remain visible.</span></li>
+                <li><input type="checkbox" checked> <span>Existing backend Model creation, same-Dataset validation, upstream auto-run, and persisted training output behavior remain unchanged.</span></li>
+              </ul>
+            </div>
+          </div>
+          <div class="card">
+            <h3>Model Workflow Contract</h3>
+            <table>
+              <thead>
+                <tr>
+                  <th>Area</th>
+                  <th>Decision</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Context</td>
+                  <td>Model creation is dataset-first. Users select a Project, then a Dataset, then configure built-in Model artifacts from Embedding artifacts in that Dataset branch.</td>
+                </tr>
+                <tr>
+                  <td>Embedding selection</td>
+                  <td>Configure shows all active-Dataset Embedding artifacts. A selected Embedding in the branch is used as a starting preselection, not as a hard filter.</td>
+                </tr>
+                <tr>
+                  <td>Parameters</td>
+                  <td>Model parameter controls remain unchanged in this sprint.</td>
+                </tr>
+                <tr>
+                  <td>Deferred</td>
+                  <td>Model Create, custom model authoring, prediction workflows, model editing, duplication, import/export, and feature-importance views remain future design work.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="card">
+            <h3>Verification</h3>
+            <ul>
+              <li><span class="mono">python3 -m py_compile NEExT/workbench/app.py NEExT/workbench/storage.py NEExT/workbench/schemas.py</span> passed.</li>
+              <li><span class="mono">python3 -m pytest tests/test_workbench.py</span> passed with 40 tests.</li>
+              <li><span class="mono">npm exec tsc</span> passed.</li>
+              <li><span class="mono">npm run test:e2e</span> passed with 16 browser tests.</li>
+            </ul>
+          </div>
+        </section>
+
         <section id="roadmap">
           <h2>Sprint Roadmap</h2>
           <table>
@@ -828,6 +888,12 @@
                 <td><span class="pill ready">Complete</span></td>
                 <td>Dataset-First Embedding Workflow</td>
                 <td>Implemented dataset-context Embedding Library/Configure, active-Feature preselection, and hid ambiguous Embedding Create from the ribbon.</td>
+              </tr>
+              <tr>
+                <td><strong>Sprint 7</strong></td>
+                <td><span class="pill ready">Complete</span></td>
+                <td>Dataset-First Model Workflow</td>
+                <td>Implemented dataset-context Model Library/Configure, active-Embedding preselection, and hid ambiguous Model Create from the ribbon.</td>
               </tr>
             </tbody>
           </table>
@@ -894,8 +960,8 @@
               </tr>
               <tr>
                 <td><strong>Models</strong></td>
-                <td>Configure supervised graph models from embeddings, run single or batch jobs, preview metrics, explore overview, metric charts, iterations, data, lineage, and leaf delete.</td>
-                <td>Model editing, duplication, import/export, prediction workflows, feature-importance views.</td>
+                <td>Dataset-first built-in Model Library configuration from one or more Embedding artifacts, active-Embedding preselection, run single or batch jobs, preview metrics, explore overview, metric charts, iterations, data, lineage, and leaf delete.</td>
+                <td>Model Create, custom model authoring, editing, duplication, import/export, prediction workflows, and feature-importance views.</td>
               </tr>
             </tbody>
           </table>
@@ -970,8 +1036,8 @@
               <tr>
                 <td><strong>Create Workflows</strong></td>
                 <td><span class="pill hold">Partial</span></td>
-                <td>Define Dataset Create and Embedding Create separately before restoring either ribbon command.</td>
-                <td>Feature Create is implemented for trusted custom Python node features. Dataset Create and Embedding Create are intentionally hidden until their workflows are designed.</td>
+                <td>Define Dataset Create, Embedding Create, and Model Create separately before restoring those ribbon commands.</td>
+                <td>Feature Create is implemented for trusted custom Python node features. Dataset Create, Embedding Create, and Model Create are intentionally hidden until their workflows are designed.</td>
               </tr>
               <tr>
                 <td><strong>Workbench Import/Export</strong></td>
@@ -1182,6 +1248,41 @@
               <tr>
                 <td>2026-06-12</td>
                 <td>Complete Sprint 6 dataset-first Embedding workflow implementation.</td>
+                <td>Backend checks, frontend type checks, Playwright E2E tests, and canonical Workbench browser verification passed.</td>
+              </tr>
+              <tr>
+                <td>2026-06-12</td>
+                <td>Make Sprint 7 a dataset-first Model workflow implementation sprint.</td>
+                <td>The Embedding workflow is now dataset-first, and Model configuration should follow the same Project -> Dataset -> Embedding -> Model mental model.</td>
+              </tr>
+              <tr>
+                <td>2026-06-12</td>
+                <td>Hide Model Create until its workflow is explicitly designed.</td>
+                <td>The current built-in Model path is Library-based; a separate Create command would be ambiguous and should not appear as an empty or speculative workflow.</td>
+              </tr>
+              <tr>
+                <td>2026-06-12</td>
+                <td>Make Model Library and built-in Model Configure require active Dataset context.</td>
+                <td>Model artifacts consume Embedding artifacts from one Dataset branch, so project-wide selection creates inconsistent context with the Left Panel.</td>
+              </tr>
+              <tr>
+                <td>2026-06-12</td>
+                <td>Preselect the active Embedding in Model Configure without filtering out sibling Embeddings.</td>
+                <td>The selected Embedding is useful context, but the user still needs to see and select other Embedding artifacts from the same Dataset branch.</td>
+              </tr>
+              <tr>
+                <td>2026-06-12</td>
+                <td>Keep model parameters unchanged in Sprint 7.</td>
+                <td>The approved scope is dataset-first navigation and configuration consistency, not model parameter redesign.</td>
+              </tr>
+              <tr>
+                <td>2026-06-12</td>
+                <td>Update <span class="mono">AGENTS.md</span> and <span class="mono">CLAUDE.md</span> for dataset-first Model workflows.</td>
+                <td>The approved Model Library/Configure behavior is durable Workbench guidance future agents must preserve.</td>
+              </tr>
+              <tr>
+                <td>2026-06-12</td>
+                <td>Complete Sprint 7 dataset-first Model workflow implementation.</td>
                 <td>Backend checks, frontend type checks, Playwright E2E tests, and canonical Workbench browser verification passed.</td>
               </tr>
             </tbody>

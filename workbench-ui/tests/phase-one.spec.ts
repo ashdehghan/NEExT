@@ -1123,17 +1123,16 @@ test("Home Settings enables, regenerates, and disables local MCP setup", async (
   await expect(page.locator(".settings-snippet")).toHaveCount(0);
 });
 
-test("Models Import and Create commands remain title-only", async ({ page }) => {
+test("Models Import remains title-only and Create is hidden", async ({ page }) => {
   await page.goto("/");
 
   await page.getByRole("button", { name: "MODELS" }).click();
   const ribbon = page.locator(".ribbon");
   await expect(page.locator(".artifact-table-title")).toContainText("Models");
 
-  for (const command of TITLE_ONLY_COMMANDS) {
-    await ribbon.getByRole("button", { name: command }).click();
-    await expect(page.locator(".document .title-only")).toHaveText(command);
-  }
+  await ribbon.getByRole("button", { name: "Import" }).click();
+  await expect(page.locator(".document .title-only")).toHaveText("Import");
+  await expect(ribbon.getByRole("button", { name: "Create" })).toHaveCount(0);
 });
 
 test("Feature Create saves, runs, and previews custom Python features", async ({ page }) => {
@@ -1778,12 +1777,30 @@ test("Models library configures, runs, batches, and previews persisted artifacts
   await expect(page.locator(".artifact-table-title")).toContainText("Models");
   await expect(page.locator(".artifact-table-empty")).toContainText("No models.");
   await expect(page.locator(".selection-panel .sel-section", { hasText: "Embeddings" }).locator(".sel-count")).toHaveText("0");
+  await expect(ribbon.getByRole("button", { name: "Create" })).toHaveCount(0);
 
   await modelAnalysisGroup.getByRole("button", { name: "Explore" }).click();
   await expect(page.locator(".artifact-table-title")).toContainText("Model Explore");
   await expect(page.locator(".artifact-table-empty")).toContainText("No models.");
 
   await ribbon.getByRole("button", { name: "Library" }).click();
+  await expect(page.locator(".artifact-table-title")).toContainText("Select a Dataset");
+  await expect(page.locator(".artifact-table-empty")).toContainText("Select a dataset in the Left Panel before configuring models.");
+  await expect(page.locator(".artifact-table .tbl")).toHaveCount(0);
+
+  await page
+    .locator(".selection-panel .sel-section", { hasText: "Datasets" })
+    .locator(".sel-item", { hasText: "Tiny Model" })
+    .click();
+  await page
+    .locator(".selection-panel .sel-section", { hasText: "Embeddings" })
+    .locator(".sel-item", { hasText: "Tiny Model - Approx Wasserstein Embedding" })
+    .nth(0)
+    .click();
+  await expect(page.locator(".selection-panel .sel-context")).toContainText("Context: Embedding Tiny Model - Approx Wasserstein Embedding");
+  await page.getByRole("button", { name: "MODELS" }).click();
+  await ribbon.getByRole("button", { name: "Library" }).click();
+  await expect(page.getByText("Dataset: Tiny Model")).toBeVisible();
   await expect(page.locator(".artifact-table .tbl thead th")).toHaveText(["Name", "Algorithm", "Output", "Actions"]);
   const randomForestRow = page.locator("table tbody tr", { hasText: "Random Forest" }).first();
   await expect(randomForestRow).toBeVisible();
@@ -1804,7 +1821,8 @@ test("Models library configures, runs, batches, and previews persisted artifacts
 
   const firstEmbeddingPickerRow = page.locator(".feature-picker table tbody tr", { hasText: "Tiny Model - Approx Wasserstein Embedding" }).nth(0);
   const secondEmbeddingPickerRow = page.locator(".feature-picker table tbody tr", { hasText: "Tiny Model - Approx Wasserstein Embedding" }).nth(1);
-  await firstEmbeddingPickerRow.click();
+  await expect(firstEmbeddingPickerRow.locator("input[type='checkbox']")).toBeChecked();
+  await expect(secondEmbeddingPickerRow.locator("input[type='checkbox']")).not.toBeChecked();
   await secondEmbeddingPickerRow.click();
   await expect(page.getByText("Dataset: Tiny Model")).toBeVisible();
   await expect(page.locator(".card-foot").getByRole("button", { name: "Save" })).toBeEnabled();

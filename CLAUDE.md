@@ -190,7 +190,7 @@ Spaces (HOME, DATASETS, FEATURES, EMBEDDINGS, MODELS)
 - The Ribbon contains commands/subsections for the active Space.
 - The Left Panel shows current artifacts and selected elements.
 - The Center Panel is where primary dynamic workflow UI goes.
-- Artifact Store Center Views and Feature/Embedding/Model Explore chooser lists must match the Left Panel lineage scope. Project-only context shows project datasets only and no downstream artifacts; dataset, feature, embedding, and model contexts show downstream artifacts from that dataset branch. Feature Library, built-in Feature Configure, custom Feature Create, Embedding Library, and built-in Embedding Configure are dataset-first workflows and require an active Dataset context. Embedding Configure lists Feature artifacts from the active Dataset only; if a Feature is selected in that Dataset branch, it is preselected. Other Library and Configure workflow forms remain project-wide unless explicitly redesigned.
+- Artifact Store Center Views and Feature/Embedding/Model Explore chooser lists must match the Left Panel lineage scope. Project-only context shows project datasets only and no downstream artifacts; dataset, feature, embedding, and model contexts show downstream artifacts from that dataset branch. Feature Library, built-in Feature Configure, custom Feature Create, Embedding Library, built-in Embedding Configure, Model Library, and built-in Model Configure are dataset-first workflows and require an active Dataset context. Embedding Configure lists Feature artifacts from the active Dataset only; if a Feature is selected in that Dataset branch, it is preselected. Model Configure lists Embedding artifacts from the active Dataset only; if an Embedding is selected in that Dataset branch, it is preselected. Other Library and Configure workflow forms remain project-wide unless explicitly redesigned.
 - The Right Panel contains system-level information such as the Inspector Panel and Jobs Panel.
 - The Command Window shows logs, errors, and command/job output.
 - Primary workflows must use Center Views, not random modals. New modal/dialog categories require explicit approval.
@@ -207,7 +207,7 @@ Initial Ribbon guidance:
 - `Embeddings`
   - `Embedding Management`: `Import`, `Library`, `Embeddings`
 - `Models`
-  - `Model Management`: `Import`, `Library`, `Create`, `Models`
+  - `Model Management`: `Import`, `Library`, `Models`
 
 Approved Workbench project foundation:
 
@@ -246,7 +246,8 @@ Approved Workbench project foundation:
 - Built-in Embedding Configure is dataset-first: it uses the active Dataset context, lists only Feature artifacts from that Dataset, and preselects the active Feature when the selected Feature belongs to the active Dataset branch.
 - Embedding artifacts define compute graph nodes downstream of one or more Feature artifacts. All selected Feature inputs must reference the same Dataset. Embedding execution can auto-run planned or failed upstream Dataset preparation and Feature computation before computing graph-level embeddings.
 - Workbench persists Embedding manifests, graph embedding Parquet outputs, jobs, readable job logs, preview metadata, and output file metadata.
-- Model Library entries are built-in supervised graph model algorithm templates, not executable project artifacts. A catalog row must be configured into a project Model artifact before it can participate in the compute graph.
+- Model Library entries are built-in supervised graph model algorithm templates, not executable project artifacts. A catalog row must be configured from the active Dataset context into a project Model artifact before it can participate in the compute graph.
+- Built-in Model Configure is dataset-first: it uses the active Dataset context, lists only Embedding artifacts from that Dataset, and preselects the active Embedding when the selected Embedding belongs to the active Dataset branch.
 - Model artifacts define planned DAG nodes downstream of one or more Embedding artifacts. All selected Embedding inputs must trace to the same Dataset. Model execution can auto-run planned or failed upstream Embedding, Feature, and Dataset work before training.
 - Workbench persists Model manifests, trained model files, metrics JSON, jobs, readable job logs, and metrics previews.
 - Future artifacts are immutable once saved. Edits create new artifact IDs.
@@ -255,7 +256,7 @@ Approved Workbench project foundation:
 - Dataset manifests and APIs must expose only artifact/workspace/project-relative paths. Do not expose on-disk absolute project paths.
 - Feature execution depends on configured Dataset artifacts, never directly on Dataset Library catalog entries or source-shaped imported data. If a Feature run targets a planned Dataset, Workbench prepares the Dataset first.
 - Workbench persists raw snapshots, prepared graph data, mappings, jobs, readable job logs, preview metadata, and output files. Browser previews must stay limited/paginated and must not load complete large mapping or output files by default.
-- Do not add arbitrary URL imports, PyG/DGL/OGB providers, Dataset Create, Embedding Create, feature editing, embedding editing, model editing, feature duplication, embedding duplication, model duplication, model import/export, prediction workflows, feature-importance views, permanent purge, archive, cancellation, individual artifact restore, restore-as-copy, overwrite restore, additional status transitions, or broader artifact lifecycle behavior without explicit design approval.
+- Do not add arbitrary URL imports, PyG/DGL/OGB providers, Dataset Create, Embedding Create, Model Create, feature editing, embedding editing, model editing, feature duplication, embedding duplication, model duplication, model import/export, prediction workflows, feature-importance views, permanent purge, archive, cancellation, individual artifact restore, restore-as-copy, overwrite restore, additional status transitions, or broader artifact lifecycle behavior without explicit design approval.
 - Future project archives should contain `project.json` and `artifacts/` at zip root. If an imported project UUID already exists, import it as a copy with a new UUID and preserve the original UUID in metadata.
 - Do not keep dead Workbench code for later. Add import/export, prediction workflows, feature-importance views, cancellation, concurrency beyond the single local worker, additional storage categories, and broader execution behavior only after each layer is explicitly designed.
 
