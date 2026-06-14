@@ -372,9 +372,9 @@
           <p class="subtitle">Canonical planning dashboard for the NEExT core library and Workbench. This file is the shared human-agent interface for current state, active sprint work, backlog, and decisions.</p>
         </div>
         <div class="meta">
-          <span class="pill ready">Complete: Sprint 8</span>
+          <span class="pill ready">Complete: Sprint 9</span>
           <span class="pill ready">Tracked artifact</span>
-          <span class="pill">Updated 2026-06-13</span>
+          <span class="pill">Updated 2026-06-14</span>
         </div>
       </div>
       <div class="note">
@@ -386,6 +386,7 @@
       <nav class="toc" aria-label="Table of contents">
         <div class="toc-title">Table of Contents</div>
         <a href="#status">Status Summary</a>
+        <a href="#sprint-9">Completed Sprint 9</a>
         <a href="#sprint-8">Completed Sprint 8</a>
         <a href="#sprint">Completed Sprint 1</a>
         <a href="#sprint-2">Completed Sprint 2</a>
@@ -419,9 +420,63 @@
             </div>
             <div class="card">
               <strong>Lifecycle Dashboard</strong>
-              <p class="muted">Committed static HTML planning artifact for sprint state, handoff context, and current/future development tracking. Sprint 0 through Sprint 8 are complete.</p>
-              <span class="pill ready">Sprint 8 complete</span>
+              <p class="muted">Committed static HTML planning artifact for sprint state, handoff context, and current/future development tracking. Sprint 0 through Sprint 9 are complete.</p>
+              <span class="pill ready">Sprint 9 complete</span>
             </div>
+          </div>
+        </section>
+
+        <section id="sprint-9">
+          <h2>Completed Sprint: Sprint 9 - Settings Docs</h2>
+          <div class="grid two">
+            <div class="card">
+              <strong>Goal</strong>
+              <p>Add a Workbench-first documentation surface under Home Settings while keeping Home Help unchanged and avoiding backend, routing, or markdown-parser scope.</p>
+            </div>
+            <div class="card">
+              <strong>Acceptance Criteria</strong>
+              <ul class="checklist">
+                <li><input type="checkbox" checked> <span>Settings has a Docs tab beside General and Agentic.</span></li>
+                <li><input type="checkbox" checked> <span>Docs use a left topic sidebar and right scrollable content panel inside the Settings Center View.</span></li>
+                <li><input type="checkbox" checked> <span>Docs v1 covers Overview, Workbench Flow, Projects and Datasets, Features and Custom Features, Embeddings and Models, Artifact Lifecycle, NEExT Library Quickstart, and Agentic and MCP.</span></li>
+                <li><input type="checkbox" checked> <span>Home Help remains unchanged as the existing title-only Center View.</span></li>
+                <li><input type="checkbox" checked> <span>Docs content is frontend-only typed TypeScript data with no backend endpoint, new route, modal, or markdown renderer.</span></li>
+              </ul>
+            </div>
+          </div>
+          <div class="card">
+            <h3>Scope Boundary</h3>
+            <table>
+              <thead>
+                <tr>
+                  <th>Area</th>
+                  <th>Decision</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>In scope</td>
+                  <td>Settings Docs tab, static Workbench-first docs content, topic navigation, frontend tests, release asset rebuild, and lifecycle update.</td>
+                </tr>
+                <tr>
+                  <td>Deferred</td>
+                  <td>Home Help redesign, external markdown files, backend-served docs, full API reference docs, search, and editable documentation.</td>
+                </tr>
+                <tr>
+                  <td>Implementation constraints</td>
+                  <td>Use the existing Settings Center View and tab style; do not introduce new routes, providers, modals, or storage.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="card">
+            <h3>Verification</h3>
+            <ul>
+              <li><span class="mono">npm exec tsc</span> passed.</li>
+              <li><span class="mono">python3 -m pytest tests/test_workbench.py</span> passed.</li>
+              <li><span class="mono">npm run test:e2e</span> passed.</li>
+              <li>Canonical browser verification at <span class="mono">http://127.0.0.1:8765</span> confirmed Settings Docs topic switching, scrollable docs content, unchanged Agentic MCP controls, unchanged Home Help, and a clean browser console.</li>
+            </ul>
           </div>
         </section>
 
@@ -956,6 +1011,12 @@
                 <td>Custom Feature Create Guide</td>
                 <td>Added a practical guide toggle to Feature Create and archived import/export plus non-Feature Create workflows for now.</td>
               </tr>
+              <tr>
+                <td><strong>Sprint 9</strong></td>
+                <td><span class="pill ready">Complete</span></td>
+                <td>Settings Docs</td>
+                <td>Added a Workbench-first Docs tab under Settings with topic navigation and kept Home Help unchanged.</td>
+              </tr>
             </tbody>
           </table>
         </section>
@@ -1001,8 +1062,8 @@
             <tbody>
               <tr>
                 <td><strong>Home</strong></td>
-                <td>Create/select projects, list projects, delete projects to workspace trash, restore projects, restore artifact deletion bundles, view workspace status, configure MCP settings.</td>
-                <td>Settings Docs tab, Help replacement, project import/export, permanent trash purge, and broader app settings beyond MCP.</td>
+                <td>Create/select projects, list projects, delete projects to workspace trash, restore projects, restore artifact deletion bundles, view workspace status, configure MCP settings, and read Settings Docs.</td>
+                <td>Help replacement, project import/export, permanent trash purge, and broader app settings beyond MCP.</td>
               </tr>
               <tr>
                 <td><strong>Datasets</strong></td>
@@ -1108,9 +1169,9 @@
               </tr>
               <tr>
                 <td><strong>Workbench Documentation</strong></td>
-                <td><span class="pill hold">Planned</span></td>
-                <td>After Sprint 8, design the Home Settings Docs tab as a separate sprint.</td>
-                <td>Approved direction: broader Workbench and NEExT docs should live under Settings as a Docs tab beside General and Agentic. Home Help remains unchanged until then.</td>
+                <td><span class="pill ready">Operating</span></td>
+                <td>Monitor usability and decide later whether docs need search, external markdown, or a full API reference.</td>
+                <td>Sprint 9 added a Workbench-first Docs tab under Settings beside General and Agentic. Home Help remains unchanged.</td>
               </tr>
             </tbody>
           </table>
@@ -1380,6 +1441,21 @@
               <tr>
                 <td>2026-06-13</td>
                 <td>Complete Sprint 8 custom Feature Create guide implementation.</td>
+                <td>Frontend type checks, Workbench backend tests, Playwright E2E tests, and canonical Workbench browser verification passed.</td>
+              </tr>
+              <tr>
+                <td>2026-06-14</td>
+                <td>Implement Workbench documentation as a Settings Docs tab.</td>
+                <td>The approved Sprint 9 direction is Workbench-first documentation in the existing Settings Center View, not Home Help replacement or a new navigation surface.</td>
+              </tr>
+              <tr>
+                <td>2026-06-14</td>
+                <td>Store Docs v1 as typed frontend content.</td>
+                <td>Static TypeScript content avoids backend endpoints, markdown parsing, new storage categories, and route changes while giving the Workbench a useful local documentation surface.</td>
+              </tr>
+              <tr>
+                <td>2026-06-14</td>
+                <td>Complete Sprint 9 Settings Docs implementation.</td>
                 <td>Frontend type checks, Workbench backend tests, Playwright E2E tests, and canonical Workbench browser verification passed.</td>
               </tr>
             </tbody>

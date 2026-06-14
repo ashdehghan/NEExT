@@ -844,6 +844,10 @@ test("Home commands switch center views", async ({ page }) => {
   await expect(page.getByRole("heading", { name: "Settings" })).toBeVisible();
   await expect(settingsSurface.getByRole("button", { name: "General" })).toHaveClass(/is-active/);
   await expect(settingsSurface).toContainText("No general settings yet.");
+  await settingsSurface.getByRole("button", { name: "Docs" }).click();
+  await expect(settingsSurface.getByRole("button", { name: "Docs" })).toHaveClass(/is-active/);
+  await expect(settingsSurface.locator(".settings-docs-panel")).toContainText("Workbench Flow");
+  await expect(settingsSurface.locator(".settings-doc-content")).toContainText("NEExT Workbench is a local, project-first interface");
 
   await ribbon.getByRole("button", { name: "Help" }).click();
   await expect(page.locator(".document .title-only")).toHaveText("Help");
@@ -1086,8 +1090,21 @@ test("Home Settings enables, regenerates, and disables local MCP setup", async (
   await expect(settingsSurface.getByRole("button", { name: "General" })).toHaveClass(/is-active/);
   await expect(settingsSurface).toContainText("No general settings yet.");
 
-  await settingsSurface.getByRole("button", { name: "Agentic" }).click();
-  await expect(settingsSurface.getByRole("button", { name: "Agentic" })).toHaveClass(/is-active/);
+  await settingsSurface.getByRole("button", { name: "Docs" }).click();
+  await expect(settingsSurface.getByRole("button", { name: "Docs" })).toHaveClass(/is-active/);
+  const docsPanel = settingsSurface.locator(".settings-docs-panel");
+  await expect(docsPanel.locator(".settings-doc-topic")).toHaveCount(8);
+  await expect(docsPanel.locator(".settings-doc-topic", { hasText: "Overview" })).toHaveClass(/is-active/);
+  await expect(docsPanel.locator(".settings-doc-content")).toContainText("Project Create and custom Feature Create are the active Create workflows.");
+  await docsPanel.locator(".settings-doc-topic", { hasText: "Features and Custom Features" }).click();
+  await expect(docsPanel.locator(".settings-doc-content")).toContainText("compute_feature(graph)");
+  await expect(docsPanel.locator(".settings-doc-content")).toContainText("trusted local Python, not sandboxed");
+  await docsPanel.locator(".settings-doc-topic", { hasText: "NEExT Library Quickstart" }).click();
+  await expect(docsPanel.locator(".settings-doc-content")).toContainText("embedding_dimension=8");
+  await expect(docsPanel.locator(".settings-doc-content")).toContainText("graph_labels.csv uses graph_id and graph_label.");
+
+  await settingsSurface.getByRole("button", { name: "Agentic", exact: true }).click();
+  await expect(settingsSurface.getByRole("button", { name: "Agentic", exact: true })).toHaveClass(/is-active/);
   await expect(page.getByText("MCP disabled")).toBeVisible();
   await expect(page.getByText('python3 -m pip install --upgrade "NEExT[workbench-mcp]"')).toBeVisible();
   await expect(page.getByRole("heading", { name: "ChatGPT" })).toHaveCount(0);
