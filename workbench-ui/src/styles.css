@@ -593,9 +593,56 @@ textarea {
   min-height: 80px;
   resize: vertical;
 }
+.feature-create-card {
+  height: 100%;
+  min-height: 0;
+}
 .feature-create-card .card-body {
+  flex: 1;
   min-height: 0;
   overflow: auto;
+}
+.feature-create-head {
+  grid-template-columns: 40px 1fr auto;
+}
+.feature-guide-toggle {
+  justify-self: end;
+}
+.feature-guide-body {
+  grid-template-rows: auto auto minmax(0, 1fr);
+  gap: var(--space-4);
+  overflow: hidden;
+}
+.feature-guide-section {
+  display: grid;
+  gap: var(--space-2);
+}
+.feature-guide-section:last-child {
+  grid-template-rows: auto minmax(0, 1fr);
+  min-height: 0;
+}
+.feature-guide-section h4 {
+  margin: 0;
+  font-size: var(--text-12);
+  font-weight: 700;
+  color: var(--text);
+}
+.feature-guide-section ul {
+  margin: 0;
+  padding-left: 18px;
+  display: grid;
+  gap: 6px;
+  color: var(--chrome-700);
+  font-size: var(--text-12);
+  line-height: 1.5;
+}
+.feature-guide-code {
+  margin: 0;
+  min-height: 0;
+  overflow: auto;
+}
+.settings-code.feature-guide-code {
+  max-height: none;
 }
 .feature-create-card .card-foot {
   align-items: center;

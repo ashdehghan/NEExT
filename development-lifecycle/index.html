@@ -372,9 +372,9 @@
           <p class="subtitle">Canonical planning dashboard for the NEExT core library and Workbench. This file is the shared human-agent interface for current state, active sprint work, backlog, and decisions.</p>
         </div>
         <div class="meta">
-          <span class="pill ready">Complete: Sprint 7</span>
+          <span class="pill ready">Complete: Sprint 8</span>
           <span class="pill ready">Tracked artifact</span>
-          <span class="pill">Updated 2026-06-12</span>
+          <span class="pill">Updated 2026-06-13</span>
         </div>
       </div>
       <div class="note">
@@ -386,6 +386,7 @@
       <nav class="toc" aria-label="Table of contents">
         <div class="toc-title">Table of Contents</div>
         <a href="#status">Status Summary</a>
+        <a href="#sprint-8">Completed Sprint 8</a>
         <a href="#sprint">Completed Sprint 1</a>
         <a href="#sprint-2">Completed Sprint 2</a>
         <a href="#sprint-3">Completed Sprint 3</a>
@@ -418,9 +419,63 @@
             </div>
             <div class="card">
               <strong>Lifecycle Dashboard</strong>
-              <p class="muted">Committed static HTML planning artifact for sprint state, handoff context, and current/future development tracking. Sprint 0, Sprint 1, Sprint 2, Sprint 3, Sprint 4, Sprint 5, Sprint 6, and Sprint 7 are complete.</p>
-              <span class="pill ready">Sprint 7 complete</span>
+              <p class="muted">Committed static HTML planning artifact for sprint state, handoff context, and current/future development tracking. Sprint 0 through Sprint 8 are complete.</p>
+              <span class="pill ready">Sprint 8 complete</span>
             </div>
+          </div>
+        </section>
+
+        <section id="sprint-8">
+          <h2>Completed Sprint: Sprint 8 - Custom Feature Create Guide</h2>
+          <div class="grid two">
+            <div class="card">
+              <strong>Goal</strong>
+              <p>Add practical in-Workbench guidance for custom Python node Feature Create while keeping the existing trusted local execution workflow unchanged.</p>
+            </div>
+            <div class="card">
+              <strong>Acceptance Criteria</strong>
+              <ul class="checklist">
+                <li><input type="checkbox" checked> <span>Feature Create has a small guide control in the Center View header.</span></li>
+                <li><input type="checkbox" checked> <span>The guide explains <span class="mono">compute_feature(graph)</span>, graph access, required DataFrame columns, Validate/Save behavior, missing-package handling, and fixed custom execution defaults.</span></li>
+                <li><input type="checkbox" checked> <span>Toggling between guide and form preserves draft name, code, and normalize state.</span></li>
+                <li><input type="checkbox" checked> <span>Validate, Save, Run, and Preview behavior remains unchanged.</span></li>
+                <li><input type="checkbox" checked> <span>Lifecycle and agent guidance record that active Create scope is Project Create and Feature Create only.</span></li>
+              </ul>
+            </div>
+          </div>
+          <div class="card">
+            <h3>Scope Boundary</h3>
+            <table>
+              <thead>
+                <tr>
+                  <th>Area</th>
+                  <th>Decision</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>In scope</td>
+                  <td>Feature Create guide, lifecycle reorientation, and synchronized agent guidance.</td>
+                </tr>
+                <tr>
+                  <td>Deferred</td>
+                  <td>Home Settings Docs tab, Home Help changes, import/export, Dataset Create, Embedding Create, and Model Create.</td>
+                </tr>
+                <tr>
+                  <td>Implementation constraints</td>
+                  <td>No new backend endpoint, schema change, modal, route, or alternate navigation pattern.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="card">
+            <h3>Verification</h3>
+            <ul>
+              <li><span class="mono">npm exec tsc</span> passed.</li>
+              <li><span class="mono">python3 -m pytest tests/test_workbench.py</span> passed with 40 tests.</li>
+              <li><span class="mono">npm run test:e2e</span> passed with 16 browser tests.</li>
+              <li>Canonical browser verification at <span class="mono">http://127.0.0.1:8765</span> confirmed guide toggle, contract content, draft preservation, Validate response, and a clean browser console.</li>
+            </ul>
           </div>
         </section>
 
@@ -895,6 +950,12 @@
                 <td>Dataset-First Model Workflow</td>
                 <td>Implemented dataset-context Model Library/Configure, active-Embedding preselection, and hid ambiguous Model Create from the ribbon.</td>
               </tr>
+              <tr>
+                <td><strong>Sprint 8</strong></td>
+                <td><span class="pill ready">Complete</span></td>
+                <td>Custom Feature Create Guide</td>
+                <td>Added a practical guide toggle to Feature Create and archived import/export plus non-Feature Create workflows for now.</td>
+              </tr>
             </tbody>
           </table>
         </section>
@@ -941,27 +1002,27 @@
               <tr>
                 <td><strong>Home</strong></td>
                 <td>Create/select projects, list projects, delete projects to workspace trash, restore projects, restore artifact deletion bundles, view workspace status, configure MCP settings.</td>
-                <td>Project import/export, permanent trash purge, and broader app settings beyond MCP.</td>
+                <td>Settings Docs tab, Help replacement, project import/export, permanent trash purge, and broader app settings beyond MCP.</td>
               </tr>
               <tr>
                 <td><strong>Datasets</strong></td>
                 <td>Configure curated library datasets, run preparation, preview tables, explore statistics, graph visuals, graph/node search, data, current-table CSV export, and delete with downstream cascade planning.</td>
-                <td>Dataset Create, arbitrary URL imports, archive, individual restore, broader import providers, and dataset bundle export.</td>
+                <td>Dataset Create and broader import/export are archived for now; arbitrary URL imports, archive, individual restore, broader import providers, and dataset bundle export remain deferred.</td>
               </tr>
               <tr>
                 <td><strong>Features</strong></td>
-                <td>Dataset-first built-in Feature Library configuration, trusted custom Python node Feature Create, advisory Validate, run single or batch jobs, preview outputs, explore statistics, PCA/direct plots, graph search, data, and delete with downstream cascade planning.</td>
+                <td>Dataset-first built-in Feature Library configuration, trusted custom Python node Feature Create, practical Create guide, advisory Validate, run single or batch jobs, preview outputs, explore statistics, PCA/direct plots, graph search, data, and delete with downstream cascade planning.</td>
                 <td>Feature editing, duplication, import/export, sandboxing, and package/environment management for custom code.</td>
               </tr>
               <tr>
                 <td><strong>Embeddings</strong></td>
                 <td>Dataset-first built-in Embedding Library configuration from one or more Feature artifacts, active-Feature preselection, run single or batch jobs, preview outputs, explore statistics, PCA, search, data, and delete with downstream cascade planning.</td>
-                <td>Embedding Create, custom embedding authoring, editing, duplication, import/export, and additional lifecycle actions.</td>
+                <td>Embedding Create is archived for now; custom embedding authoring, editing, duplication, import/export, and additional lifecycle actions remain deferred.</td>
               </tr>
               <tr>
                 <td><strong>Models</strong></td>
                 <td>Dataset-first built-in Model Library configuration from one or more Embedding artifacts, active-Embedding preselection, run single or batch jobs, preview metrics, explore overview, metric charts, iterations, data, lineage, and leaf delete.</td>
-                <td>Model Create, custom model authoring, editing, duplication, import/export, prediction workflows, and feature-importance views.</td>
+                <td>Model Create is archived for now; custom model authoring, editing, duplication, import/export, prediction workflows, and feature-importance views remain deferred.</td>
               </tr>
             </tbody>
           </table>
@@ -1036,14 +1097,20 @@
               <tr>
                 <td><strong>Create Workflows</strong></td>
                 <td><span class="pill hold">Partial</span></td>
-                <td>Define Dataset Create, Embedding Create, and Model Create separately before restoring those ribbon commands.</td>
-                <td>Feature Create is implemented for trusted custom Python node features. Dataset Create, Embedding Create, and Model Create are intentionally hidden until their workflows are designed.</td>
+                <td>Keep active Create scope to Project Create and custom Feature Create; do not restore Dataset, Embedding, or Model Create without a new planning decision.</td>
+                <td>Feature Create is implemented for trusted custom Python node features. Sprint 8 adds practical in-app guidance. Dataset Create, Embedding Create, and Model Create are archived for now.</td>
               </tr>
               <tr>
                 <td><strong>Workbench Import/Export</strong></td>
-                <td><span class="pill hold">Needs design</span></td>
-                <td>Define project archive import/export, dataset bundle export, and non-dataset artifact export boundaries before implementation.</td>
-                <td>Project archives remain a future epic. Dataset current-table CSV export is complete as a narrow Dataset Explore action.</td>
+                <td><span class="pill hold">Archived</span></td>
+                <td>Reopen only if the user explicitly prioritizes import/export again.</td>
+                <td>Broader import/export is set aside for now. Dataset current-table CSV export remains available as a narrow Dataset Explore action.</td>
+              </tr>
+              <tr>
+                <td><strong>Workbench Documentation</strong></td>
+                <td><span class="pill hold">Planned</span></td>
+                <td>After Sprint 8, design the Home Settings Docs tab as a separate sprint.</td>
+                <td>Approved direction: broader Workbench and NEExT docs should live under Settings as a Docs tab beside General and Agentic. Home Help remains unchanged until then.</td>
               </tr>
             </tbody>
           </table>
@@ -1284,6 +1351,36 @@
                 <td>2026-06-12</td>
                 <td>Complete Sprint 7 dataset-first Model workflow implementation.</td>
                 <td>Backend checks, frontend type checks, Playwright E2E tests, and canonical Workbench browser verification passed.</td>
+              </tr>
+              <tr>
+                <td>2026-06-13</td>
+                <td>Make Sprint 8 a focused custom Feature Create guide sprint.</td>
+                <td>The existing custom Feature Create workflow is real, and the next user need is practical in-app guidance rather than a new compute workflow.</td>
+              </tr>
+              <tr>
+                <td>2026-06-13</td>
+                <td>Keep active Create scope to Project Create and Feature Create only.</td>
+                <td>Dataset Create, Embedding Create, and Model Create are intentionally archived for now to avoid ambiguous workflow entry points.</td>
+              </tr>
+              <tr>
+                <td>2026-06-13</td>
+                <td>Archive broader import/export planning for now.</td>
+                <td>The next development focus is custom Feature Create guidance and future Workbench documentation, not project archive or broader import/export behavior.</td>
+              </tr>
+              <tr>
+                <td>2026-06-13</td>
+                <td>Plan broader documentation under Settings as a future Docs tab.</td>
+                <td>Settings already has General and Agentic tabs, and the user approved Settings Docs as the future documentation surface while leaving Home Help unchanged in Sprint 8.</td>
+              </tr>
+              <tr>
+                <td>2026-06-13</td>
+                <td>Update <span class="mono">AGENTS.md</span> and <span class="mono">CLAUDE.md</span> for the Create/import-export reorientation.</td>
+                <td>Future agents need durable guidance that only Project Create and Feature Create are active Create workflows.</td>
+              </tr>
+              <tr>
+                <td>2026-06-13</td>
+                <td>Complete Sprint 8 custom Feature Create guide implementation.</td>
+                <td>Frontend type checks, Workbench backend tests, Playwright E2E tests, and canonical Workbench browser verification passed.</td>
               </tr>
             </tbody>
           </table>

@@ -156,7 +156,7 @@ NEExT Workbench is a local, single-user FastAPI + React desktop-style UI for res
 - Core graph/network functionality belongs in NEExT. Workbench should orchestrate, expose, and enhance real NEExT workflows instead of duplicating algorithms.
 - Do not build fake, stub, placeholder, or half-wired Workbench features. Every Workbench UI feature must have real behavior, real data, and user-path verification.
 - Phase one Workbench is project-first. The committed frontend may contain the shell architecture for Spaces, Ribbon Groups, Ribbon Commands, Left Panel, Center Panel, Right Panel, Command Window, and status bar, but speculative workflow details are not allowed until designed.
-- The current Workbench backend exposes health, workspace, project metadata, Dataset Library/project dataset APIs, Feature Library/project feature APIs, custom Python Feature Create, Embedding Library/project embedding APIs, Model Library/project model APIs, local serialized jobs, Dataset preparation, Feature execution, Embedding execution, Model execution, preview APIs, and artifact lifecycle v1. Arbitrary import/export beyond approved dataset current-table CSV export, prediction workflows, cancellation, permanent purge, archive, individual artifact restore, restore-as-copy, concurrency beyond the single worker, and broader execution behavior must still be designed and added layer by layer before code is introduced.
+- The current Workbench backend exposes health, workspace, project metadata, Dataset Library/project dataset APIs, Feature Library/project feature APIs, custom Python Feature Create, Embedding Library/project embedding APIs, Model Library/project model APIs, local serialized jobs, Dataset preparation, Feature execution, Embedding execution, Model execution, preview APIs, and artifact lifecycle v1. Active Create scope is Project Create and custom Feature Create only. Dataset Create, Embedding Create, Model Create, broader import/export beyond approved dataset current-table CSV export, prediction workflows, cancellation, permanent purge, archive, individual artifact restore, restore-as-copy, concurrency beyond the single worker, and broader execution behavior are archived or deferred until explicitly reopened.
 - Do not keep dead Workbench code for later. Remove obsolete workflow code, dialogs, hooks, API clients, schemas, and storage helpers when the corresponding behavior is intentionally deferred.
 
 #### Workbench UI Vocabulary
@@ -208,6 +208,12 @@ Initial Ribbon guidance:
   - `Embedding Management`: `Import`, `Library`, `Embeddings`
 - `Models`
   - `Model Management`: `Import`, `Library`, `Models`
+
+Current Create and documentation guidance:
+
+- Active Create workflows are Project Create and custom Feature Create only. Do not restore Dataset Create, Embedding Create, or Model Create without a new explicit planning decision.
+- Broader Workbench import/export is archived for now. Do not add project archive import/export, dataset bundle export, non-dataset artifact export, or arbitrary import providers unless explicitly reopened.
+- Custom Feature Create includes an in-Center-View guide for the trusted Python feature contract. Keep broader Workbench/NEExT documentation planned for a future Settings Docs tab. The Home Help command remains unchanged until that sprint is explicitly implemented.
 
 Approved Workbench project foundation:
 
@@ -414,4 +420,4 @@ def my_custom_feature(graph):
 ```
 Register via `my_feature_methods=[{"feature_name": "...", "feature_function": func}]` in `compute_node_features()`.
 
-Workbench custom Feature Create v1 is trusted local code execution, not a sandbox. The Center View requires an active completed Dataset artifact, a display name, and Python code defining `compute_feature(graph)`. Validate performs an advisory dry run against one prepared graph and Save repeats validation before creating the planned Feature artifact. Missing Python packages must be reported clearly; Workbench must not install packages automatically.
+Workbench custom Feature Create v1 is trusted local code execution, not a sandbox. The Center View requires an active completed Dataset artifact, a display name, and Python code defining `compute_feature(graph)`. Validate performs an advisory dry run against one prepared graph and Save repeats validation before creating the planned Feature artifact. Missing Python packages must be reported clearly; Workbench must not install packages automatically. The Feature Create guide must stay contract-focused and must not introduce new runtime behavior.

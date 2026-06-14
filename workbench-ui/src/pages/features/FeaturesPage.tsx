@@ -2,7 +2,22 @@ import { useEffect, useMemo, useRef, useState, type ReactNode, type UIEvent } fr
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import * as echarts from "echarts";
 import type { EChartsOption } from "echarts";
-import { ArrowLeft, CheckCircle2, Code2, ChevronLeft, ChevronRight, Eye, Play, RotateCcw, Save, Search, Settings2, Sigma, Trash2 } from "lucide-react";
+import {
+  ArrowLeft,
+  CheckCircle2,
+  CircleHelp,
+  Code2,
+  ChevronLeft,
+  ChevronRight,
+  Eye,
+  Play,
+  RotateCcw,
+  Save,
+  Search,
+  Settings2,
+  Sigma,
+  Trash2
+} from "lucide-react";
 import {
   api,
   type CustomFeatureCreatePayload,
@@ -405,6 +420,7 @@ export function CreateFeatureView({ activeProjectId, dataset, onCreated }: Creat
   const [description, setDescription] = useState("");
   const [code, setCode] = useState(CUSTOM_FEATURE_TEMPLATE);
   const [normalizeFeatures, setNormalizeFeatures] = useState(true);
+  const [showGuide, setShowGuide] = useState(false);
 
   useEffect(() => {
     setName("");
@@ -463,6 +479,64 @@ export function CreateFeatureView({ activeProjectId, dataset, onCreated }: Creat
     codeHighlightRef.current.scrollLeft = event.currentTarget.scrollLeft;
   };
 
+  const header = (
+    <header className="card-head feature-create-head">
+      <span className="card-head-fc">
+        <Code2 />
+      </span>
+      <div>
+        <h3>{showGuide ? "Custom Feature Guide" : "Create Custom Feature"}</h3>
+        <p className="form-subtitle">{showGuide ? "Feature function contract" : "Trusted local Python"}</p>
+      </div>
+      <button
+        type="button"
+        className="btn feature-guide-toggle"
+        onClick={() => setShowGuide((current) => !current)}
+        title={showGuide ? "Back to custom feature form" : "Custom feature guide"}
+        aria-label={showGuide ? "Back to custom feature form" : "Show custom feature guide"}
+      >
+        {showGuide ? <ArrowLeft /> : <CircleHelp />}
+        {showGuide ? "Back" : "Guide"}
+      </button>
+    </header>
+  );
+
+  if (showGuide) {
+    return (
+      <section className="card feature-create-card feature-guide-card">
+        {header}
+        <div className="card-body feature-guide-body">
+          <section className="feature-guide-section">
+            <h4>Function Contract</h4>
+            <ul>
+              <li>Define one callable named <span className="mono">compute_feature(graph)</span>.</li>
+              <li>Use <span className="mono">graph.nodes</span>, <span className="mono">graph.sampled_nodes</span>, <span className="mono">graph.graph_id</span>, and <span className="mono">graph.G</span> to read the prepared graph.</li>
+              <li>Return a <span className="mono">pandas.DataFrame</span> with columns in this order: <span className="mono">node_id</span>, <span className="mono">graph_id</span>, then one or more numeric feature columns.</li>
+              <li>Return exactly one row for every node in the validation graph. Node IDs and graph IDs must match the graph being evaluated.</li>
+            </ul>
+          </section>
+
+          <section className="feature-guide-section">
+            <h4>Validate and Save</h4>
+            <ul>
+              <li>Validate runs the code against the first prepared graph in the active completed Dataset.</li>
+              <li>Save repeats backend validation before creating the planned Feature artifact.</li>
+              <li>The code is trusted local Python, not sandboxed. Missing Python packages are reported clearly, but Workbench does not install packages.</li>
+              <li>Workbench uses fixed execution defaults for custom features: <span className="mono">n_jobs=1</span> and <span className="mono">parallel_backend="threading"</span>. The Normalize checkbox controls <span className="mono">normalize_features</span>.</li>
+            </ul>
+          </section>
+
+          <section className="feature-guide-section">
+            <h4>Working Example</h4>
+            <pre className="settings-code feature-guide-code">
+              <code>{renderPythonTokens(CUSTOM_FEATURE_TEMPLATE.trim())}</code>
+            </pre>
+          </section>
+        </div>
+      </section>
+    );
+  }
+
   return (
     <form
       className="card feature-create-card"
@@ -478,15 +552,7 @@ export function CreateFeatureView({ activeProjectId, dataset, onCreated }: Creat
         });
       }}
     >
-      <header className="card-head">
-        <span className="card-head-fc">
-          <Code2 />
-        </span>
-        <div>
-          <h3>Create Custom Feature</h3>
-          <p className="form-subtitle">Trusted local Python</p>
-        </div>
-      </header>
+      {header}
       <div className="card-body">
         {createCustomFeature.error ? <p className="error-text">{createCustomFeature.error.message}</p> : null}
         {saveMessage ? <p className="muted form-note">{saveMessage}</p> : null}

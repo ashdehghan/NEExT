@@ -1151,8 +1151,33 @@ test("Feature Create saves, runs, and previews custom Python features", async ({
   await expect(page.getByLabel("Dataset")).toHaveCount(0);
   await expect(page.getByLabel("Parallel Jobs")).toHaveCount(0);
   await expect(page.getByLabel("Parallel Backend")).toHaveCount(0);
+  const customCode = `import pandas as pd
+
+def compute_feature(graph):
+    nodes = list(graph.sampled_nodes if graph.sampled_nodes is not None else graph.nodes)
+    values = [float(graph.G.degree(node)) for node in nodes]
+    df = pd.DataFrame({
+        "node_id": nodes,
+        "graph_id": graph.graph_id,
+        "custom_degree": values,
+    })
+    return df[["node_id", "graph_id", "custom_degree"]]
+`;
   await page.getByLabel("Name").fill("Custom UI Degree");
+  await page.getByLabel("Python Code").fill(customCode);
   await page.getByLabel("Normalize Features").uncheck();
+  await page.getByRole("button", { name: "Show custom feature guide" }).click();
+  await expect(page.getByRole("heading", { name: "Custom Feature Guide" })).toBeVisible();
+  const guideCard = page.locator(".feature-guide-card");
+  await expect(guideCard).toContainText("compute_feature(graph)");
+  await expect(guideCard).toContainText("trusted local Python, not sandboxed");
+  await expect(guideCard).toContainText("Missing Python packages are reported clearly");
+  await expect(guideCard).toContainText("n_jobs=1");
+  await page.getByRole("button", { name: "Back to custom feature form" }).click();
+  await expect(page.getByRole("heading", { name: "Create Custom Feature" })).toBeVisible();
+  await expect(page.getByLabel("Name")).toHaveValue("Custom UI Degree");
+  await expect(page.getByLabel("Python Code")).toHaveValue(customCode);
+  await expect(page.getByLabel("Normalize Features")).not.toBeChecked();
   await page.locator(".card-foot").getByRole("button", { name: "Validate" }).click();
   await expect(page.getByText("Valid feature output: custom_degree")).toBeVisible();
   await page.locator(".card-foot").getByRole("button", { name: "Save" }).click();
@@ -1812,7 +1837,7 @@ test("Models library configures, runs, batches, and previews persisted artifacts
 
   await randomForestRow.getByRole("button", { name: "Configure" }).click();
   await expect(page.getByRole("heading", { name: "Configure Random Forest" })).toBeVisible();
-  await expect(page.locator(".card-foot").getByRole("button", { name: "Save" })).toBeDisabled();
+  await expect(page.locator(".card-foot").getByRole("button", { name: "Save" })).toBeEnabled();
   await expect(page.getByLabel("Task Type")).toHaveValue("classifier");
   await expect(page.getByLabel("Sample Size")).toHaveValue("5");
   await expect(page.getByLabel("Test Size")).toHaveValue("0.3");
