@@ -47,7 +47,7 @@ const SETTINGS_DOC_TOPICS: SettingsDocTopic[] = [
           "Project Create and custom Feature Create are the active Create workflows.",
           "Dataset, Embedding, and Model Create are archived until their workflows are designed.",
           "Broader import/export remains deferred except for current-table CSV export in Dataset Explore.",
-          "Home Help is unchanged; operational docs live here in Settings Docs."
+          "Operational docs live here in Settings Docs."
         ]
       }
     ]

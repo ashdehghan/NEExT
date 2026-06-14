@@ -431,7 +431,7 @@
           <div class="grid two">
             <div class="card">
               <strong>Goal</strong>
-              <p>Add a Workbench-first documentation surface under Home Settings while keeping Home Help unchanged and avoiding backend, routing, or markdown-parser scope.</p>
+              <p>Add a Workbench-first documentation surface under Home Settings and make Settings Docs the active documentation entry point without backend, routing, or markdown-parser scope.</p>
             </div>
             <div class="card">
               <strong>Acceptance Criteria</strong>
@@ -439,7 +439,7 @@
                 <li><input type="checkbox" checked> <span>Settings has a Docs tab beside General and Agentic.</span></li>
                 <li><input type="checkbox" checked> <span>Docs use a left topic sidebar and right scrollable content panel inside the Settings Center View.</span></li>
                 <li><input type="checkbox" checked> <span>Docs v1 covers Overview, Workbench Flow, Projects and Datasets, Features and Custom Features, Embeddings and Models, Artifact Lifecycle, NEExT Library Quickstart, and Agentic and MCP.</span></li>
-                <li><input type="checkbox" checked> <span>Home Help remains unchanged as the existing title-only Center View.</span></li>
+                <li><input type="checkbox" checked> <span>Home Help is removed from the ribbon after Settings Docs becomes the documentation surface.</span></li>
                 <li><input type="checkbox" checked> <span>Docs content is frontend-only typed TypeScript data with no backend endpoint, new route, modal, or markdown renderer.</span></li>
               </ul>
             </div>
@@ -460,7 +460,7 @@
                 </tr>
                 <tr>
                   <td>Deferred</td>
-                  <td>Home Help redesign, external markdown files, backend-served docs, full API reference docs, search, and editable documentation.</td>
+                  <td>Standalone Help redesign, external markdown files, backend-served docs, full API reference docs, search, and editable documentation.</td>
                 </tr>
                 <tr>
                   <td>Implementation constraints</td>
@@ -475,7 +475,7 @@
               <li><span class="mono">npm exec tsc</span> passed.</li>
               <li><span class="mono">python3 -m pytest tests/test_workbench.py</span> passed.</li>
               <li><span class="mono">npm run test:e2e</span> passed.</li>
-              <li>Canonical browser verification at <span class="mono">http://127.0.0.1:8765</span> confirmed Settings Docs topic switching, scrollable docs content, unchanged Agentic MCP controls, unchanged Home Help, and a clean browser console.</li>
+              <li>Canonical browser verification at <span class="mono">http://127.0.0.1:8765</span> confirmed Settings Docs topic switching, scrollable docs content, unchanged Agentic MCP controls, absence of the Home Help command, and a clean browser console.</li>
             </ul>
           </div>
         </section>
@@ -514,7 +514,7 @@
                 </tr>
                 <tr>
                   <td>Deferred</td>
-                  <td>Home Settings Docs tab, Home Help changes, import/export, Dataset Create, Embedding Create, and Model Create.</td>
+                  <td>Future documentation enhancements, import/export, Dataset Create, Embedding Create, and Model Create.</td>
                 </tr>
                 <tr>
                   <td>Implementation constraints</td>
@@ -1015,7 +1015,7 @@
                 <td><strong>Sprint 9</strong></td>
                 <td><span class="pill ready">Complete</span></td>
                 <td>Settings Docs</td>
-                <td>Added a Workbench-first Docs tab under Settings with topic navigation and kept Home Help unchanged.</td>
+                <td>Added a Workbench-first Docs tab under Settings with topic navigation and later removed the stale Home Help ribbon command.</td>
               </tr>
             </tbody>
           </table>
@@ -1063,7 +1063,7 @@
               <tr>
                 <td><strong>Home</strong></td>
                 <td>Create/select projects, list projects, delete projects to workspace trash, restore projects, restore artifact deletion bundles, view workspace status, configure MCP settings, and read Settings Docs.</td>
-                <td>Help replacement, project import/export, permanent trash purge, and broader app settings beyond MCP.</td>
+                <td>Project import/export, permanent trash purge, broader app settings beyond MCP, and any future standalone Help redesign.</td>
               </tr>
               <tr>
                 <td><strong>Datasets</strong></td>
@@ -1171,7 +1171,7 @@
                 <td><strong>Workbench Documentation</strong></td>
                 <td><span class="pill ready">Operating</span></td>
                 <td>Monitor usability and decide later whether docs need search, external markdown, or a full API reference.</td>
-                <td>Sprint 9 added a Workbench-first Docs tab under Settings beside General and Agentic. Home Help remains unchanged.</td>
+                <td>Sprint 9 added a Workbench-first Docs tab under Settings beside General and Agentic. Home Help has been removed from the ribbon.</td>
               </tr>
             </tbody>
           </table>
@@ -1431,7 +1431,7 @@
               <tr>
                 <td>2026-06-13</td>
                 <td>Plan broader documentation under Settings as a future Docs tab.</td>
-                <td>Settings already has General and Agentic tabs, and the user approved Settings Docs as the future documentation surface while leaving Home Help unchanged in Sprint 8.</td>
+                <td>Settings already has General and Agentic tabs, and the user approved Settings Docs as the future documentation surface.</td>
               </tr>
               <tr>
                 <td>2026-06-13</td>
@@ -1446,7 +1446,7 @@
               <tr>
                 <td>2026-06-14</td>
                 <td>Implement Workbench documentation as a Settings Docs tab.</td>
-                <td>The approved Sprint 9 direction is Workbench-first documentation in the existing Settings Center View, not Home Help replacement or a new navigation surface.</td>
+                <td>The approved Sprint 9 direction is Workbench-first documentation in the existing Settings Center View, not a new route or storage surface.</td>
               </tr>
               <tr>
                 <td>2026-06-14</td>
@@ -1457,6 +1457,11 @@
                 <td>2026-06-14</td>
                 <td>Complete Sprint 9 Settings Docs implementation.</td>
                 <td>Frontend type checks, Workbench backend tests, Playwright E2E tests, and canonical Workbench browser verification passed.</td>
+              </tr>
+              <tr>
+                <td>2026-06-14</td>
+                <td>Remove the Home Help ribbon command.</td>
+                <td>Settings Docs is now the Workbench documentation surface, so the separate title-only Help command is stale and should not remain in Home App Management.</td>
               </tr>
             </tbody>
           </table>

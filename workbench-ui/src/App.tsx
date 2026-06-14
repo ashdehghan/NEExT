@@ -63,8 +63,7 @@ const HOME_TITLES: Record<string, string> = {
   create: "Create",
   projects: "Projects",
   trash: "Trash",
-  settings: "Settings",
-  help: "Help"
+  settings: "Settings"
 };
 
 function viewTitle(route: Route): string {

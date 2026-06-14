@@ -2,7 +2,7 @@ import { ToolButton } from "./ToolButton";
 import type { FcIconName } from "../primitives/FcIcon";
 import type { MainTab } from "../../types";
 
-export type RibbonCommand = "import" | "create" | "projects" | "trash" | "settings" | "help" | "library" | "explore" | MainTab;
+export type RibbonCommand = "import" | "create" | "projects" | "trash" | "settings" | "library" | "explore" | MainTab;
 
 interface RibbonProps {
   activeTab: MainTab;
@@ -37,10 +37,7 @@ const GROUPS: Record<MainTab, GroupDef[]> = {
     },
     {
       label: "App Management",
-      tools: [
-        { label: "Settings", icon: "settings", command: "settings" },
-        { label: "Help", icon: "help", command: "help" }
-      ]
+      tools: [{ label: "Settings", icon: "settings", command: "settings" }]
     }
   ],
   datasets: [

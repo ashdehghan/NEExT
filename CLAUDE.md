@@ -199,7 +199,7 @@ Initial Ribbon guidance:
 
 - `Home`
   - `Project Management`: `Import`, `Create`, `Projects`
-  - `App Management`: `Settings`, `Help`
+  - `App Management`: `Settings`
 - `Datasets`
   - `Dataset Management`: `Import`, `Library`, `Datasets`
 - `Features`
@@ -213,7 +213,7 @@ Current Create and documentation guidance:
 
 - Active Create workflows are Project Create and custom Feature Create only. Do not restore Dataset Create, Embedding Create, or Model Create without a new explicit planning decision.
 - Broader Workbench import/export is archived for now. Do not add project archive import/export, dataset bundle export, non-dataset artifact export, or arbitrary import providers unless explicitly reopened.
-- Custom Feature Create includes an in-Center-View guide for the trusted Python feature contract. Keep broader Workbench/NEExT documentation planned for a future Settings Docs tab. The Home Help command remains unchanged until that sprint is explicitly implemented.
+- Custom Feature Create includes an in-Center-View guide for the trusted Python feature contract. Broader Workbench/NEExT documentation lives under Home Settings Docs. Do not restore a Home Help command without explicit redesign approval.
 
 Approved Workbench project foundation:
 

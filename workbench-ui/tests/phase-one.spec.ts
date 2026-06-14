@@ -733,7 +733,7 @@ test("loads the packaged Workbench shell and creates a project", async ({ page }
   await expect(ribbon.getByRole("button", { name: "Projects" })).toBeVisible();
   await expect(ribbon.getByRole("button", { name: "Trash" })).toBeVisible();
   await expect(ribbon.getByRole("button", { name: "Settings" })).toBeVisible();
-  await expect(ribbon.getByRole("button", { name: "Help" })).toBeVisible();
+  await expect(ribbon.getByRole("button", { name: "Help" })).toHaveCount(0);
 
   await expect(page.locator(".selection-panel")).toContainText("Project");
   await expect(page.locator(".selection-panel")).toContainText("Datasets");
@@ -848,9 +848,7 @@ test("Home commands switch center views", async ({ page }) => {
   await expect(settingsSurface.getByRole("button", { name: "Docs" })).toHaveClass(/is-active/);
   await expect(settingsSurface.locator(".settings-docs-panel")).toContainText("Workbench Flow");
   await expect(settingsSurface.locator(".settings-doc-content")).toContainText("NEExT Workbench is a local, project-first interface");
-
-  await ribbon.getByRole("button", { name: "Help" }).click();
-  await expect(page.locator(".document .title-only")).toHaveText("Help");
+  await expect(ribbon.getByRole("button", { name: "Help" })).toHaveCount(0);
 
   await ribbon.getByRole("button", { name: "Trash" }).click();
   await expect(page.locator(".artifact-table-title")).toContainText("Trash");

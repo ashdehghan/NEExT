@@ -9,7 +9,6 @@ import {
   FcOpenedFolder,
   FcPackage,
   FcPlus,
-  FcReadingEbook,
   FcSettings,
   FcUpload
 } from "react-icons/fc";
@@ -25,8 +24,7 @@ export const FC_ICONS = {
   models: FcBarChart,
   explore: FcComboChart,
   trash: FcEmptyTrash,
-  settings: FcSettings,
-  help: FcReadingEbook
+  settings: FcSettings
 } as const satisfies Record<string, IconType>;
 
 export type FcIconName = keyof typeof FC_ICONS;
