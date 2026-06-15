@@ -220,6 +220,9 @@ test_and_debug/
 # Manuscript (separate private repo)
 manuscript/
 
+# Landing page (separate private GitHub Pages repo)
+/neext-landing-page/
+
 # Paper experiments (separate private repo)
 paper_experiments/
 
