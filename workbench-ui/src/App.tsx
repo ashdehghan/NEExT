@@ -1,8 +1,10 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   useDatasetLibrary,
   useEmbeddingLibrary,
+  useMcpActivity,
+  useMcpUiState,
   useFeatureLibrary,
   useModelLibrary,
   useProjectDatasets,
@@ -25,7 +27,7 @@ import {
   type ModelManifest
 } from "./api";
 import type { MainTab } from "./types";
-import { titleCase } from "./types";
+import { MAIN_TABS, titleCase } from "./types";
 
 import { DesktopShell } from "./components/shell/DesktopShell";
 import { TopTabs } from "./components/shell/TopTabs";
@@ -73,6 +75,29 @@ function viewTitle(route: Route): string {
 
 function TitleOnlyView({ title }: { title: string }) {
   return <h1 className="title-only">{title}</h1>;
+}
+
+function routeString(route: Record<string, unknown>, key: string): string {
+  const value = route[key];
+  return typeof value === "string" ? value : "";
+}
+
+function routeMainTab(value: string): MainTab | null {
+  return MAIN_TABS.includes(value as MainTab) ? (value as MainTab) : null;
+}
+
+function routeCommand(value: string, fallback: RibbonCommand): RibbonCommand {
+  const commands: RibbonCommand[] = ["import", "create", "projects", "trash", "settings", "library", "explore", "datasets", "features", "embeddings", "models"];
+  return commands.includes(value as RibbonCommand) ? (value as RibbonCommand) : fallback;
+}
+
+function routeArtifactKind(value: string): ArtifactKind | null {
+  return value === "dataset" || value === "feature" || value === "embedding" || value === "model" ? value : null;
+}
+
+function routeDraft(route: Record<string, unknown>): Record<string, unknown> | undefined {
+  const draft = route.draft;
+  return draft && typeof draft === "object" && !Array.isArray(draft) ? (draft as Record<string, unknown>) : undefined;
 }
 
 function artifactKindLabel(kind: ArtifactKind): string {
@@ -139,8 +164,12 @@ export default function App() {
   const [artifactDeletePlan, setArtifactDeletePlan] = useState<ArtifactDeletionPlan | null>(null);
   const [artifactDeleteError, setArtifactDeleteError] = useState("");
   const [artifactDeleteBusy, setArtifactDeleteBusy] = useState(false);
+  const [mcpDraft, setMcpDraft] = useState<Record<string, unknown> | undefined>();
+  const lastAppliedMcpUiStateId = useRef("");
 
   const workspaceQuery = useWorkspace();
+  const mcpActivityQuery = useMcpActivity();
+  const mcpUiStateQuery = useMcpUiState();
   const projectsQuery = useProjects();
   const datasetLibraryQuery = useDatasetLibrary();
   const featureLibraryQuery = useFeatureLibrary();
@@ -697,6 +726,148 @@ export default function App() {
       setArtifactDeleteBusy(false);
     }
   }, [artifactDeletePlan, clearDeletedArtifactState, closeArtifactDeleteDialog, refreshAll]);
+
+  const applyMcpUiState = useCallback(
+    (requestedRoute: Record<string, unknown>) => {
+      const projectId = routeString(requestedRoute, "project_id");
+      const requestedTopTab = routeMainTab(routeString(requestedRoute, "top_tab"));
+      const artifactKind = routeArtifactKind(routeString(requestedRoute, "artifact_kind"));
+      const artifactId = routeString(requestedRoute, "artifact_id");
+      const catalogKind = routeArtifactKind(routeString(requestedRoute, "catalog_kind"));
+      const catalogId = routeString(requestedRoute, "catalog_id");
+      const graphId = routeString(requestedRoute, "graph_id");
+      const nodeId = routeString(requestedRoute, "node_id");
+      const draft = routeDraft(requestedRoute);
+
+      refreshAll();
+      setMcpDraft(draft);
+      if (projectId) {
+        setActiveProjectId(projectId);
+        setHasAutoSelectedProject(true);
+      }
+
+      setSelectedDatasetId("");
+      setSelectedCatalogId("");
+      setSelectedFeatureId("");
+      setSelectedFeatureCatalogId("");
+      setSelectedEmbeddingId("");
+      setSelectedEmbeddingCatalogId("");
+      setSelectedModelId("");
+      setSelectedModelCatalogId("");
+      setConfigureDatasetCatalogId("");
+      setConfigureFeatureCatalogId("");
+      setConfigureEmbeddingCatalogId("");
+      setConfigureModelCatalogId("");
+      setExploreDatasetId("");
+      setExploreGraphId("");
+      setExploreGraphSummary(null);
+      setExploreNodeId("");
+      setExploreNodeVisible(null);
+      setExploreFeatureId("");
+      setExploreFeatureGraphId("");
+      setExploreFeatureGraphVisible(null);
+      setExploreEmbeddingId("");
+      setExploreEmbeddingGraphId("");
+      setExploreEmbeddingGraphVisible(null);
+      setExploreModelId("");
+      setExploreModelIteration(null);
+
+      let nextTopTab: MainTab =
+        requestedTopTab ||
+        (catalogKind === "dataset" || artifactKind === "dataset"
+          ? "datasets"
+          : catalogKind === "feature" || artifactKind === "feature"
+            ? "features"
+            : catalogKind === "embedding" || artifactKind === "embedding"
+              ? "embeddings"
+              : catalogKind === "model" || artifactKind === "model"
+                ? "models"
+                : "home");
+      let nextCommand = routeCommand(routeString(requestedRoute, "command"), DEFAULT_COMMANDS[nextTopTab]);
+
+      if (catalogKind && catalogId) {
+        nextCommand = "library";
+        if (catalogKind === "dataset") {
+          setSelectedCatalogId(catalogId);
+          setConfigureDatasetCatalogId(catalogId);
+          nextTopTab = "datasets";
+        } else if (catalogKind === "feature") {
+          setSelectedFeatureCatalogId(catalogId);
+          setConfigureFeatureCatalogId(catalogId);
+          if (artifactKind === "dataset" && artifactId) setSelectedDatasetId(artifactId);
+          nextTopTab = "features";
+        } else if (catalogKind === "embedding") {
+          setSelectedEmbeddingCatalogId(catalogId);
+          setConfigureEmbeddingCatalogId(catalogId);
+          if (artifactKind === "feature" && artifactId) setSelectedFeatureId(artifactId);
+          if (artifactKind === "dataset" && artifactId) setSelectedDatasetId(artifactId);
+          nextTopTab = "embeddings";
+        } else if (catalogKind === "model") {
+          setSelectedModelCatalogId(catalogId);
+          setConfigureModelCatalogId(catalogId);
+          if (artifactKind === "embedding" && artifactId) setSelectedEmbeddingId(artifactId);
+          if (artifactKind === "dataset" && artifactId) setSelectedDatasetId(artifactId);
+          nextTopTab = "models";
+        }
+      } else if (artifactKind && artifactId) {
+        if (artifactKind === "dataset") {
+          setSelectedDatasetId(artifactId);
+          nextTopTab = "datasets";
+          if (nextCommand === "explore") {
+            setExploreDatasetId(artifactId);
+            setExploreGraphId(graphId);
+            setExploreNodeId(nodeId);
+          } else {
+            nextCommand = "datasets";
+          }
+        } else if (artifactKind === "feature") {
+          setSelectedFeatureId(artifactId);
+          nextTopTab = "features";
+          if (nextCommand === "explore") {
+            setExploreFeatureId(artifactId);
+            setExploreFeatureGraphId(graphId);
+          } else {
+            nextCommand = "features";
+          }
+        } else if (artifactKind === "embedding") {
+          setSelectedEmbeddingId(artifactId);
+          nextTopTab = "embeddings";
+          if (nextCommand === "explore") {
+            setExploreEmbeddingId(artifactId);
+            setExploreEmbeddingGraphId(graphId);
+          } else {
+            nextCommand = "embeddings";
+          }
+        } else if (artifactKind === "model") {
+          setSelectedModelId(artifactId);
+          nextTopTab = "models";
+          nextCommand = nextCommand === "explore" ? "explore" : "models";
+          if (nextCommand === "explore") setExploreModelId(artifactId);
+        }
+      }
+
+      setRoute({ topTab: nextTopTab, command: nextCommand });
+    },
+    [refreshAll]
+  );
+
+  useEffect(() => {
+    const state = mcpUiStateQuery.data;
+    if (!state?.id || state.id === lastAppliedMcpUiStateId.current) return;
+    lastAppliedMcpUiStateId.current = state.id;
+    applyMcpUiState(state.route);
+  }, [applyMcpUiState, mcpUiStateQuery.data]);
+
+  useEffect(() => {
+    if (!mcpDraft) return;
+    const onDraftForm =
+      (route.topTab === "datasets" && route.command === "library" && Boolean(configureDatasetCatalogId)) ||
+      (route.topTab === "features" && route.command === "library" && Boolean(configureFeatureCatalogId)) ||
+      (route.topTab === "features" && route.command === "create") ||
+      (route.topTab === "embeddings" && route.command === "library" && Boolean(configureEmbeddingCatalogId)) ||
+      (route.topTab === "models" && route.command === "library" && Boolean(configureModelCatalogId));
+    if (!onDraftForm) setMcpDraft(undefined);
+  }, [configureDatasetCatalogId, configureEmbeddingCatalogId, configureFeatureCatalogId, configureModelCatalogId, mcpDraft, route.command, route.topTab]);
 
   const handleProjectCreated = useCallback((projectId: string) => {
     setActiveProjectId(projectId);
@@ -1425,6 +1596,7 @@ export default function App() {
         <ConfigureDatasetView
           activeProjectId={activeProjectId}
           entry={configuredDatasetCatalogEntry}
+          draft={mcpDraft}
           onBack={handleBackToDatasetLibrary}
           onCreated={handleDatasetCreated}
         />
@@ -1497,6 +1669,7 @@ export default function App() {
           activeProjectId={activeProjectId}
           feature={configuredFeatureCatalogEntry}
           dataset={activeLineageDataset}
+          draft={mcpDraft}
           onCreated={handleFeatureCreated}
         />
       );
@@ -1518,6 +1691,7 @@ export default function App() {
         <CreateFeatureView
           activeProjectId={activeProjectId}
           dataset={activeLineageDataset}
+          draft={mcpDraft}
           onCreated={handleFeatureCreated}
         />
       );
@@ -1581,6 +1755,7 @@ export default function App() {
           dataset={activeLineageDataset}
           loading={projectFeaturesQuery.isLoading}
           initialSelectedFeatureId={activeLineageFeatureId}
+          draft={mcpDraft}
           onCreated={handleEmbeddingCreated}
         />
       );
@@ -1660,6 +1835,7 @@ export default function App() {
           dataset={activeLineageDataset}
           loading={projectEmbeddingsQuery.isLoading || projectFeaturesQuery.isLoading}
           initialSelectedEmbeddingId={activeLineageEmbeddingId}
+          draft={mcpDraft}
           onCreated={handleModelCreated}
         />
       );
@@ -1824,7 +2000,7 @@ export default function App() {
           <section className="document">
             <div className="doc-body">{renderCenterView()}</div>
           </section>
-          <CommandWindow jobs={jobs} />
+          <CommandWindow jobs={jobs} mcpActivity={mcpActivityQuery.data?.entries || []} />
         </>
       }
       right={

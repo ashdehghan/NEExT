@@ -88,17 +88,20 @@ make clean
 uv venv
 source .venv/bin/activate  # On Windows: .venv\Scripts\activate
 
-# Install NEExT with development dependencies
-uv sync --extra dev
+# Install NEExT with development and Workbench MCP dependencies
+uv sync --extra dev --extra workbench-mcp
 
 # Fallback with standard Python tooling
 python3 -m venv .venv
 source .venv/bin/activate
-python3 -m pip install -e ".[dev]"
+python3 -m pip install -U pip
+python3 -m pip install -e ".[dev,workbench-mcp]"
 
 # Install Workbench dependencies when needed
-python3 -m pip install -e ".[workbench]"
+python3 -m pip install -e ".[workbench-mcp]"
 ```
+
+Workbench MCP development requires the `workbench-mcp` extra in the active project environment. Do not rely on Anaconda/base Python for MCP validation.
 
 ### Workbench
 ```bash
@@ -156,8 +159,18 @@ NEExT Workbench is a local, single-user FastAPI + React desktop-style UI for res
 - Core graph/network functionality belongs in NEExT. Workbench should orchestrate, expose, and enhance real NEExT workflows instead of duplicating algorithms.
 - Do not build fake, stub, placeholder, or half-wired Workbench features. Every Workbench UI feature must have real behavior, real data, and user-path verification.
 - Phase one Workbench is project-first. The committed frontend may contain the shell architecture for Spaces, Ribbon Groups, Ribbon Commands, Left Panel, Center Panel, Right Panel, Command Window, and status bar, but speculative workflow details are not allowed until designed.
-- The current Workbench backend exposes health, workspace, project metadata, Dataset Library/project dataset APIs, Feature Library/project feature APIs, custom Python Feature Create, Embedding Library/project embedding APIs, Model Library/project model APIs, local serialized jobs, Dataset preparation, Feature execution, Embedding execution, Model execution, preview APIs, and artifact lifecycle v1. Active Create scope is Project Create and custom Feature Create only. Dataset Create, Embedding Create, Model Create, broader import/export beyond approved dataset current-table CSV export, prediction workflows, cancellation, permanent purge, archive, individual artifact restore, restore-as-copy, concurrency beyond the single worker, and broader execution behavior are archived or deferred until explicitly reopened.
+- The current Workbench backend exposes health, workspace, project metadata, Dataset Library/project dataset APIs, Feature Library/project feature APIs, custom Python Feature Create, Embedding Library/project embedding APIs, Model Library/project model APIs, local serialized jobs, Dataset preparation, Feature execution, Embedding execution, Model execution, preview APIs, artifact lifecycle v1, and a token-gated SDK-backed local Streamable HTTP MCP endpoint with current approved Workbench parity tools, resources, prompts, activity, UI-state requests, scoped tool access, and Workbench-enforced delete approval. Active Create scope is Project Create and custom Feature Create only. Dataset Create, Embedding Create, Model Create, broader import/export beyond approved dataset current-table CSV export, prediction workflows, cancellation, permanent purge, archive, individual artifact restore, restore-as-copy, concurrency beyond the single worker, remote OAuth MCP, and broader execution behavior are archived or deferred until explicitly reopened.
 - Do not keep dead Workbench code for later. Remove obsolete workflow code, dialogs, hooks, API clients, schemas, and storage helpers when the corresponding behavior is intentionally deferred.
+
+#### Workbench MCP Rules
+
+- The canonical Workbench MCP endpoint is SDK-backed Streamable HTTP at `http://127.0.0.1:8765/mcp`; stdio remains a compatibility launcher for local clients that need it.
+- MCP is local, token-gated, and single-user. Do not add remote OAuth, remote hosting, multi-user access, or browser-exposed secrets without explicit design approval.
+- MCP tools must map to current approved Workbench behavior only. Do not expose deferred workflows through MCP.
+- MCP tool access is scope-gated. The default scopes are `read`, `write`, `run`, `custom-code`, `ui-control`, `export`, and `lifecycle`.
+- Custom Python Feature validate/create is allowed through MCP only with `custom-code` scope and must remain clearly documented as trusted local Python execution.
+- Project and artifact delete tools must request Workbench approval; MCP must not delete projects or artifacts immediately.
+- MCP UI control may navigate to existing Spaces, Center Views, artifacts, graphs, nodes, and approved configure/create form drafts. Do not introduce new routes, modals, or navigation patterns for MCP.
 
 #### Workbench UI Vocabulary
 

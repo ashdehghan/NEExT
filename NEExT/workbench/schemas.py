@@ -774,6 +774,7 @@ class McpSettingsManifest(BaseModel):
     enabled: bool = False
     token_hash: Optional[str] = None
     token_preview: Optional[str] = None
+    scopes: list[str] = Field(default_factory=list)
     created_at: str
     updated_at: str
 
@@ -785,10 +786,79 @@ class McpClientConfigSnippet(BaseModel):
     content: str
 
 
+class McpStdioReadiness(BaseModel):
+    """Result of validating the local stdio launch path before showing config.
+
+    The stdio transport is the only way Claude Desktop can reach a local Workbench
+    server, so the command must be runnable from the exact interpreter that runs
+    Workbench. ``issues``/``remediation`` are populated when the environment cannot
+    host a working stdio server (e.g. a macOS protected folder).
+    """
+
+    status: Literal["ready", "blocked"] = "ready"
+    ok: bool = True
+    interpreter: str = ""
+    command_preview: str = ""
+    issues: list[str] = Field(default_factory=list)
+    remediation: list[str] = Field(default_factory=list)
+
+
 class McpSettingsResponse(BaseModel):
     enabled: bool
     token_preview: Optional[str] = None
     created_at: Optional[str] = None
     updated_at: Optional[str] = None
     one_time_token: Optional[str] = None
+    endpoint_url: Optional[str] = None
+    transport: str = "streamable-http"
+    protocol_version: str = "2025-11-25"
+    sdk_transport_available: bool = False
+    scopes: list[str] = Field(default_factory=list)
+    capabilities: list[dict[str, Any]] = Field(default_factory=list)
     client_configs: list[McpClientConfigSnippet] = Field(default_factory=list)
+    stdio_readiness: Optional[McpStdioReadiness] = None
+
+
+class McpActivityEntry(BaseModel):
+    id: str
+    created_at: str
+    event_type: str
+    status: Literal["pending", "completed", "failed", "denied"] = "completed"
+    message: str
+    tool_name: Optional[str] = None
+    details: dict[str, Any] = Field(default_factory=dict)
+
+
+class McpActivityListing(BaseModel):
+    entries: list[McpActivityEntry] = Field(default_factory=list)
+
+
+class McpUiState(BaseModel):
+    id: str
+    created_at: str
+    route: dict[str, Any] = Field(default_factory=dict)
+    message: str = ""
+
+
+class McpApprovalRequest(BaseModel):
+    id: str
+    created_at: str
+    updated_at: str
+    status: Literal["pending", "approved", "denied", "failed"] = "pending"
+    operation: Literal["delete_project", "delete_artifact"]
+    summary: str
+    project_id: Optional[str] = None
+    artifact_kind: Optional[Literal["dataset", "feature", "embedding", "model"]] = None
+    artifact_id: Optional[str] = None
+    cascade: bool = False
+    plan: Optional[ArtifactDeletionPlan] = None
+    result: Optional[dict[str, Any]] = None
+    error: Optional[str] = None
+
+
+class McpApprovalListing(BaseModel):
+    approvals: list[McpApprovalRequest] = Field(default_factory=list)
+
+
+class McpApprovalDecision(BaseModel):
+    reason: str = ""

@@ -1,14 +1,17 @@
 import json
 import os
+import socket
 import subprocess
 import sys
+import threading
 import time
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
 import pytest
 
-pytest.importorskip("mcp")
+pytest.importorskip("mcp.server.lowlevel")
+pytest.importorskip("mcp.server.streamable_http_manager")
 
 
 def write_labeled_graph_source_bundle(source_dir: Path, *, graph_count: int = 8) -> dict[str, str]:
@@ -59,6 +62,12 @@ def parse_tool_result(result):
     assert result.isError is False
     assert result.content
     return json.loads(result.content[0].text)
+
+
+def free_port() -> int:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.bind(("127.0.0.1", 0))
+        return int(sock.getsockname()[1])
 
 
 def test_mcp_cli_rejects_disabled_missing_and_invalid_tokens():
@@ -132,8 +141,11 @@ def test_valid_mcp_stdio_server_exposes_expected_tools_resources_and_prompts():
                     "neext_configure_dataset",
                     "neext_run_artifacts",
                     "neext_analyze_artifact",
+                    "neext_request_delete_project",
+                    "neext_restore_project",
+                    "neext_set_workbench_view",
                 }.issubset(tool_names)
-                assert not any("delete" in tool_name or "archive" in tool_name or "restore" in tool_name for tool_name in tool_names)
+                assert not any("archive" in tool_name for tool_name in tool_names)
 
                 prompts = await session.list_prompts()
                 prompt_names = {prompt.name for prompt in prompts.prompts}
@@ -169,6 +181,52 @@ def test_valid_mcp_stdio_server_exposes_expected_tools_resources_and_prompts():
         store = WorkbenchStore(Path(tmpdir))
         _, token = store.enable_mcp()
         anyio.run(inspect_server, str(Path(tmpdir).resolve()), token)
+
+
+def test_sdk_streamable_http_client_connects_to_workbench_mcp():
+    import anyio
+    import httpx
+    import uvicorn
+    from mcp import ClientSession
+    from mcp.client.streamable_http import streamable_http_client
+
+    from NEExT.workbench.app import create_app
+
+    async def inspect_http_server(workspace_path: str):
+        app = create_app(workspace_path)
+        _, token = app.state.store.enable_mcp()
+        port = free_port()
+        server = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=port, log_level="error"))
+        thread = threading.Thread(target=server.run, daemon=True)
+        thread.start()
+        try:
+            deadline = time.time() + 10.0
+            while not server.started and time.time() < deadline:
+                await anyio.sleep(0.05)
+            assert server.started
+
+            headers = {"Authorization": f"Bearer {token}"}
+            async with httpx.AsyncClient(headers=headers) as http_client:
+                async with streamable_http_client(f"http://127.0.0.1:{port}/mcp", http_client=http_client) as (
+                    read_stream,
+                    write_stream,
+                    _,
+                ):
+                    async with ClientSession(read_stream, write_stream) as session:
+                        await session.initialize()
+                        tools = await session.list_tools()
+                        tool_names = {tool.name for tool in tools.tools}
+                        assert "neext_workspace_summary" in tool_names
+                        assert "neext_create_project" in tool_names
+                        workspace = parse_tool_result(await session.call_tool("neext_workspace_summary", {}))
+                        assert workspace["project_count"] == 0
+                        assert workspace_path not in json.dumps(workspace)
+        finally:
+            server.should_exit = True
+            thread.join(timeout=10.0)
+
+    with TemporaryDirectory() as tmpdir:
+        anyio.run(inspect_http_server, str(Path(tmpdir).resolve()))
 
 
 def test_mcp_service_configures_runs_previews_and_analyzes_pipeline(monkeypatch):
@@ -290,3 +348,60 @@ def test_mcp_service_configures_runs_previews_and_analyzes_pipeline(monkeypatch)
             }
         )
         assert str(Path(tmpdir).resolve()) not in payload
+
+
+def test_stdio_launch_command_uses_running_interpreter(tmp_path):
+    from NEExT.workbench import mcp_server
+
+    workspace = tmp_path / "ws"
+    command = mcp_server.stdio_launch_command(workspace)
+    assert command[0] == sys.executable
+    assert command[1:] == ["-m", "NEExT.workbench.mcp_cli", "--workspace", str(workspace)]
+
+
+def test_path_under_protected_dir_is_macos_only(monkeypatch, tmp_path):
+    from NEExT.workbench import mcp_server
+
+    home = tmp_path / "home"
+    (home / "Desktop" / "proj" / ".venv").mkdir(parents=True)
+    (home / "code" / ".venv").mkdir(parents=True)
+    monkeypatch.setenv("HOME", str(home))
+
+    monkeypatch.setattr(mcp_server.sys, "platform", "darwin")
+    assert mcp_server.path_under_protected_dir(home / "Desktop" / "proj" / ".venv") == "Desktop"
+    assert mcp_server.path_under_protected_dir(home / "code" / ".venv") is None
+
+    # Windows/Linux have no TCC sandbox and must never be flagged.
+    monkeypatch.setattr(mcp_server.sys, "platform", "linux")
+    assert mcp_server.path_under_protected_dir(home / "Desktop" / "proj") is None
+    monkeypatch.setattr(mcp_server.sys, "platform", "win32")
+    assert mcp_server.path_under_protected_dir(home / "Documents" / "proj") is None
+
+
+def test_evaluate_stdio_readiness_ready_when_unprotected(monkeypatch, tmp_path):
+    from NEExT.workbench import mcp_server
+
+    monkeypatch.setattr(mcp_server.sys, "platform", "linux")
+    monkeypatch.setattr(mcp_server, "sdk_streamable_http_available", lambda: True)
+    readiness = mcp_server.evaluate_stdio_readiness(tmp_path / "ws")
+    assert readiness.ok is True
+    assert readiness.status == "ready"
+    assert readiness.issues == []
+    assert readiness.command_preview.endswith(str(tmp_path / "ws"))
+
+
+def test_evaluate_stdio_readiness_blocks_protected_workspace(monkeypatch, tmp_path):
+    from NEExT.workbench import mcp_server
+
+    home = tmp_path / "home"
+    workspace = home / "Documents" / "ws"
+    workspace.mkdir(parents=True)
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setattr(mcp_server.sys, "platform", "darwin")
+    monkeypatch.setattr(mcp_server, "sdk_streamable_http_available", lambda: True)
+
+    readiness = mcp_server.evaluate_stdio_readiness(workspace)
+    assert readiness.ok is False
+    assert readiness.status == "blocked"
+    assert any("Documents" in issue for issue in readiness.issues)
+    assert readiness.remediation

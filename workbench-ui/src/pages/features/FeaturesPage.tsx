@@ -47,12 +47,14 @@ interface ConfigureFeatureViewProps {
   activeProjectId: string;
   feature?: FeatureCatalogEntry;
   dataset?: DatasetManifest;
+  draft?: Record<string, unknown>;
   onCreated: (featureId: string) => void;
 }
 
 interface CreateFeatureViewProps {
   activeProjectId: string;
   dataset?: DatasetManifest;
+  draft?: Record<string, unknown>;
   onCreated: (featureId: string) => void;
 }
 
@@ -110,6 +112,21 @@ function formatValue(value: unknown): string {
 function formatAverage(covered: number, total: number): string {
   if (!total) return "0%";
   return `${((covered / total) * 100).toFixed(1)}%`;
+}
+
+function draftString(draft: Record<string, unknown> | undefined, key: string): string | undefined {
+  const value = draft?.[key];
+  return typeof value === "string" ? value : undefined;
+}
+
+function draftNumber(draft: Record<string, unknown> | undefined, key: string): number | undefined {
+  const value = draft?.[key];
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function draftBoolean(draft: Record<string, unknown> | undefined, key: string): boolean | undefined {
+  const value = draft?.[key];
+  return typeof value === "boolean" ? value : undefined;
 }
 
 export function FeatureLibraryView({
@@ -186,12 +203,24 @@ export function FeatureLibraryView({
   );
 }
 
-export function ConfigureFeatureView({ activeProjectId, feature, dataset, onCreated }: ConfigureFeatureViewProps) {
+export function ConfigureFeatureView({ activeProjectId, feature, dataset, draft, onCreated }: ConfigureFeatureViewProps) {
   const queryClient = useQueryClient();
   const [featureVectorLength, setFeatureVectorLength] = useState(3);
   const [normalizeFeatures, setNormalizeFeatures] = useState(true);
   const [nJobs, setNJobs] = useState(1);
   const [parallelBackend, setParallelBackend] = useState<"loky" | "threading">("loky");
+
+  useEffect(() => {
+    if (!draft) return;
+    const nextFeatureVectorLength = draftNumber(draft, "feature_vector_length");
+    if (nextFeatureVectorLength !== undefined) setFeatureVectorLength(nextFeatureVectorLength);
+    const nextNormalize = draftBoolean(draft, "normalize_features");
+    if (nextNormalize !== undefined) setNormalizeFeatures(nextNormalize);
+    const nextNJobs = draftNumber(draft, "n_jobs");
+    if (nextNJobs !== undefined) setNJobs(nextNJobs);
+    const nextParallelBackend = draftString(draft, "parallel_backend");
+    if (nextParallelBackend === "loky" || nextParallelBackend === "threading") setParallelBackend(nextParallelBackend);
+  }, [activeProjectId, feature?.id, dataset?.id, draft]);
 
   const createFeature = useMutation({
     mutationFn: (payload: FeatureCreatePayload) => api.createFeature(activeProjectId, payload),
@@ -413,7 +442,7 @@ function renderPythonTokens(source: string): ReactNode[] {
   return tokens;
 }
 
-export function CreateFeatureView({ activeProjectId, dataset, onCreated }: CreateFeatureViewProps) {
+export function CreateFeatureView({ activeProjectId, dataset, draft, onCreated }: CreateFeatureViewProps) {
   const queryClient = useQueryClient();
   const codeHighlightRef = useRef<HTMLPreElement | null>(null);
   const [name, setName] = useState("");
@@ -428,6 +457,18 @@ export function CreateFeatureView({ activeProjectId, dataset, onCreated }: Creat
     setCode(CUSTOM_FEATURE_TEMPLATE);
     setNormalizeFeatures(true);
   }, [activeProjectId]);
+
+  useEffect(() => {
+    if (!draft) return;
+    const nextName = draftString(draft, "name");
+    if (nextName !== undefined) setName(nextName);
+    const nextDescription = draftString(draft, "description");
+    if (nextDescription !== undefined) setDescription(nextDescription);
+    const nextCode = draftString(draft, "code");
+    if (nextCode !== undefined) setCode(nextCode);
+    const nextNormalize = draftBoolean(draft, "normalize_features");
+    if (nextNormalize !== undefined) setNormalizeFeatures(nextNormalize);
+  }, [activeProjectId, dataset?.id, draft]);
 
   const customFeatureParams = useMemo(
     () => ({

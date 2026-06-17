@@ -35,6 +35,10 @@ from .schemas import (
     ArtifactDeletionSummary,
     ArtifactError,
     ArtifactInputRef,
+    CustomFeatureCreateParams,
+    CustomFeatureCreateRequest,
+    CustomFeatureValidateRequest,
+    CustomFeatureValidationResponse,
     DatasetAnalysis,
     DatasetCatalogEntry,
     DatasetCreateRequest,
@@ -50,10 +54,6 @@ from .schemas import (
     DatasetStats,
     DatasetVisualEdge,
     DatasetVisualNode,
-    CustomFeatureCreateParams,
-    CustomFeatureCreateRequest,
-    CustomFeatureValidateRequest,
-    CustomFeatureValidationResponse,
     EmbeddingAnalysis,
     EmbeddingAnalysisAlgorithm,
     EmbeddingAnalysisFeature,
@@ -93,7 +93,12 @@ from .schemas import (
     JobManifest,
     LifecycleArtifactRef,
     LifecycleJobRef,
+    McpActivityEntry,
+    McpActivityListing,
+    McpApprovalListing,
+    McpApprovalRequest,
     McpSettingsManifest,
+    McpUiState,
     ModelAnalysis,
     ModelAnalysisAlgorithm,
     ModelAnalysisEmbedding,
@@ -131,6 +136,11 @@ MCP_SETTINGS_MANIFEST_TYPE = "mcp_settings"
 ARTIFACT_DELETION_BUNDLE_MANIFEST_TYPE = "artifact_deletion_bundle"
 CUSTOM_FEATURE_FUNCTION_NAME = "compute_feature"
 CUSTOM_FEATURE_OPERATION_FEATURE_VECTOR_LENGTH = 1
+MCP_ACTIVITY_MANIFEST_TYPE = "mcp_activity"
+MCP_APPROVALS_MANIFEST_TYPE = "mcp_approvals"
+MCP_UI_STATE_MANIFEST_TYPE = "mcp_ui_state"
+MCP_DEFAULT_SCOPES = ["read", "write", "run", "custom-code", "ui-control", "export", "lifecycle"]
+MCP_ACTIVITY_LIMIT = 100
 ARTIFACT_KINDS = ("datasets", "features", "embeddings", "models")
 ARTIFACT_KIND_FOLDERS = {
     "dataset": "datasets",
@@ -168,6 +178,9 @@ class WorkbenchStore:
         self.trash_projects_path = self.workspace_path / "trash" / "projects"
         self.workspace_file = self.workspace_path / "workspace.json"
         self.mcp_settings_file = self.workspace_path / "mcp.json"
+        self.mcp_activity_file = self.workspace_path / "mcp_activity.json"
+        self.mcp_approvals_file = self.workspace_path / "mcp_approvals.json"
+        self.mcp_ui_state_file = self.workspace_path / "mcp_ui_state.json"
         self._job_queue: queue.Queue[tuple[str, str, Callable[[], None]]] = queue.Queue()
         self._job_lock = threading.Lock()
         self._job_worker = threading.Thread(target=self._job_worker_loop, daemon=True)
@@ -335,7 +348,9 @@ class WorkbenchStore:
             status=artifact.status,
         )
 
-    def _read_artifact(self, project_id: str, artifact_kind: str, artifact_id: str) -> DatasetManifest | FeatureManifest | EmbeddingManifest | ModelManifest:
+    def _read_artifact(
+        self, project_id: str, artifact_kind: str, artifact_id: str
+    ) -> DatasetManifest | FeatureManifest | EmbeddingManifest | ModelManifest:
         if artifact_kind == "dataset":
             return self.read_dataset(project_id, artifact_id)
         if artifact_kind == "feature":
@@ -546,6 +561,7 @@ class WorkbenchStore:
             enabled=False,
             token_hash=None,
             token_preview=None,
+            scopes=MCP_DEFAULT_SCOPES,
             created_at=now,
             updated_at=now,
         )
@@ -581,6 +597,7 @@ class WorkbenchStore:
             enabled=True,
             token_hash=self._mcp_token_hash(token),
             token_preview=self._mcp_token_preview(token),
+            scopes=existing.scopes or MCP_DEFAULT_SCOPES,
             created_at=existing.created_at,
             updated_at=now,
         )
@@ -596,6 +613,7 @@ class WorkbenchStore:
             enabled=True,
             token_hash=self._mcp_token_hash(token),
             token_preview=self._mcp_token_preview(token),
+            scopes=existing.scopes or MCP_DEFAULT_SCOPES,
             created_at=existing.created_at,
             updated_at=utc_now(),
         )
@@ -608,6 +626,7 @@ class WorkbenchStore:
             enabled=False,
             token_hash=None,
             token_preview=None,
+            scopes=existing.scopes or MCP_DEFAULT_SCOPES,
             created_at=existing.created_at,
             updated_at=utc_now(),
         )
@@ -624,6 +643,238 @@ class WorkbenchStore:
         if not settings.enabled or not settings.token_hash:
             return False
         return hmac.compare_digest(self._mcp_token_hash(token), settings.token_hash)
+
+    def mcp_scopes_for_token(self, token: str) -> list[str] | None:
+        if not token:
+            return None
+        try:
+            settings = self._read_mcp_settings_manifest()
+        except (ValueError, json.JSONDecodeError, ValidationError):
+            return None
+        if not settings.enabled or not settings.token_hash:
+            return None
+        if not hmac.compare_digest(self._mcp_token_hash(token), settings.token_hash):
+            return None
+        return settings.scopes or MCP_DEFAULT_SCOPES
+
+    def _read_mcp_activity_payload(self) -> dict[str, Any]:
+        if not self.mcp_activity_file.exists():
+            return {"schema_version": SCHEMA_VERSION, "manifest_type": MCP_ACTIVITY_MANIFEST_TYPE, "entries": []}
+        payload = self._read_json(self.mcp_activity_file)
+        if payload.get("schema_version") != SCHEMA_VERSION or payload.get("manifest_type") != MCP_ACTIVITY_MANIFEST_TYPE:
+            raise ValueError("Unsupported MCP activity manifest")
+        return payload
+
+    def list_mcp_activity(self, limit: int = 50) -> McpActivityListing:
+        payload = self._read_mcp_activity_payload()
+        entries = [McpActivityEntry.model_validate(entry) for entry in payload.get("entries", [])]
+        return McpActivityListing(entries=entries[: max(1, min(limit, MCP_ACTIVITY_LIMIT))])
+
+    def record_mcp_activity(
+        self,
+        event_type: str,
+        message: str,
+        *,
+        status: str = "completed",
+        tool_name: str | None = None,
+        details: dict[str, Any] | None = None,
+    ) -> McpActivityEntry:
+        payload = self._read_mcp_activity_payload()
+        entry = McpActivityEntry(
+            id=str(uuid.uuid4()),
+            created_at=utc_now(),
+            event_type=event_type,
+            status=status,  # type: ignore[arg-type]
+            message=message,
+            tool_name=tool_name,
+            details=details or {},
+        )
+        entries = [entry.model_dump(), *payload.get("entries", [])][:MCP_ACTIVITY_LIMIT]
+        self._write_json(
+            self.mcp_activity_file,
+            {
+                "schema_version": SCHEMA_VERSION,
+                "manifest_type": MCP_ACTIVITY_MANIFEST_TYPE,
+                "entries": entries,
+            },
+        )
+        return entry
+
+    def _default_mcp_ui_state(self) -> McpUiState:
+        return McpUiState(id="", created_at=utc_now(), route={}, message="")
+
+    def read_mcp_ui_state(self) -> McpUiState:
+        if not self.mcp_ui_state_file.exists():
+            return self._default_mcp_ui_state()
+        payload = self._read_json(self.mcp_ui_state_file)
+        if payload.get("schema_version") != SCHEMA_VERSION or payload.get("manifest_type") != MCP_UI_STATE_MANIFEST_TYPE:
+            raise ValueError("Unsupported MCP UI state manifest")
+        return McpUiState.model_validate(payload["state"])
+
+    def set_mcp_ui_state(self, route: dict[str, Any], message: str = "") -> McpUiState:
+        state = McpUiState(id=str(uuid.uuid4()), created_at=utc_now(), route=route, message=message)
+        self._write_json(
+            self.mcp_ui_state_file,
+            {
+                "schema_version": SCHEMA_VERSION,
+                "manifest_type": MCP_UI_STATE_MANIFEST_TYPE,
+                "state": state.model_dump(),
+            },
+        )
+        self.record_mcp_activity(
+            "ui_state", message or "Workbench view requested by MCP", tool_name="neext_set_workbench_view", details={"route": route}
+        )
+        return state
+
+    def _read_mcp_approvals_payload(self) -> dict[str, Any]:
+        if not self.mcp_approvals_file.exists():
+            return {"schema_version": SCHEMA_VERSION, "manifest_type": MCP_APPROVALS_MANIFEST_TYPE, "approvals": []}
+        payload = self._read_json(self.mcp_approvals_file)
+        if payload.get("schema_version") != SCHEMA_VERSION or payload.get("manifest_type") != MCP_APPROVALS_MANIFEST_TYPE:
+            raise ValueError("Unsupported MCP approvals manifest")
+        return payload
+
+    def _write_mcp_approvals(self, approvals: list[McpApprovalRequest]) -> None:
+        self._write_json(
+            self.mcp_approvals_file,
+            {
+                "schema_version": SCHEMA_VERSION,
+                "manifest_type": MCP_APPROVALS_MANIFEST_TYPE,
+                "approvals": [approval.model_dump() for approval in approvals],
+            },
+        )
+
+    def list_mcp_approvals(self) -> McpApprovalListing:
+        payload = self._read_mcp_approvals_payload()
+        approvals = [McpApprovalRequest.model_validate(approval) for approval in payload.get("approvals", [])]
+        return McpApprovalListing(approvals=sorted(approvals, key=lambda item: item.created_at, reverse=True))
+
+    def _append_mcp_approval(self, request: McpApprovalRequest) -> McpApprovalRequest:
+        approvals = [request, *self.list_mcp_approvals().approvals]
+        self._write_mcp_approvals(approvals)
+        self.record_mcp_activity(
+            "approval_requested", request.summary, status="pending", details={"approval_id": request.id, "operation": request.operation}
+        )
+        return request
+
+    def request_project_delete_approval(self, project_id: str) -> McpApprovalRequest:
+        project = self.read_project(project_id)
+        now = utc_now()
+        return self._append_mcp_approval(
+            McpApprovalRequest(
+                id=str(uuid.uuid4()),
+                created_at=now,
+                updated_at=now,
+                operation="delete_project",
+                summary=f'Delete project "{project.name}"',
+                project_id=project.id,
+            )
+        )
+
+    def request_artifact_delete_approval(
+        self,
+        project_id: str,
+        artifact_kind: str,
+        artifact_id: str,
+        *,
+        cascade: bool = False,
+    ) -> McpApprovalRequest:
+        plan = self.plan_artifact_deletion(project_id, artifact_kind, artifact_id)
+        if plan.requires_cascade and not cascade:
+            raise WorkbenchConflictError(
+                f"Deleting {plan.root_artifact.name} also requires deleting downstream artifacts",
+                {"deletion_plan": plan.model_dump()},
+            )
+        now = utc_now()
+        summary = f'Delete {plan.root_artifact.artifact_kind} "{plan.root_artifact.name}"'
+        if plan.requires_cascade:
+            summary = f'Cascade delete {len(plan.artifacts)} artifacts from "{plan.root_artifact.name}"'
+        return self._append_mcp_approval(
+            McpApprovalRequest(
+                id=str(uuid.uuid4()),
+                created_at=now,
+                updated_at=now,
+                operation="delete_artifact",
+                summary=summary,
+                project_id=plan.project_id,
+                artifact_kind=plan.root_artifact.artifact_kind,
+                artifact_id=plan.root_artifact.artifact_id,
+                cascade=cascade,
+                plan=plan,
+            )
+        )
+
+    def _update_mcp_approval(self, request_id: str, update: Callable[[McpApprovalRequest], McpApprovalRequest]) -> McpApprovalRequest:
+        approvals = self.list_mcp_approvals().approvals
+        for index, approval in enumerate(approvals):
+            if approval.id == request_id:
+                approvals[index] = update(approval)
+                self._write_mcp_approvals(approvals)
+                return approvals[index]
+        raise FileNotFoundError(f"MCP approval request not found: {request_id}")
+
+    def approve_mcp_request(self, request_id: str) -> McpApprovalRequest:
+        approvals = self.list_mcp_approvals().approvals
+        approval = next((item for item in approvals if item.id == request_id), None)
+        if approval is None:
+            raise FileNotFoundError(f"MCP approval request not found: {request_id}")
+        if approval.status != "pending":
+            raise ValueError("Only pending MCP approval requests can be approved")
+
+        try:
+            if approval.operation == "delete_project":
+                if not approval.project_id:
+                    raise ValueError("Delete project approval is missing project_id")
+                result = self.delete_project(approval.project_id).model_dump()
+            else:
+                if not approval.project_id or not approval.artifact_kind or not approval.artifact_id:
+                    raise ValueError("Delete artifact approval is missing artifact details")
+                result = self.delete_artifact(
+                    approval.project_id,
+                    approval.artifact_kind,
+                    approval.artifact_id,
+                    cascade=approval.cascade,
+                ).model_dump()
+
+            def mark_approved(current: McpApprovalRequest) -> McpApprovalRequest:
+                current.status = "approved"
+                current.updated_at = utc_now()
+                current.result = result
+                current.error = None
+                return current
+
+            updated = self._update_mcp_approval(request_id, mark_approved)
+            self.record_mcp_activity("approval_resolved", f"Approved: {approval.summary}", details={"approval_id": request_id, "result": result})
+            return updated
+        except Exception as exc:
+            error_message = str(exc)
+
+            def mark_failed(current: McpApprovalRequest) -> McpApprovalRequest:
+                current.status = "failed"
+                current.updated_at = utc_now()
+                current.error = error_message
+                return current
+
+            updated = self._update_mcp_approval(request_id, mark_failed)
+            self.record_mcp_activity(
+                "approval_resolved", f"Failed: {approval.summary}", status="failed", details={"approval_id": request_id, "error": error_message}
+            )
+            raise
+
+    def deny_mcp_request(self, request_id: str, reason: str = "") -> McpApprovalRequest:
+        def mark_denied(current: McpApprovalRequest) -> McpApprovalRequest:
+            if current.status != "pending":
+                raise ValueError("Only pending MCP approval requests can be denied")
+            current.status = "denied"
+            current.updated_at = utc_now()
+            current.error = reason or None
+            return current
+
+        updated = self._update_mcp_approval(request_id, mark_denied)
+        self.record_mcp_activity(
+            "approval_resolved", f"Denied: {updated.summary}", status="denied", details={"approval_id": request_id, "reason": reason}
+        )
+        return updated
 
     def list_dataset_catalog(self) -> list[DatasetCatalogEntry]:
         return list_catalog_entries()
@@ -1349,8 +1600,6 @@ class WorkbenchStore:
         tmp_path: Path,
         artifact_path: Path,
     ) -> DatasetManifest:
-        import pandas as pd
-
         from NEExT.collections import EgonetCollection
 
         params = dataset.operation.params
@@ -1561,7 +1810,9 @@ class WorkbenchStore:
             raise ValueError("Specific node ID selection requires at least one source node ID")
 
         source_to_internal = source_graph.source_to_internal_node_id or {node_id: node_id for node_id in source_graph.nodes}
-        internal_by_source_text = {str(self._json_scalar(source_node_id)): internal_node_id for source_node_id, internal_node_id in source_to_internal.items()}
+        internal_by_source_text = {
+            str(self._json_scalar(source_node_id)): internal_node_id for source_node_id, internal_node_id in source_to_internal.items()
+        }
         unknown_ids = [source_node_id for source_node_id in requested_ids if source_node_id not in internal_by_source_text]
         if unknown_ids:
             raise ValueError(f"Unknown source node IDs: {', '.join(unknown_ids)}")
@@ -1868,7 +2119,9 @@ class WorkbenchStore:
             self._log_job(project_id, job_id, f"Feature job failed: {exc}")
             raise
 
-    def _compute_node_features(self, collection, feature_names: list[str], params: dict[str, Any], custom_methods: list[dict[str, Any]] | None = None):
+    def _compute_node_features(
+        self, collection, feature_names: list[str], params: dict[str, Any], custom_methods: list[dict[str, Any]] | None = None
+    ):
         from NEExT.features import StructuralNodeFeatures
 
         node_features = StructuralNodeFeatures(
@@ -2053,16 +2306,8 @@ class WorkbenchStore:
     ) -> tuple[dict[str, Any], Any]:
         task_type = str(model.operation.params["task_type"])
         metric_names = self._model_metric_names(task_type)
-        summary = {
-            f"{metric_name}_mean": self._json_safe(results[f"{metric_name}_mean"])
-            for metric_name in metric_names
-        }
-        summary.update(
-            {
-                f"{metric_name}_std": self._json_safe(results[f"{metric_name}_std"])
-                for metric_name in metric_names
-            }
-        )
+        summary = {f"{metric_name}_mean": self._json_safe(results[f"{metric_name}_mean"]) for metric_name in metric_names}
+        summary.update({f"{metric_name}_std": self._json_safe(results[f"{metric_name}_std"]) for metric_name in metric_names})
         metric_rows = []
         for iteration in range(int(model.operation.params["sample_size"])):
             row = {"iteration": iteration}
@@ -2227,9 +2472,7 @@ class WorkbenchStore:
 
     def _embedding_feature_ids(self, embedding: EmbeddingManifest) -> list[str]:
         feature_ids = [
-            input_ref.artifact_id
-            for input_ref in embedding.inputs
-            if input_ref.role == "source_feature" and input_ref.artifact_kind == "feature"
+            input_ref.artifact_id for input_ref in embedding.inputs if input_ref.role == "source_feature" and input_ref.artifact_kind == "feature"
         ]
         if not feature_ids:
             raise ValueError("Embedding has no source feature inputs")
@@ -2237,9 +2480,7 @@ class WorkbenchStore:
 
     def _model_embedding_ids(self, model: ModelManifest) -> list[str]:
         embedding_ids = [
-            input_ref.artifact_id
-            for input_ref in model.inputs
-            if input_ref.role == "source_embedding" and input_ref.artifact_kind == "embedding"
+            input_ref.artifact_id for input_ref in model.inputs if input_ref.role == "source_embedding" and input_ref.artifact_kind == "embedding"
         ]
         if not embedding_ids:
             raise ValueError("Model has no source embedding inputs")
@@ -2336,13 +2577,11 @@ class WorkbenchStore:
 
         node_feature_columns = [] if node_features is None else [column for column in node_features.columns if column not in {"graph_id", "node_id"}]
         edge_feature_columns = (
-            []
-            if edge_features is None
-            else [column for column in edge_features.columns if column not in {"graph_id", "src_node_id", "dest_node_id"}]
+            [] if edge_features is None else [column for column in edge_features.columns if column not in {"graph_id", "src_node_id", "dest_node_id"}]
         )
 
-        node_counts = nodes.assign(_graph_id=nodes["graph_id"].map(str)).groupby("_graph_id").size().to_dict()
-        edge_counts = edges.assign(_graph_id=edges["graph_id"].map(str)).groupby("_graph_id").size().to_dict() if not edges.empty else {}
+        node_counts = nodes.assign(_graph_id=nodes["graph_id"].astype("string")).groupby("_graph_id").size().to_dict()
+        edge_counts = edges.assign(_graph_id=edges["graph_id"].astype("string")).groupby("_graph_id").size().to_dict() if not edges.empty else {}
         graph_ids = set(node_counts) | set(edge_counts)
         graph_summaries = [
             DatasetGraphSummary(
@@ -2412,9 +2651,12 @@ class WorkbenchStore:
             for row in graph_labels.to_dict(orient="records"):
                 label_by_graph[str(row["graph_id"])] = self._json_scalar(row["graph_label"])
 
-        node_counts = nodes.assign(_graph_id=nodes["graph_id"].map(str)).groupby("_graph_id").size().to_dict()
-        edge_counts = edges.assign(_graph_id=edges["graph_id"].map(str)).groupby("_graph_id").size().to_dict() if not edges.empty else {}
-        graph_ids = sorted(set(node_counts) | set(edge_counts), key=lambda graph_id: (-int(node_counts.get(graph_id, 0)), -int(edge_counts.get(graph_id, 0)), graph_id))
+        node_counts = nodes.assign(_graph_id=nodes["graph_id"].astype("string")).groupby("_graph_id").size().to_dict()
+        edge_counts = edges.assign(_graph_id=edges["graph_id"].astype("string")).groupby("_graph_id").size().to_dict() if not edges.empty else {}
+        graph_ids = sorted(
+            set(node_counts) | set(edge_counts),
+            key=lambda graph_id: (-int(node_counts.get(graph_id, 0)), -int(edge_counts.get(graph_id, 0)), graph_id),
+        )
         graph_order = {graph_id: index for index, graph_id in enumerate(graph_ids)}
 
         def match_rank(value: str) -> int:
@@ -2446,7 +2688,7 @@ class WorkbenchStore:
                 )
 
         node_pairs = (
-            nodes.assign(_graph_id=nodes["graph_id"].map(str), _node_id=nodes["node_id"].map(str))[["_graph_id", "_node_id"]]
+            nodes.assign(_graph_id=nodes["graph_id"].astype("string"), _node_id=nodes["node_id"].astype("string"))[["_graph_id", "_node_id"]]
             .drop_duplicates()
             .to_dict(orient="records")
         )
@@ -2488,13 +2730,13 @@ class WorkbenchStore:
         graph_id = str(graph_id)
         node_id = str(node_id)
 
-        graph_nodes = nodes[nodes["graph_id"].map(str) == graph_id]
+        graph_nodes = nodes[nodes["graph_id"].astype("string") == graph_id]
         if graph_nodes.empty:
             raise ValueError(f"Prepared graph not found: {graph_id}")
-        if graph_nodes[graph_nodes["node_id"].map(str) == node_id].empty:
+        if graph_nodes[graph_nodes["node_id"].astype("string") == node_id].empty:
             raise ValueError(f"Prepared node not found: {node_id}")
 
-        graph_edges = edges[edges["graph_id"].map(str) == graph_id]
+        graph_edges = edges[edges["graph_id"].astype("string") == graph_id]
         degree = 0
         for row in graph_edges.to_dict(orient="records"):
             if str(row["src_node_id"]) == node_id:
@@ -2505,7 +2747,7 @@ class WorkbenchStore:
         graph_label = None
         if dataset.prepared_data_files.graph_labels:
             graph_labels = pd.read_parquet(artifact_path / dataset.prepared_data_files.graph_labels)
-            label_rows = graph_labels[graph_labels["graph_id"].map(str) == graph_id]
+            label_rows = graph_labels[graph_labels["graph_id"].astype("string") == graph_id]
             if not label_rows.empty:
                 graph_label = self._json_scalar(label_rows.iloc[0]["graph_label"])
 
@@ -2513,7 +2755,7 @@ class WorkbenchStore:
         if dataset.prepared_data_files.node_features:
             node_features = pd.read_parquet(artifact_path / dataset.prepared_data_files.node_features)
             feature_rows = node_features[
-                (node_features["graph_id"].map(str) == graph_id) & (node_features["node_id"].map(str) == node_id)
+                (node_features["graph_id"].astype("string") == graph_id) & (node_features["node_id"].astype("string") == node_id)
             ]
             if not feature_rows.empty:
                 feature_row = feature_rows.iloc[0]
@@ -2528,7 +2770,7 @@ class WorkbenchStore:
             if mapping_path.exists():
                 mapping = pd.read_parquet(mapping_path)
                 mapping_rows = mapping[
-                    (mapping["internal_graph_id"].map(str) == graph_id) & (mapping["internal_node_id"].map(str) == node_id)
+                    (mapping["internal_graph_id"].astype("string") == graph_id) & (mapping["internal_node_id"].astype("string") == node_id)
                 ]
                 if "included" in mapping_rows.columns:
                     mapping_rows = mapping_rows[mapping_rows["included"].astype(bool)]
@@ -2557,8 +2799,8 @@ class WorkbenchStore:
         max_edges: int,
         node_mapping=None,
     ) -> DatasetGraphVisual:
-        graph_nodes = nodes[nodes["graph_id"].map(str) == graph_id]
-        graph_edges = edges[edges["graph_id"].map(str) == graph_id]
+        graph_nodes = nodes[nodes["graph_id"].astype("string") == graph_id]
+        graph_edges = edges[edges["graph_id"].astype("string") == graph_id]
         node_ids = [str(node_id) for node_id in graph_nodes["node_id"].tolist()]
         node_id_set = set(node_ids)
         degree = dict.fromkeys(node_ids, 0)
@@ -2567,7 +2809,7 @@ class WorkbenchStore:
         center_source_node_id = None
 
         if node_mapping is not None and {"internal_graph_id", "internal_node_id", "source_node_id"}.issubset(node_mapping.columns):
-            graph_mapping_rows = node_mapping[node_mapping["internal_graph_id"].map(str) == graph_id]
+            graph_mapping_rows = node_mapping[node_mapping["internal_graph_id"].astype("string") == graph_id]
             if "included" in graph_mapping_rows.columns:
                 graph_mapping_rows = graph_mapping_rows[graph_mapping_rows["included"].astype(bool)]
             for row in graph_mapping_rows.to_dict(orient="records"):
@@ -2668,13 +2910,15 @@ class WorkbenchStore:
 
         output_stats = feature.output_stats or FeatureOutputStats(row_count=int(len(features)), column_count=int(len(features.columns)))
         graph_coverage = FeatureCoverage(
-            covered=int(features["graph_id"].map(str).nunique(dropna=False)) if "graph_id" in features.columns else 0,
+            covered=int(features["graph_id"].astype("string").nunique(dropna=False)) if "graph_id" in features.columns else 0,
             total=dataset.prepared_stats.graph_count,
         )
         node_coverage = FeatureCoverage(
-            covered=int(features.loc[:, ["graph_id", "node_id"]].drop_duplicates().shape[0])
-            if {"graph_id", "node_id"}.issubset(features.columns)
-            else int(len(features)),
+            covered=(
+                int(features.loc[:, ["graph_id", "node_id"]].drop_duplicates().shape[0])
+                if {"graph_id", "node_id"}.issubset(features.columns)
+                else int(len(features))
+            ),
             total=dataset.prepared_stats.node_count,
         )
 
@@ -3016,12 +3260,7 @@ class WorkbenchStore:
         import pandas as pd
 
         ordered = self._ordered_feature_rows(features)
-        graph_counts = (
-            ordered.groupby("_graph_id_str", sort=False)["_node_id_str"]
-            .nunique()
-            .rename("node_count")
-            .to_frame()
-        )
+        graph_counts = ordered.groupby("_graph_id_str", sort=False)["_node_id_str"].nunique().rename("node_count").to_frame()
         if numeric_columns:
             numeric_values = ordered.loc[:, ["_graph_id_str", *numeric_columns]].copy()
             for column in numeric_columns:
@@ -3162,7 +3401,7 @@ class WorkbenchStore:
             raise ValueError("Embedding output is missing graph_id")
 
         graph_vectors = embeddings.copy()
-        graph_vectors["graph_id"] = graph_vectors["graph_id"].map(str)
+        graph_vectors["graph_id"] = graph_vectors["graph_id"].astype("string")
         for column in numeric_columns:
             graph_vectors[column] = pd.to_numeric(graph_vectors[column], errors="coerce")
         graph_vectors["graph_label"] = graph_vectors["graph_id"].map(lambda graph_id: label_by_graph.get(str(graph_id)))
@@ -3289,8 +3528,8 @@ class WorkbenchStore:
 
     def _ordered_feature_rows(self, features):
         ordered = features.copy()
-        ordered["_graph_id_str"] = ordered["graph_id"].map(str)
-        ordered["_node_id_str"] = ordered["node_id"].map(str)
+        ordered["_graph_id_str"] = ordered["graph_id"].astype("string")
+        ordered["_node_id_str"] = ordered["node_id"].astype("string")
         return ordered.sort_values(["_graph_id_str", "_node_id_str"], kind="mergesort").reset_index(drop=True)
 
     def _finite_float(self, value) -> float | None:
@@ -3674,10 +3913,7 @@ class WorkbenchStore:
         catalog = get_embedding_catalog_item(manifest.source_embedding_id)
         if catalog is None:
             raise ValueError("Embedding manifest references an unknown embedding catalog entry")
-        if (
-            manifest.operation.operation_id != catalog.operation_id
-            or manifest.operation.operation_version != catalog.operation_version
-        ):
+        if manifest.operation.operation_id != catalog.operation_id or manifest.operation.operation_version != catalog.operation_version:
             raise ValueError("Embedding manifest operation must match its catalog entry")
         if get_embedding_operation_definition(manifest.operation.operation_id, manifest.operation.operation_version) is None:
             raise ValueError("Embedding manifest references an unsupported operation")
@@ -3717,10 +3953,7 @@ class WorkbenchStore:
         catalog = get_model_catalog_item(manifest.source_model_id)
         if catalog is None:
             raise ValueError("Model manifest references an unknown model catalog entry")
-        if (
-            manifest.operation.operation_id != catalog.operation_id
-            or manifest.operation.operation_version != catalog.operation_version
-        ):
+        if manifest.operation.operation_id != catalog.operation_id or manifest.operation.operation_version != catalog.operation_version:
             raise ValueError("Model manifest operation must match its catalog entry")
         if get_model_operation_definition(manifest.operation.operation_id, manifest.operation.operation_version) is None:
             raise ValueError("Model manifest references an unsupported operation")

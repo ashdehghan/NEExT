@@ -1,15 +1,29 @@
 """FastAPI application for the local NEExT Workbench."""
 
 import json
-import os
-import sysconfig
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Optional, Union
 
+from .mcp_server import (
+    MCP_PROTOCOL_VERSION,
+    MCP_TRANSPORT,
+    capability_summary,
+    create_mcp_token_verifier,
+    create_streamable_http_session_manager,
+    evaluate_stdio_readiness,
+    require_sdk_streamable_http,
+    sdk_streamable_http_available,
+    stdio_launch_command,
+)
+from .mcp_service import WorkbenchMcpService
 from .paths import resolve_workspace_path
 from .schemas import (
     ArtifactDeletionPlan,
     ArtifactDeletionSummary,
+    CustomFeatureCreateRequest,
+    CustomFeatureValidateRequest,
+    CustomFeatureValidationResponse,
     DatasetAnalysis,
     DatasetCreateRequest,
     DatasetGraphSearchResponse,
@@ -19,17 +33,20 @@ from .schemas import (
     EmbeddingGraphDetail,
     EmbeddingGraphSearchResponse,
     EmbeddingRunBatchRequest,
-    CustomFeatureCreateRequest,
-    CustomFeatureValidateRequest,
-    CustomFeatureValidationResponse,
     FeatureAnalysis,
     FeatureCreateRequest,
     FeatureGraphDetail,
     FeatureGraphSearchResponse,
     FeatureRunBatchRequest,
+    McpActivityListing,
+    McpApprovalDecision,
+    McpApprovalListing,
+    McpApprovalRequest,
     McpClientConfigSnippet,
     McpSettingsManifest,
     McpSettingsResponse,
+    McpStdioReadiness,
+    McpUiState,
     ModelAnalysis,
     ModelCreateRequest,
     ModelRunBatchRequest,
@@ -43,8 +60,8 @@ from .storage import (
     EMBEDDING_ANALYSIS_DEFAULT_MAX_POINTS,
     FEATURE_ANALYSIS_DEFAULT_MAX_FIT_ROWS,
     FEATURE_ANALYSIS_DEFAULT_MAX_POINTS,
-    WorkbenchStore,
     WorkbenchConflictError,
+    WorkbenchStore,
 )
 
 
@@ -59,8 +76,46 @@ def create_app(workspace_path: Optional[Union[str, Path]] = None):
     from fastapi.staticfiles import StaticFiles
 
     store = WorkbenchStore(resolve_workspace_path(workspace_path))
-    app = FastAPI(title="NEExT Workbench", version="0.1.0")
+    mcp_service = WorkbenchMcpService(store)
+    sdk_transport_available = sdk_streamable_http_available()
+    mcp_session_manager = create_streamable_http_session_manager(mcp_service) if sdk_transport_available else None
+
+    @asynccontextmanager
+    async def lifespan(app):
+        if mcp_session_manager is None:
+            yield
+            return
+        async with mcp_session_manager.run():
+            yield
+
+    app = FastAPI(title="NEExT Workbench", version="0.1.0", lifespan=lifespan)
     app.state.store = store
+    mcp_endpoint_url = "http://127.0.0.1:8765/mcp"
+
+    if mcp_session_manager is not None:
+        from mcp.server.auth.middleware.auth_context import AuthContextMiddleware
+        from mcp.server.auth.middleware.bearer_auth import BearerAuthBackend, RequireAuthMiddleware
+        from starlette.middleware.authentication import AuthenticationMiddleware
+        from starlette.routing import Route
+
+        app.add_middleware(AuthContextMiddleware)
+        app.add_middleware(AuthenticationMiddleware, backend=BearerAuthBackend(create_mcp_token_verifier(store)))
+        app.router.routes.append(
+            Route(
+                "/mcp",
+                endpoint=RequireAuthMiddleware(mcp_session_manager.handle_request, required_scopes=[]),
+                methods=["GET", "POST", "DELETE"],
+            )
+        )
+    else:
+
+        @app.api_route("/mcp", methods=["GET", "POST", "DELETE"])
+        async def missing_mcp_sdk():
+            try:
+                require_sdk_streamable_http()
+            except RuntimeError as exc:
+                raise HTTPException(status_code=503, detail=str(exc)) from exc
+            raise HTTPException(status_code=503, detail="SDK-backed Workbench MCP is unavailable.")
 
     def api_exception(exc: Exception) -> HTTPException:
         if isinstance(exc, FileNotFoundError):
@@ -71,62 +126,89 @@ def create_app(workspace_path: Optional[Union[str, Path]] = None):
             return HTTPException(status_code=400, detail=str(exc))
         return HTTPException(status_code=500, detail=str(exc))
 
-    def mcp_client_config_snippets(settings: McpSettingsManifest, one_time_token: Optional[str]) -> list[McpClientConfigSnippet]:
+    def mcp_client_config_snippets(
+        settings: McpSettingsManifest,
+        one_time_token: Optional[str],
+        stdio_readiness: McpStdioReadiness,
+    ) -> list[McpClientConfigSnippet]:
         if not settings.enabled:
             return []
 
         token_value = one_time_token or "<regenerate-token-in-workbench-settings>"
-        scripts_dir = Path(sysconfig.get_path("scripts") or "")
-        command_name = "neext-workbench-mcp.exe" if os.name == "nt" else "neext-workbench-mcp"
-        server_config = {
-            "command": str(scripts_dir / command_name),
-            "args": [
-                "--workspace",
-                str(store.workspace_path),
-            ],
-            "env": {
-                "NEEXT_WORKBENCH_MCP_TOKEN": token_value,
-            },
+        http_server_config = {
+            "type": "streamable-http",
+            "url": mcp_endpoint_url,
+            "headers": {"Authorization": f"Bearer {token_value}"},
         }
-        mcp_servers_config = {"mcpServers": {"neext-workbench": server_config}}
-        config_json = json.dumps(mcp_servers_config, indent=2)
-        return [
-            McpClientConfigSnippet(
-                client="claude_desktop",
-                label="Claude Desktop",
-                target="claude_desktop_config.json",
-                content=config_json,
-            ),
-            McpClientConfigSnippet(
-                client="claude_code",
-                label="Claude Code",
-                target="MCP server JSON",
-                content=config_json,
-            ),
-            McpClientConfigSnippet(
-                client="cursor",
-                label="Cursor",
-                target=".cursor/mcp.json",
-                content=config_json,
-            ),
-            McpClientConfigSnippet(
-                client="windsurf",
-                label="Windsurf",
-                target="mcp_config.json",
-                content=config_json,
-            ),
-        ]
+        http_config_json = json.dumps({"mcpServers": {"neext-workbench": http_server_config}}, indent=2)
+
+        snippets: list[McpClientConfigSnippet] = []
+
+        # Claude Desktop can only reach a local server over stdio, and the launch
+        # command must run from the exact interpreter hosting Workbench. Only emit
+        # the snippet when that environment can actually host the server; otherwise
+        # the UI surfaces stdio_readiness remediation instead of a broken config.
+        if stdio_readiness.ok:
+            command = stdio_launch_command(store.workspace_path)
+            claude_desktop_config = {
+                "command": command[0],
+                "args": command[1:],
+                "env": {
+                    "NEEXT_WORKBENCH_MCP_TOKEN": token_value,
+                },
+            }
+            claude_desktop_json = json.dumps({"mcpServers": {"neext-workbench": claude_desktop_config}}, indent=2)
+            snippets.append(
+                McpClientConfigSnippet(
+                    client="claude_desktop",
+                    label="Claude Desktop local",
+                    target="claude_desktop_config.json",
+                    content=claude_desktop_json,
+                )
+            )
+
+        snippets.extend(
+            [
+                McpClientConfigSnippet(
+                    client="claude_code",
+                    label="Claude Code",
+                    target="CLI",
+                    content=f"claude mcp add --transport http neext-workbench {mcp_endpoint_url} --header 'Authorization: Bearer {token_value}'",
+                ),
+                McpClientConfigSnippet(
+                    client="cursor",
+                    label="Cursor",
+                    target=".cursor/mcp.json",
+                    content=http_config_json,
+                ),
+                McpClientConfigSnippet(
+                    client="generic",
+                    label="Generic Streamable HTTP",
+                    target="mcp.json",
+                    content=http_config_json,
+                ),
+            ]
+        )
+        return snippets
 
     def mcp_settings_response(settings: McpSettingsManifest, one_time_token: Optional[str] = None) -> McpSettingsResponse:
         created_at = settings.created_at if settings.created_at else None
         updated_at = settings.updated_at if settings.updated_at else None
+        stdio_readiness = evaluate_stdio_readiness(store.workspace_path)
         return McpSettingsResponse(
             enabled=settings.enabled,
             token_preview=settings.token_preview,
             created_at=created_at,
             updated_at=updated_at,
             one_time_token=one_time_token,
-            client_configs=mcp_client_config_snippets(settings, one_time_token),
+            endpoint_url=mcp_endpoint_url if settings.enabled else None,
+            transport=MCP_TRANSPORT,
+            protocol_version=MCP_PROTOCOL_VERSION,
+            sdk_transport_available=sdk_transport_available,
+            scopes=settings.scopes,
+            capabilities=capability_summary(settings.scopes),
+            client_configs=mcp_client_config_snippets(settings, one_time_token, stdio_readiness),
+            stdio_readiness=stdio_readiness,
         )
 
     @app.get("/api/health")
@@ -169,6 +251,41 @@ def create_app(workspace_path: Optional[Union[str, Path]] = None):
     def disable_mcp_settings() -> McpSettingsResponse:
         try:
             return mcp_settings_response(store.disable_mcp())
+        except Exception as exc:
+            raise api_exception(exc) from exc
+
+    @app.get("/api/mcp-activity", response_model=McpActivityListing)
+    def list_mcp_activity(limit: int = 50) -> McpActivityListing:
+        try:
+            return store.list_mcp_activity(limit=limit)
+        except Exception as exc:
+            raise api_exception(exc) from exc
+
+    @app.get("/api/mcp-ui-state", response_model=McpUiState)
+    def get_mcp_ui_state() -> McpUiState:
+        try:
+            return store.read_mcp_ui_state()
+        except Exception as exc:
+            raise api_exception(exc) from exc
+
+    @app.get("/api/mcp-approvals", response_model=McpApprovalListing)
+    def list_mcp_approvals() -> McpApprovalListing:
+        try:
+            return store.list_mcp_approvals()
+        except Exception as exc:
+            raise api_exception(exc) from exc
+
+    @app.post("/api/mcp-approvals/{request_id}/approve", response_model=McpApprovalRequest)
+    def approve_mcp_request(request_id: str) -> McpApprovalRequest:
+        try:
+            return store.approve_mcp_request(request_id)
+        except Exception as exc:
+            raise api_exception(exc) from exc
+
+    @app.post("/api/mcp-approvals/{request_id}/deny", response_model=McpApprovalRequest)
+    def deny_mcp_request(request_id: str, decision: McpApprovalDecision) -> McpApprovalRequest:
+        try:
+            return store.deny_mcp_request(request_id, decision.reason)
         except Exception as exc:
             raise api_exception(exc) from exc
 

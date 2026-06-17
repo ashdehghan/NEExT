@@ -9,6 +9,18 @@ export function useMcpSettings() {
   return useQuery({ queryKey: ["mcp-settings"], queryFn: api.mcpSettings });
 }
 
+export function useMcpActivity() {
+  return useQuery({ queryKey: ["mcp-activity"], queryFn: () => api.mcpActivity(50), refetchInterval: 2_000 });
+}
+
+export function useMcpApprovals() {
+  return useQuery({ queryKey: ["mcp-approvals"], queryFn: api.mcpApprovals, refetchInterval: 2_000 });
+}
+
+export function useMcpUiState() {
+  return useQuery({ queryKey: ["mcp-ui-state"], queryFn: api.mcpUiState, refetchInterval: 1_500 });
+}
+
 export function useProjects() {
   return useQuery({ queryKey: ["projects"], queryFn: api.projects, refetchInterval: 60_000 });
 }

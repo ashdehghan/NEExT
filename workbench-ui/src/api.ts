@@ -595,13 +595,77 @@ export interface McpClientConfigSnippet {
   content: string;
 }
 
+export interface McpStdioReadiness {
+  status: "ready" | "blocked";
+  ok: boolean;
+  interpreter: string;
+  command_preview: string;
+  issues: string[];
+  remediation: string[];
+}
+
 export interface McpSettingsResponse {
   enabled: boolean;
   token_preview?: string | null;
   created_at?: string | null;
   updated_at?: string | null;
   one_time_token?: string | null;
+  endpoint_url?: string | null;
+  transport: string;
+  protocol_version: string;
+  sdk_transport_available: boolean;
+  scopes: string[];
+  capabilities: Array<{
+    name: string;
+    scope: string;
+    read_only: boolean;
+    destructive: boolean;
+    idempotent: boolean;
+    available: boolean;
+  }>;
   client_configs: McpClientConfigSnippet[];
+  stdio_readiness?: McpStdioReadiness | null;
+}
+
+export interface McpActivityEntry {
+  id: string;
+  created_at: string;
+  event_type: string;
+  status: "pending" | "completed" | "failed" | "denied";
+  message: string;
+  tool_name?: string | null;
+  details: Record<string, unknown>;
+}
+
+export interface McpActivityListing {
+  entries: McpActivityEntry[];
+}
+
+export interface McpUiState {
+  id: string;
+  created_at: string;
+  route: Record<string, unknown>;
+  message: string;
+}
+
+export interface McpApprovalRequest {
+  id: string;
+  created_at: string;
+  updated_at: string;
+  status: "pending" | "approved" | "denied" | "failed";
+  operation: "delete_project" | "delete_artifact";
+  summary: string;
+  project_id?: string | null;
+  artifact_kind?: ArtifactKind | null;
+  artifact_id?: string | null;
+  cascade: boolean;
+  plan?: ArtifactDeletionPlan | null;
+  result?: Record<string, unknown> | null;
+  error?: string | null;
+}
+
+export interface McpApprovalListing {
+  approvals: McpApprovalRequest[];
 }
 
 export type DatasetPreviewTable =
@@ -800,6 +864,16 @@ export const api = {
   enableMcpSettings: () => request<McpSettingsResponse>("/api/mcp-settings/enable", { method: "POST" }),
   regenerateMcpSettings: () => request<McpSettingsResponse>("/api/mcp-settings/regenerate", { method: "POST" }),
   disableMcpSettings: () => request<McpSettingsResponse>("/api/mcp-settings/disable", { method: "POST" }),
+  mcpActivity: (limit = 50) => request<McpActivityListing>(`/api/mcp-activity?limit=${limit}`),
+  mcpUiState: () => request<McpUiState>("/api/mcp-ui-state"),
+  mcpApprovals: () => request<McpApprovalListing>("/api/mcp-approvals"),
+  approveMcpRequest: (requestId: string) => request<McpApprovalRequest>(`/api/mcp-approvals/${requestId}/approve`, { method: "POST" }),
+  denyMcpRequest: (requestId: string, reason = "") =>
+    request<McpApprovalRequest>(`/api/mcp-approvals/${requestId}/deny`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ reason })
+    }),
   projects: () => request<ProjectManifest[]>("/api/projects"),
   trash: () => request<TrashListing>("/api/trash"),
   restoreProject: (trashId: string) => request<RestoreSummary>(`/api/trash/projects/${trashId}/restore`, { method: "POST" }),

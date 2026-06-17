@@ -30,6 +30,7 @@ interface DatasetLibraryViewProps {
 interface ConfigureDatasetViewProps {
   activeProjectId: string;
   entry?: DatasetCatalogEntry;
+  draft?: Record<string, unknown>;
   onBack: () => void;
   onCreated: (datasetId: string) => void;
 }
@@ -90,6 +91,21 @@ function formatValue(value: unknown): string {
 function formatAverage(total: number, count: number): string {
   if (!count) return "0";
   return (total / count).toFixed(1);
+}
+
+function draftString(draft: Record<string, unknown> | undefined, key: string): string | undefined {
+  const value = draft?.[key];
+  return typeof value === "string" ? value : undefined;
+}
+
+function draftNumber(draft: Record<string, unknown> | undefined, key: string): number | undefined {
+  const value = draft?.[key];
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function draftBoolean(draft: Record<string, unknown> | undefined, key: string): boolean | undefined {
+  const value = draft?.[key];
+  return typeof value === "boolean" ? value : undefined;
 }
 
 const DATASET_TABLE_LABELS: Record<DatasetPreviewTable, string> = {
@@ -207,7 +223,7 @@ export function DatasetLibraryView({
   );
 }
 
-export function ConfigureDatasetView({ activeProjectId, entry, onBack, onCreated }: ConfigureDatasetViewProps) {
+export function ConfigureDatasetView({ activeProjectId, entry, draft, onBack, onCreated }: ConfigureDatasetViewProps) {
   const queryClient = useQueryClient();
   const [graphType, setGraphType] = useState<"networkx" | "igraph">("networkx");
   const [filterLargestComponent, setFilterLargestComponent] = useState(true);
@@ -217,6 +233,28 @@ export function ConfigureDatasetView({ activeProjectId, entry, onBack, onCreated
   const [randomSeed, setRandomSeed] = useState(13);
   const [sourceNodeIdsText, setSourceNodeIdsText] = useState("");
   const [targetNodeAttribute, setTargetNodeAttribute] = useState("");
+
+  useEffect(() => {
+    if (!draft) return;
+    const nextGraphType = draftString(draft, "graph_type");
+    if (nextGraphType === "networkx" || nextGraphType === "igraph") setGraphType(nextGraphType);
+    const nextFilter = draftBoolean(draft, "filter_largest_component");
+    if (nextFilter !== undefined) setFilterLargestComponent(nextFilter);
+    const nextKHop = draftNumber(draft, "k_hop");
+    if (nextKHop !== undefined) setKHop(nextKHop);
+    const nextNodeSelection = draftString(draft, "node_selection");
+    if (nextNodeSelection === "all_nodes" || nextNodeSelection === "sample_fraction" || nextNodeSelection === "specific_node_ids") {
+      setNodeSelection(nextNodeSelection);
+    }
+    const nextSampleFraction = draftNumber(draft, "sample_fraction");
+    if (nextSampleFraction !== undefined) setSampleFraction(nextSampleFraction);
+    const nextRandomSeed = draftNumber(draft, "random_seed");
+    if (nextRandomSeed !== undefined) setRandomSeed(nextRandomSeed);
+    const sourceNodeIds = draft?.source_node_ids;
+    if (Array.isArray(sourceNodeIds)) setSourceNodeIdsText(sourceNodeIds.map(String).join("\n"));
+    const nextTargetAttribute = draftString(draft, "target_node_attribute");
+    if (nextTargetAttribute !== undefined) setTargetNodeAttribute(nextTargetAttribute);
+  }, [activeProjectId, entry?.id, draft]);
 
   const createDataset = useMutation({
     mutationFn: (payload: DatasetCreatePayload) => api.createDataset(activeProjectId, payload),

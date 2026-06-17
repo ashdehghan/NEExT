@@ -1,6 +1,5 @@
 import json
-import os
-import sysconfig
+import sys
 import time
 import uuid
 from pathlib import Path
@@ -26,41 +25,25 @@ def write_dataset_source_bundle(source_dir: Path, *, invalid_edge: bool = False,
     source_dir.mkdir(parents=True)
     isolated_node = "5,g1\n" if include_isolated else ""
     (source_dir / "node_graph_mapping.csv").write_text(
-        "node_id,graph_id\n"
-        "1,g1\n"
-        "2,g1\n"
-        "3,g2\n"
-        "4,g2\n"
-        + isolated_node,
+        "node_id,graph_id\n" "1,g1\n" "2,g1\n" "3,g2\n" "4,g2\n" + isolated_node,
         encoding="utf-8",
     )
     edge_dest = "99" if invalid_edge else "2"
     (source_dir / "edges.csv").write_text(
-        "src_node_id,dest_node_id\n"
-        f"1,{edge_dest}\n"
-        "3,4\n",
+        "src_node_id,dest_node_id\n" f"1,{edge_dest}\n" "3,4\n",
         encoding="utf-8",
     )
     (source_dir / "graph_labels.csv").write_text(
-        "graph_id,graph_label\n"
-        "g1,0\n"
-        "g2,1\n",
+        "graph_id,graph_label\n" "g1,0\n" "g2,1\n",
         encoding="utf-8",
     )
     isolated_feature = "5,0.5\n" if include_isolated else ""
     (source_dir / "node_features.csv").write_text(
-        "node_id,feature_a\n"
-        "1,0.1\n"
-        "2,0.2\n"
-        "3,0.3\n"
-        "4,0.4\n"
-        + isolated_feature,
+        "node_id,feature_a\n" "1,0.1\n" "2,0.2\n" "3,0.3\n" "4,0.4\n" + isolated_feature,
         encoding="utf-8",
     )
     (source_dir / "edge_features.csv").write_text(
-        "src_node_id,dest_node_id,edge_weight\n"
-        "1,2,1.5\n"
-        "3,4,2.5\n",
+        "src_node_id,dest_node_id,edge_weight\n" "1,2,1.5\n" "3,4,2.5\n",
         encoding="utf-8",
     )
     return {
@@ -122,14 +105,7 @@ def write_single_graph_source_bundle(source_dir: Path) -> dict[str, str]:
         encoding="utf-8",
     )
     (source_dir / "edges.csv").write_text(
-        "src_node_id,dest_node_id\n"
-        "101,102\n"
-        "102,103\n"
-        "103,104\n"
-        "104,105\n"
-        "105,106\n"
-        "106,107\n"
-        "107,108\n",
+        "src_node_id,dest_node_id\n" "101,102\n" "102,103\n" "103,104\n" "104,105\n" "105,106\n" "106,107\n" "107,108\n",
         encoding="utf-8",
     )
     return {
@@ -245,12 +221,29 @@ def test_existing_workspace_manifest_is_normalized():
         assert workspace_manifest["updated_at"]
 
 
-def test_mcp_settings_lifecycle_hashes_tokens_and_hides_full_token():
+def test_mcp_settings_lifecycle_hashes_tokens_and_hides_full_token(monkeypatch):
     pytest.importorskip("fastapi")
+    pytest.importorskip("mcp.server.streamable_http_manager")
 
     from fastapi.testclient import TestClient
 
+    from NEExT.workbench import app as workbench_app
     from NEExT.workbench.app import create_app
+    from NEExT.workbench.schemas import McpStdioReadiness
+
+    # Force a ready stdio environment so the Claude Desktop snippet is emitted
+    # regardless of where the test interpreter lives (a dev venv under ~/Desktop
+    # would otherwise be correctly blocked by macOS protected-folder detection).
+    monkeypatch.setattr(
+        workbench_app,
+        "evaluate_stdio_readiness",
+        lambda workspace_path: McpStdioReadiness(
+            status="ready",
+            ok=True,
+            interpreter=sys.executable,
+            command_preview=f"{sys.executable} -m NEExT.workbench.mcp_cli --workspace {workspace_path}",
+        ),
+    )
 
     with TemporaryDirectory() as tmpdir:
         app = create_app(tmpdir)
@@ -272,13 +265,28 @@ def test_mcp_settings_lifecycle_hashes_tokens_and_hides_full_token():
         assert enabled_payload["token_preview"].endswith(first_token[-6:])
         assert "token_hash" not in enabled_payload
         assert app.state.store.verify_mcp_token(first_token)
-        snippet_payload = json.loads(enabled_payload["client_configs"][0]["content"])
-        snippet_server = snippet_payload["mcpServers"]["neext-workbench"]
-        command_name = "neext-workbench-mcp.exe" if os.name == "nt" else "neext-workbench-mcp"
-        assert snippet_server["command"] == str(Path(sysconfig.get_path("scripts")) / command_name)
-        assert snippet_server["args"] == ["--workspace", str(Path(tmpdir).resolve())]
-        assert snippet_server["env"]["NEEXT_WORKBENCH_MCP_TOKEN"] == first_token
-        assert "PYTHONPATH" not in snippet_server["env"]
+        client_configs = {snippet["client"]: snippet for snippet in enabled_payload["client_configs"]}
+        claude_payload = json.loads(client_configs["claude_desktop"]["content"])
+        claude_server = claude_payload["mcpServers"]["neext-workbench"]
+        # Canonical claude_desktop_config.json stdio entry is bare command/args/env.
+        assert "type" not in claude_server
+        assert Path(claude_server["command"]).resolve() == Path(sys.executable).resolve()
+        assert claude_server["args"][:3] == ["-m", "NEExT.workbench.mcp_cli", "--workspace"]
+        assert Path(claude_server["args"][3]).resolve() == Path(tmpdir).resolve()
+        assert claude_server["env"]["NEEXT_WORKBENCH_MCP_TOKEN"] == first_token
+        assert enabled_payload["stdio_readiness"]["status"] == "ready"
+        cursor_payload = json.loads(client_configs["cursor"]["content"])
+        cursor_server = cursor_payload["mcpServers"]["neext-workbench"]
+        assert cursor_server["type"] == "streamable-http"
+        assert cursor_server["url"] == "http://127.0.0.1:8765/mcp"
+        assert cursor_server["headers"]["Authorization"] == f"Bearer {first_token}"
+        assert enabled_payload["endpoint_url"] == "http://127.0.0.1:8765/mcp"
+        assert enabled_payload["transport"] == "streamable-http"
+        assert enabled_payload["protocol_version"] == "2025-11-25"
+        assert enabled_payload["sdk_transport_available"] is True
+        assert set(enabled_payload["scopes"]) == {"read", "write", "run", "custom-code", "ui-control", "export", "lifecycle"}
+        capability_names = {capability["name"] for capability in enabled_payload["capabilities"]}
+        assert {"neext_workspace_summary", "neext_configure_custom_feature", "neext_request_delete_project"}.issubset(capability_names)
 
         settings_file = Path(tmpdir) / "mcp.json"
         settings_payload = json.loads(settings_file.read_text(encoding="utf-8"))
@@ -311,6 +319,199 @@ def test_mcp_settings_lifecycle_hashes_tokens_and_hides_full_token():
         assert disabled_payload["token_hash"] is None
         assert disabled_payload["token_preview"] is None
         assert not app.state.store.verify_mcp_token(second_token)
+
+
+def test_mcp_claude_desktop_snippet_suppressed_when_stdio_blocked(monkeypatch):
+    pytest.importorskip("fastapi")
+    pytest.importorskip("mcp.server.streamable_http_manager")
+
+    from fastapi.testclient import TestClient
+
+    from NEExT.workbench import app as workbench_app
+    from NEExT.workbench.app import create_app
+    from NEExT.workbench.schemas import McpStdioReadiness
+
+    blocked = McpStdioReadiness(
+        status="blocked",
+        ok=False,
+        interpreter="/some/python",
+        command_preview="/some/python -m NEExT.workbench.mcp_cli --workspace /ws",
+        issues=["The Python environment lives inside your macOS Desktop folder, which Claude Desktop cannot read."],
+        remediation=["Recreate the virtual environment outside ~/Desktop and reinstall NEExT[workbench-mcp]."],
+    )
+    monkeypatch.setattr(workbench_app, "evaluate_stdio_readiness", lambda workspace_path: blocked)
+
+    with TemporaryDirectory() as tmpdir:
+        client = TestClient(create_app(tmpdir))
+        payload = client.post("/api/mcp-settings/enable").json()
+        clients = {snippet["client"] for snippet in payload["client_configs"]}
+        # Claude Desktop is stdio-only; when stdio can't launch we suppress the snippet.
+        assert "claude_desktop" not in clients
+        # Local HTTP clients are unaffected.
+        assert {"claude_code", "cursor", "generic"}.issubset(clients)
+        assert payload["stdio_readiness"]["status"] == "blocked"
+        assert payload["stdio_readiness"]["remediation"]
+
+
+def test_http_mcp_endpoint_tools_ui_state_and_delete_approval():
+    pytest.importorskip("fastapi")
+    pytest.importorskip("mcp.server.streamable_http_manager")
+
+    from fastapi.testclient import TestClient
+
+    from NEExT.workbench.app import create_app
+
+    with TemporaryDirectory() as tmpdir:
+        app = create_app(tmpdir)
+        with TestClient(app, base_url="http://127.0.0.1:8765", follow_redirects=False) as client:
+            token = client.post("/api/mcp-settings/enable").json()["one_time_token"]
+            headers = {"Authorization": f"Bearer {token}", "Accept": "application/json, text/event-stream"}
+
+            unauthorized = client.post("/mcp", json={"jsonrpc": "2.0", "id": 1, "method": "tools/list"})
+            assert unauthorized.status_code == 401
+
+            initialized = client.post(
+                "/mcp",
+                headers=headers,
+                json={
+                    "jsonrpc": "2.0",
+                    "id": 1,
+                    "method": "initialize",
+                    "params": {"protocolVersion": "2025-11-25", "capabilities": {}, "clientInfo": {"name": "pytest", "version": "1"}},
+                },
+            )
+            assert initialized.status_code == 200
+            assert initialized.json()["result"]["protocolVersion"] == "2025-11-25"
+
+            tools = client.post("/mcp", headers=headers, json={"jsonrpc": "2.0", "id": 2, "method": "tools/list"})
+            tool_payloads = tools.json()["result"]["tools"]
+            tool_names = {tool["name"] for tool in tool_payloads}
+            assert {
+                "neext_create_project",
+                "neext_configure_custom_feature",
+                "neext_request_delete_project",
+                "neext_set_workbench_view",
+            }.issubset(tool_names)
+            delete_tool = next(tool for tool in tool_payloads if tool["name"] == "neext_request_delete_project")
+            assert delete_tool["annotations"]["destructiveHint"] is True
+            assert delete_tool["_meta"]["neextScope"] == "lifecycle"
+
+            created_response = client.post(
+                "/mcp",
+                headers=headers,
+                json={
+                    "jsonrpc": "2.0",
+                    "id": 3,
+                    "method": "tools/call",
+                    "params": {
+                        "name": "neext_create_project",
+                        "arguments": {"name": "MCP HTTP Project", "description": "sdk-http"},
+                    },
+                },
+            )
+            created_payload = json.loads(created_response.json()["result"]["content"][0]["text"])
+            project_id = created_payload["id"]
+            assert_uuid4(project_id)
+
+            view_response = client.post(
+                "/mcp",
+                headers=headers,
+                json={
+                    "jsonrpc": "2.0",
+                    "id": 4,
+                    "method": "tools/call",
+                    "params": {
+                        "name": "neext_set_workbench_view",
+                        "arguments": {"route": {"top_tab": "home", "command": "projects", "project_id": project_id}, "message": "Show MCP project"},
+                    },
+                },
+            )
+            view_payload = json.loads(view_response.json()["result"]["content"][0]["text"])
+            assert view_payload["route"]["project_id"] == project_id
+            assert client.get("/api/mcp-ui-state").json()["route"]["project_id"] == project_id
+
+            delete_response = client.post(
+                "/mcp",
+                headers=headers,
+                json={
+                    "jsonrpc": "2.0",
+                    "id": 5,
+                    "method": "tools/call",
+                    "params": {"name": "neext_request_delete_project", "arguments": {"project_id": project_id}},
+                },
+            )
+            approval = json.loads(delete_response.json()["result"]["content"][0]["text"])
+            assert approval["status"] == "pending"
+            assert approval["operation"] == "delete_project"
+            assert client.get(f"/api/projects/{project_id}").status_code == 200
+
+            approved = client.post(f"/api/mcp-approvals/{approval['id']}/approve")
+            assert approved.status_code == 200
+            assert approved.json()["status"] == "approved"
+            assert client.get(f"/api/projects/{project_id}").status_code == 404
+            trash = client.get("/api/trash").json()
+            assert trash["projects"][0]["project_id"] == project_id
+
+
+def test_http_mcp_endpoint_enforces_sdk_auth_scopes_and_route_validation():
+    pytest.importorskip("fastapi")
+    pytest.importorskip("mcp.server.streamable_http_manager")
+
+    from fastapi.testclient import TestClient
+
+    from NEExT.workbench.app import create_app
+
+    with TemporaryDirectory() as tmpdir:
+        app = create_app(tmpdir)
+        with TestClient(app, base_url="http://127.0.0.1:8765", follow_redirects=False) as client:
+            token = client.post("/api/mcp-settings/enable").json()["one_time_token"]
+            headers = {"Authorization": f"Bearer {token}", "Accept": "application/json, text/event-stream"}
+
+            settings = app.state.store.read_mcp_settings()
+            settings.scopes = ["read"]
+            app.state.store._write_mcp_settings(settings)
+
+            tools = client.post("/mcp", headers=headers, json={"jsonrpc": "2.0", "id": 2, "method": "tools/list"})
+            tool_names = {tool["name"] for tool in tools.json()["result"]["tools"]}
+            assert "neext_list_projects" in tool_names
+            assert "neext_create_project" not in tool_names
+
+            blocked_write = client.post(
+                "/mcp",
+                headers=headers,
+                json={
+                    "jsonrpc": "2.0",
+                    "id": 3,
+                    "method": "tools/call",
+                    "params": {
+                        "name": "neext_create_project",
+                        "arguments": {"name": "Blocked Project"},
+                    },
+                },
+            )
+            assert blocked_write.status_code == 200
+            assert blocked_write.json()["result"]["isError"] is True
+            assert '"write" scope' in blocked_write.json()["result"]["content"][0]["text"]
+            assert client.get("/api/projects").json() == []
+
+            settings.scopes = ["read", "ui-control"]
+            app.state.store._write_mcp_settings(settings)
+            invalid_route = client.post(
+                "/mcp",
+                headers=headers,
+                json={
+                    "jsonrpc": "2.0",
+                    "id": 4,
+                    "method": "tools/call",
+                    "params": {
+                        "name": "neext_set_workbench_view",
+                        "arguments": {"route": {"top_tab": "admin"}},
+                    },
+                },
+            )
+            assert invalid_route.status_code == 200
+            assert invalid_route.json()["result"]["isError"] is True
+            assert "Unsupported Workbench Space" in invalid_route.json()["result"]["content"][0]["text"]
 
 
 def test_workbench_project_create_list_and_read_by_id():
@@ -831,9 +1032,7 @@ def test_single_graph_dataset_prepares_egonet_collection_and_feeds_downstream_ar
         assert set(graph_labels["graph_label"]) == {"left", "right"}
         assert "role" not in node_features.columns
         assert "score" in node_features.columns
-        assert {"source_graph_id", "source_node_id", "internal_graph_id", "internal_node_id", "center_source_node_id"}.issubset(
-            node_mapping.columns
-        )
+        assert {"source_graph_id", "source_node_id", "internal_graph_id", "internal_node_id", "center_source_node_id"}.issubset(node_mapping.columns)
         assert graph_mapping["source_node_id"].tolist() == [101, 102, 103, 104, 105, 106, 107, 108]
         assert graph_mapping["internal_graph_id"].tolist() == list(range(8))
 
@@ -984,14 +1183,7 @@ def test_single_graph_node_selection_modes_are_deterministic_and_validate_unknow
             assert run.status_code == 200
             assert wait_for_job(client, project_id, run.json()["id"])["status"] == "completed"
             graph_mapping = pd.read_parquet(
-                Path(tmpdir)
-                / "projects"
-                / project_id
-                / "artifacts"
-                / "datasets"
-                / dataset_id
-                / "mappings"
-                / "graph_mapping.parquet"
+                Path(tmpdir) / "projects" / project_id / "artifacts" / "datasets" / dataset_id / "mappings" / "graph_mapping.parquet"
             )
             selected_sequences.append(graph_mapping["source_node_id"].tolist())
 
@@ -1015,14 +1207,7 @@ def test_single_graph_node_selection_modes_are_deterministic_and_validate_unknow
         assert run_specific.status_code == 200
         assert wait_for_job(client, project_id, run_specific.json()["id"])["status"] == "completed"
         specific_mapping = pd.read_parquet(
-            Path(tmpdir)
-            / "projects"
-            / project_id
-            / "artifacts"
-            / "datasets"
-            / specific_dataset_id
-            / "mappings"
-            / "graph_mapping.parquet"
+            Path(tmpdir) / "projects" / project_id / "artifacts" / "datasets" / specific_dataset_id / "mappings" / "graph_mapping.parquet"
         )
         assert specific_mapping["source_node_id"].tolist() == [101, 108]
 
@@ -1202,19 +1387,22 @@ def test_create_feature_artifact_writes_planned_dag_manifest_and_lists_project_l
         assert other_project_features.status_code == 200
         assert other_project_features.json() == []
         assert client.get(f"/api/projects/{second_project_id}/features/{feature_id}").status_code == 404
-        assert client.post(
-            f"/api/projects/{second_project_id}/features",
-            json={
-                "source_dataset_id": dataset_id,
-                "source_feature_id": "page_rank",
-                "params": {
-                    "feature_vector_length": 3,
-                    "normalize_features": True,
-                    "n_jobs": 1,
-                    "parallel_backend": "loky",
+        assert (
+            client.post(
+                f"/api/projects/{second_project_id}/features",
+                json={
+                    "source_dataset_id": dataset_id,
+                    "source_feature_id": "page_rank",
+                    "params": {
+                        "feature_vector_length": 3,
+                        "normalize_features": True,
+                        "n_jobs": 1,
+                        "parallel_backend": "loky",
+                    },
                 },
-            },
-        ).status_code == 404
+            ).status_code
+            == 404
+        )
 
 
 def test_feature_create_returns_api_errors_for_invalid_project_dataset_feature_or_params(monkeypatch):
@@ -2516,10 +2704,7 @@ def test_embedding_analysis_search_and_graph_detail(monkeypatch):
         large_embedding_id = complete_manual_embedding(
             "Large",
             3,
-            [
-                {"graph_id": f"big{index:04d}", "emb_0": float(index), "emb_1": float(index % 7), "emb_2": float(index % 11)}
-                for index in range(5001)
-            ],
+            [{"graph_id": f"big{index:04d}", "emb_0": float(index), "emb_1": float(index % 7), "emb_2": float(index % 11)} for index in range(5001)],
         )
 
         analysis = client.get(f"/api/projects/{project_id}/embeddings/{two_dim_embedding_id}/analysis")
@@ -3288,10 +3473,7 @@ def test_model_batch_run_completes_selected_outputs_in_one_job(monkeypatch):
         def fake_graph_embeddings(collection, features, params):
             return DummyEmbeddings(
                 pd.DataFrame(
-                    [
-                        {"graph_id": graph.graph_id, "emb_0": float(index), "emb_1": float(index % 2)}
-                        for index, graph in enumerate(collection.graphs)
-                    ]
+                    [{"graph_id": graph.graph_id, "emb_0": float(index), "emb_1": float(index % 2)} for index, graph in enumerate(collection.graphs)]
                 )
             )
 

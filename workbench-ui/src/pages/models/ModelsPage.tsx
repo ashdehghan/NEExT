@@ -35,6 +35,7 @@ interface ConfigureModelViewProps {
   dataset?: DatasetManifest;
   loading: boolean;
   initialSelectedEmbeddingId?: string;
+  draft?: Record<string, unknown>;
   onCreated: (modelId: string) => void;
 }
 
@@ -104,6 +105,26 @@ export function taskLabel(taskType?: string): string {
 
 export function algorithmLabel(catalogEntry?: ModelCatalogEntry, fallback?: string): string {
   return catalogEntry?.name || fallback || "";
+}
+
+function draftString(draft: Record<string, unknown> | undefined, key: string): string | undefined {
+  const value = draft?.[key];
+  return typeof value === "string" ? value : undefined;
+}
+
+function draftNumber(draft: Record<string, unknown> | undefined, key: string): number | undefined {
+  const value = draft?.[key];
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function draftBoolean(draft: Record<string, unknown> | undefined, key: string): boolean | undefined {
+  const value = draft?.[key];
+  return typeof value === "boolean" ? value : undefined;
+}
+
+function draftStringArray(draft: Record<string, unknown> | undefined, key: string): string[] | undefined {
+  const value = draft?.[key];
+  return Array.isArray(value) ? value.map(String).filter(Boolean) : undefined;
 }
 
 export function ModelLibraryView({
@@ -190,6 +211,7 @@ export function ConfigureModelView({
   loading,
   dataset,
   initialSelectedEmbeddingId = "",
+  draft,
   onCreated
 }: ConfigureModelViewProps) {
   const queryClient = useQueryClient();
@@ -213,6 +235,27 @@ export function ConfigureModelView({
     setNJobs(1);
     setParallelBackend("thread");
   }, [activeProjectId, model?.id, dataset?.id, initialEmbeddingId]);
+
+  useEffect(() => {
+    if (!draft) return;
+    const requestedEmbeddingIds = draftStringArray(draft, "source_embedding_ids") || draftStringArray(draft, "embedding_ids");
+    if (requestedEmbeddingIds) {
+      const validEmbeddingIds = requestedEmbeddingIds.filter((embeddingId) => embeddings.some((embedding) => embedding.id === embeddingId));
+      setSelectedEmbeddingIds(validEmbeddingIds);
+    }
+    const nextTaskType = draftString(draft, "task_type");
+    if (nextTaskType === "classifier" || nextTaskType === "regressor") setTaskType(nextTaskType);
+    const nextSampleSize = draftNumber(draft, "sample_size");
+    if (nextSampleSize !== undefined) setSampleSize(nextSampleSize);
+    const nextTestSize = draftNumber(draft, "test_size");
+    if (nextTestSize !== undefined) setTestSize(nextTestSize);
+    const nextBalance = draftBoolean(draft, "balance_dataset");
+    if (nextBalance !== undefined) setBalanceDataset(nextBalance);
+    const nextNJobs = draftNumber(draft, "n_jobs");
+    if (nextNJobs !== undefined) setNJobs(nextNJobs);
+    const nextParallelBackend = draftString(draft, "parallel_backend");
+    if (nextParallelBackend === "thread" || nextParallelBackend === "process") setParallelBackend(nextParallelBackend);
+  }, [activeProjectId, model?.id, dataset?.id, embeddings, draft]);
 
   useEffect(() => {
     setSelectedEmbeddingIds((current) => current.filter((embeddingId) => embeddings.some((embedding) => embedding.id === embeddingId)));

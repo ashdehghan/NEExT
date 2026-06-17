@@ -114,13 +114,13 @@ workbench = [
     "pyarrow>=14.0.0",
 ]
 
-# Local stdio MCP server for NEExT Workbench
+# Local MCP integration for NEExT Workbench
 workbench-mcp = [
     "fastapi>=0.111.0,<1.0",
     "uvicorn[standard]>=0.30.0,<1.0",
     "httpx>=0.27.0",
     "pyarrow>=14.0.0",
-    "mcp>=0.9.1; python_version >= '3.10'",
+    "mcp>=1.27,<2; python_version >= '3.10'",
 ]
 
 # All extras combined (without DGL - for non-deep learning users)
@@ -141,7 +141,6 @@ Issues = "https://github.com/ashdehghan/NEExT/issues"
 
 [project.scripts]
 neext-workbench = "NEExT.workbench.cli:main"
-neext-workbench-mcp = "NEExT.workbench.mcp_cli:main"
 
 [tool.hatch.version]
 path = "NEExT/__init__.py"

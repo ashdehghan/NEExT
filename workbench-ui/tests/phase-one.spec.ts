@@ -1104,31 +1104,55 @@ test("Home Settings enables, regenerates, and disables local MCP setup", async (
   await settingsSurface.getByRole("button", { name: "Agentic", exact: true }).click();
   await expect(settingsSurface.getByRole("button", { name: "Agentic", exact: true })).toHaveClass(/is-active/);
   await expect(page.getByText("MCP disabled")).toBeVisible();
-  await expect(page.getByText('python3 -m pip install --upgrade "NEExT[workbench-mcp]"')).toBeVisible();
+  await expect(page.getByText("make neext-workbench")).toBeVisible();
+  await expect(page.getByText("http://127.0.0.1:8765/mcp")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Setup Checklist" })).toBeVisible();
+  await expect(page.getByText("Verify the client can list tools")).toBeVisible();
   await expect(page.getByRole("heading", { name: "ChatGPT" })).toHaveCount(0);
 
   await page.getByRole("button", { name: "Enable MCP" }).click();
-  const token = page.locator(".settings-token code");
+  const token = page.locator(".settings-token", { hasText: "One-time token" }).locator("code");
   await expect(token).toContainText("nxt_mcp_");
   const firstToken = await token.textContent();
   const configPanel = page.locator(".settings-configs");
   const clientTabs = configPanel.locator(".settings-client-tabs");
-  await expect(clientTabs.getByRole("button", { name: "Claude Desktop", exact: true })).toHaveClass(/is-active/);
+  // HTTP clients are always offered, regardless of stdio readiness.
   await expect(clientTabs.getByRole("button", { name: "Claude Code", exact: true })).toBeVisible();
   await expect(clientTabs.getByRole("button", { name: "Cursor", exact: true })).toBeVisible();
-  await expect(clientTabs.getByRole("button", { name: "Windsurf", exact: true })).toBeVisible();
-  await expect(configPanel.locator(".settings-snippet")).toHaveCount(1);
-  await expect(configPanel.locator(".settings-snippet")).toContainText("neext-workbench-mcp");
-  await expect(configPanel.locator(".settings-snippet")).toContainText("--workspace");
-  await expect(configPanel.locator(".settings-snippet")).toContainText("NEEXT_WORKBENCH_MCP_TOKEN");
+  await expect(clientTabs.getByRole("button", { name: "Generic Streamable HTTP", exact: true })).toBeVisible();
+
+  // Claude Desktop is stdio-only: the snippet is shown only when the local
+  // environment can host the server. When stdio is blocked (e.g. the interpreter
+  // or workspace sits inside a macOS protected folder), the UI suppresses the
+  // snippet and surfaces remediation instead. Assert whichever state applies.
+  const claudeDesktopTab = clientTabs.getByRole("button", { name: "Claude Desktop local", exact: true });
+  const stdioBlocked = (await page.locator(".settings-readiness.is-blocked").count()) > 0;
+  if (stdioBlocked) {
+    await expect(claudeDesktopTab).toHaveCount(0);
+    await expect(page.locator(".settings-readiness.is-blocked")).toContainText("Claude Desktop");
+    await expect(page.locator(".settings-readiness-list").first()).not.toHaveCount(0);
+  } else {
+    await expect(claudeDesktopTab).toHaveClass(/is-active/);
+    await expect(configPanel.locator(".settings-snippet")).toHaveCount(1);
+    await expect(configPanel.locator(".settings-snippet")).toContainText("\"command\"");
+    await expect(configPanel.locator(".settings-snippet")).toContainText("NEExT.workbench.mcp_cli");
+    await expect(configPanel.locator(".settings-snippet")).toContainText("NEEXT_WORKBENCH_MCP_TOKEN");
+    await expect(configPanel.locator(".settings-snippet")).toContainText("nxt_mcp_");
+  }
+  await expect(page.locator(".settings-mcp-panel .settings-mcp-meta")).toContainText("Transport:");
+  await expect(page.locator(".settings-capabilities")).toContainText("tools available");
 
   await clientTabs.getByRole("button", { name: "Cursor", exact: true }).click();
   await expect(configPanel.locator(".settings-snippet")).toContainText("Cursor");
   await expect(configPanel.locator(".settings-snippet")).toContainText(".cursor/mcp.json");
 
-  await clientTabs.getByRole("button", { name: "Windsurf", exact: true }).click();
-  await expect(configPanel.locator(".settings-snippet")).toContainText("Windsurf");
-  await expect(configPanel.locator(".settings-snippet")).toContainText("mcp_config.json");
+  await clientTabs.getByRole("button", { name: "Claude Code", exact: true }).click();
+  await expect(configPanel.locator(".settings-snippet")).toContainText("claude mcp add --transport http");
+
+  await clientTabs.getByRole("button", { name: "Generic Streamable HTTP", exact: true }).click();
+  await expect(configPanel.locator(".settings-snippet")).toContainText("mcp.json");
+  await expect(configPanel.locator(".settings-snippet")).toContainText("streamable-http");
+  await expect(configPanel.locator(".settings-snippet")).toContainText("Authorization");
 
   await page.getByRole("button", { name: "Regenerate Token" }).click();
   await expect.poll(async () => token.textContent()).not.toBe(firstToken);

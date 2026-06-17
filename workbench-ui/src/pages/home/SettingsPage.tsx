@@ -4,7 +4,7 @@ import { Copy, Power, RefreshCw, ShieldCheck, ShieldOff } from "lucide-react";
 import { api, type McpClientConfigSnippet, type McpSettingsResponse } from "../../api";
 import { EmptyState } from "../../components/primitives/EmptyState";
 import { FcIcon } from "../../components/primitives/FcIcon";
-import { useMcpSettings } from "../../hooks/useWorkspace";
+import { useMcpActivity, useMcpApprovals, useMcpSettings } from "../../hooks/useWorkspace";
 
 type SettingsTab = "general" | "agentic" | "docs";
 
@@ -234,15 +234,29 @@ results = nxt.train_ml_model(graphs, embeddings, model_type="classifier")`
         bullets: [
           "Enable MCP from Settings Agentic when a supported local client needs Workbench access.",
           "Workbench shows the full token only once. Regenerate it when a fresh token and copy-ready snippets are needed.",
-          "Client snippets include the workspace path and NEEXT_WORKBENCH_MCP_TOKEN environment variable.",
+          "Claude Desktop only reaches a local server over stdio: its snippet launches the Python interpreter running Workbench with the Workbench MCP launcher.",
+          "MCP Inspector, Cursor, Claude Code, and generic clients can use the local Streamable HTTP endpoint at http://127.0.0.1:8765/mcp.",
+          "Remote Claude connectors are separate from claude_desktop_config.json and require a publicly reachable server, not 127.0.0.1.",
+          "On macOS, Claude Desktop cannot read servers inside ~/Desktop, ~/Documents, or ~/Downloads. When the Python environment lives there, Workbench replaces the Claude Desktop snippet with remediation steps instead of a config that would fail to launch.",
           "Disable MCP when clients should no longer connect."
+        ]
+      },
+      {
+        heading: "Agentic Behavior",
+        bullets: [
+          "MCP tools can read catalogs and artifacts, configure current approved workflows, run jobs, preview and analyze outputs, request Workbench navigation, and record visible activity.",
+          "Tool access is gated by scopes: read, write, run, custom-code, ui-control, export, and lifecycle.",
+          "MCP UI navigation can open existing Spaces, Center Views, artifacts, graphs, nodes, and approved configure/create form drafts.",
+          "MCP delete tools create Workbench approval requests instead of deleting immediately.",
+          "Recent MCP activity is visible in Settings Agentic and the Command Window."
         ]
       },
       {
         heading: "Security Boundary",
         body: [
           "MCP setup is local Workbench configuration. Keep generated tokens out of commits, screenshots, logs, and shared notes.",
-          "Custom Feature Create is separate from MCP. Custom feature code is trusted local Python and runs in the local Workbench environment."
+          "Custom feature code is trusted local Python and runs in the local Workbench environment. Delete requests are enforced through Workbench approval.",
+          "Remote OAuth, multi-user MCP hosting, and deferred Workbench workflows are not part of the current MCP surface."
         ]
       }
     ]
@@ -329,6 +343,8 @@ function SettingsDocsView() {
 export function SettingsView() {
   const queryClient = useQueryClient();
   const settingsQuery = useMcpSettings();
+  const activityQuery = useMcpActivity();
+  const approvalsQuery = useMcpApprovals();
   const [latestSetup, setLatestSetup] = useState<McpSettingsResponse | null>(null);
   const [activeSettingsTab, setActiveSettingsTab] = useState<SettingsTab>("general");
   const [activeClient, setActiveClient] = useState("claude_desktop");
@@ -360,13 +376,43 @@ export function SettingsView() {
     }
   });
 
+  const approveMcpRequest = useMutation({
+    mutationFn: api.approveMcpRequest,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["mcp-approvals"] });
+      queryClient.invalidateQueries({ queryKey: ["mcp-activity"] });
+      queryClient.invalidateQueries({ queryKey: ["projects"] });
+      queryClient.invalidateQueries({ queryKey: ["trash"] });
+    }
+  });
+
+  const denyMcpRequest = useMutation({
+    mutationFn: (requestId: string) => api.denyMcpRequest(requestId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["mcp-approvals"] });
+      queryClient.invalidateQueries({ queryKey: ["mcp-activity"] });
+    }
+  });
+
   const settings = settingsQuery.data;
   const setupSettings = latestSetup?.one_time_token ? latestSetup : null;
   const busy = enableMcp.isPending || regenerateMcp.isPending || disableMcp.isPending;
-  const error = enableMcp.error?.message || regenerateMcp.error?.message || disableMcp.error?.message || settingsQuery.error?.message;
+  const approvalBusy = approveMcpRequest.isPending || denyMcpRequest.isPending;
+  const error =
+    enableMcp.error?.message ||
+    regenerateMcp.error?.message ||
+    disableMcp.error?.message ||
+    approveMcpRequest.error?.message ||
+    denyMcpRequest.error?.message ||
+    settingsQuery.error?.message;
   const statusLabel = settings?.enabled ? "enabled" : "disabled";
   const snippets = useMemo(() => setupSettings?.client_configs || [], [setupSettings]);
   const selectedSnippet = snippets.find((snippet) => snippet.client === activeClient) || snippets[0];
+  const pendingApprovals = (approvalsQuery.data?.approvals || []).filter((approval) => approval.status === "pending");
+  const recentActivity = activityQuery.data?.entries || [];
+  const availableCapabilities = settings?.capabilities.filter((capability) => capability.available) || [];
+  const writeCapabilityCount = availableCapabilities.filter((capability) => !capability.read_only).length;
+  const destructiveCapabilityCount = availableCapabilities.filter((capability) => capability.destructive).length;
 
   return (
     <div className="workflow settings-workflow">
@@ -432,16 +478,53 @@ export function SettingsView() {
                   <code>{setupSettings.one_time_token}</code>
                 </div>
               ) : null}
+              {settings?.endpoint_url ? (
+                <div className="settings-token">
+                  <span>Local endpoint</span>
+                  <code>{settings.endpoint_url}</code>
+                </div>
+              ) : null}
+              {settings?.scopes?.length ? (
+                <p className="settings-note">Enabled scopes: {settings.scopes.join(", ")}. Delete requests require Workbench approval.</p>
+              ) : null}
+              {settings ? (
+                <div className="settings-mcp-meta">
+                  <span>Transport: <strong>{settings.transport}</strong></span>
+                  <span>Protocol: <strong>{settings.protocol_version}</strong></span>
+                  <span>SDK transport: <strong>{settings.sdk_transport_available ? "active" : "unavailable"}</strong></span>
+                </div>
+              ) : null}
             </section>
 
             <section className="settings-panel settings-install-panel">
               <header className="settings-panel-head">
-                <h4>Install</h4>
+                <h4>Setup Checklist</h4>
               </header>
+              <ol className="settings-steps">
+                <li>Start Workbench with the canonical command.</li>
+                <li>Enable MCP, or regenerate the token if the full token is hidden.</li>
+                <li>Copy the snippet for the target client.</li>
+                <li>Restart or reconnect the MCP client.</li>
+                <li>Verify the client can list tools and call <span className="mono">neext_workspace_summary</span>.</li>
+              </ol>
               <pre className="settings-code settings-install-code">
-                <code>{'python3 -m pip install --upgrade "NEExT[workbench-mcp]"'}</code>
+                <code>{"make neext-workbench\n# endpoint: http://127.0.0.1:8765/mcp\n# auth header: Authorization: Bearer <token>"}</code>
               </pre>
             </section>
+
+            {settings?.enabled ? (
+              <section className="settings-panel settings-capabilities">
+                <header className="settings-panel-head">
+                  <h4>Capability Summary</h4>
+                  <span className="muted">{availableCapabilities.length} tools available</span>
+                </header>
+                <div className="settings-mcp-meta">
+                  <span>Write/run/custom tools: <strong>{writeCapabilityCount}</strong></span>
+                  <span>Delete approval tools: <strong>{destructiveCapabilityCount}</strong></span>
+                  <span>Scopes: <strong>{settings.scopes.length}</strong></span>
+                </div>
+              </section>
+            ) : null}
 
             {settings?.enabled ? (
               <section className="settings-panel settings-configs">
@@ -449,6 +532,30 @@ export function SettingsView() {
                   <h4>Client Config Snippets</h4>
                   <span className="muted">Shown with the current token once</span>
                 </header>
+                {settings.stdio_readiness && settings.stdio_readiness.status === "blocked" ? (
+                  <div className="settings-readiness is-blocked">
+                    <p className="settings-note">
+                      Claude Desktop (local stdio) cannot launch in this environment, so its snippet is hidden. The HTTP clients below still work.
+                    </p>
+                    {settings.stdio_readiness.issues.length ? (
+                      <ul className="settings-readiness-list">
+                        {settings.stdio_readiness.issues.map((issue) => (
+                          <li key={issue}>{issue}</li>
+                        ))}
+                      </ul>
+                    ) : null}
+                    {settings.stdio_readiness.remediation.length ? (
+                      <>
+                        <p className="settings-note">To enable Claude Desktop:</p>
+                        <ul className="settings-readiness-list">
+                          {settings.stdio_readiness.remediation.map((fix) => (
+                            <li key={fix}>{fix}</li>
+                          ))}
+                        </ul>
+                      </>
+                    ) : null}
+                  </div>
+                ) : null}
                 {snippets.length ? (
                   <>
                     <div className="tab-strip settings-client-tabs">
@@ -468,6 +575,70 @@ export function SettingsView() {
                 ) : (
                   <div className="artifact-table-empty settings-config-empty">
                     <EmptyState compact>Regenerate the token to show copy-ready snippets.</EmptyState>
+                  </div>
+                )}
+              </section>
+            ) : null}
+
+            {settings?.enabled ? (
+              <section className="settings-panel settings-approvals">
+                <header className="settings-panel-head">
+                  <h4>Delete Approvals</h4>
+                  <span className="muted">{pendingApprovals.length} pending</span>
+                </header>
+                {pendingApprovals.length ? (
+                  <div className="settings-approval-list">
+                    {pendingApprovals.map((approval) => (
+                      <div className="settings-approval-row" key={approval.id}>
+                        <div>
+                          <strong>{approval.summary}</strong>
+                          <span className="muted mono">{approval.id}</span>
+                        </div>
+                        <div className="settings-actions">
+                          <button
+                            type="button"
+                            className="btn btn-danger"
+                            disabled={approvalBusy}
+                            onClick={() => approveMcpRequest.mutate(approval.id)}
+                          >
+                            Approve Delete
+                          </button>
+                          <button type="button" className="btn" disabled={approvalBusy} onClick={() => denyMcpRequest.mutate(approval.id)}>
+                            Deny
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="artifact-table-empty settings-config-empty">
+                    <EmptyState compact>No pending MCP delete approvals.</EmptyState>
+                  </div>
+                )}
+              </section>
+            ) : null}
+
+            {settings?.enabled ? (
+              <section className="settings-panel settings-activity">
+                <header className="settings-panel-head">
+                  <h4>Recent MCP Activity</h4>
+                  <span className="muted">Visible in the Command Window too</span>
+                </header>
+                {recentActivity.length ? (
+                  <div className="settings-activity-list">
+                    {recentActivity.slice(0, 8).map((entry) => (
+                      <div className="settings-activity-row" key={entry.id}>
+                        <span className={`status-pill ${entry.status === "completed" ? "is-ready" : entry.status === "pending" ? "is-idle" : "is-failed"}`}>
+                          {entry.status}
+                        </span>
+                        <span>{entry.message}</span>
+                        <span className="muted mono">{entry.tool_name || entry.event_type}</span>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="artifact-table-empty settings-config-empty">
+                    <EmptyState compact>No MCP activity yet.</EmptyState>
                   </div>
                 )}
               </section>

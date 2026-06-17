@@ -10,12 +10,12 @@ from typing import Optional
 
 if __package__ in {None, ""}:
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-    from NEExT.workbench.mcp_server import create_mcp_server
+    from NEExT.workbench.mcp_server import create_mcp_server, require_sdk_streamable_http
     from NEExT.workbench.mcp_service import WorkbenchMcpService
     from NEExT.workbench.paths import resolve_workspace_path
     from NEExT.workbench.storage import WorkbenchStore
 else:
-    from .mcp_server import create_mcp_server
+    from .mcp_server import create_mcp_server, require_sdk_streamable_http
     from .mcp_service import WorkbenchMcpService
     from .paths import resolve_workspace_path
     from .storage import WorkbenchStore
@@ -23,6 +23,7 @@ else:
 
 async def _run_stdio_server(store: WorkbenchStore) -> None:
     try:
+        require_sdk_streamable_http()
         import anyio  # noqa: F401
         from mcp.server.stdio import stdio_server
     except ImportError as exc:

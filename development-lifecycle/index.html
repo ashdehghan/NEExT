@@ -372,9 +372,9 @@
           <p class="subtitle">Canonical planning dashboard for the NEExT core library and Workbench. This file is the shared human-agent interface for current state, active sprint work, backlog, and decisions.</p>
         </div>
         <div class="meta">
-          <span class="pill ready">Complete: Sprint 9</span>
+          <span class="pill">Active: Sprint 11</span>
           <span class="pill ready">Tracked artifact</span>
-          <span class="pill">Updated 2026-06-14</span>
+          <span class="pill">Updated 2026-06-17</span>
         </div>
       </div>
       <div class="note">
@@ -386,6 +386,8 @@
       <nav class="toc" aria-label="Table of contents">
         <div class="toc-title">Table of Contents</div>
         <a href="#status">Status Summary</a>
+        <a href="#sprint-11">Active Sprint 11</a>
+        <a href="#sprint-10">Completed Sprint 10</a>
         <a href="#sprint-9">Completed Sprint 9</a>
         <a href="#sprint-8">Completed Sprint 8</a>
         <a href="#sprint">Completed Sprint 1</a>
@@ -420,9 +422,117 @@
             </div>
             <div class="card">
               <strong>Lifecycle Dashboard</strong>
-              <p class="muted">Committed static HTML planning artifact for sprint state, handoff context, and current/future development tracking. Sprint 0 through Sprint 9 are complete.</p>
-              <span class="pill ready">Sprint 9 complete</span>
+              <p class="muted">Committed static HTML planning artifact for sprint state, handoff context, and current/future development tracking. Sprint 0 through Sprint 10 are complete; Sprint 11 is active for MCP production hardening.</p>
+              <span class="pill">Sprint 11 active</span>
             </div>
+          </div>
+        </section>
+
+        <section id="sprint-11">
+          <h2>Active Sprint: Sprint 11 - MCP Production Hardening</h2>
+          <div class="grid two">
+            <div class="card">
+              <strong>Goal</strong>
+              <p>Move the Workbench MCP foundation toward production quality for current approved Workbench workflows only, with Streamable HTTP semantics, scoped tools, safer UI control, clear setup instructions, and repeatable verification.</p>
+            </div>
+            <div class="card">
+              <strong>Acceptance Criteria</strong>
+              <ul class="checklist">
+                <li><input type="checkbox" checked> <span>MCP settings expose transport, protocol version, endpoint, scopes, and a capability summary.</span></li>
+                <li><input type="checkbox" checked> <span>MCP tool calls are scope-gated; read-only, write, run, custom-code, export, lifecycle, and UI-control tools are enforced separately.</span></li>
+                <li><input type="checkbox" checked> <span><span class="mono">/mcp</span> is served by the official MCP Python SDK Streamable HTTP session manager with SDK bearer-token auth.</span></li>
+                <li><input type="checkbox" checked> <span>Settings Agentic contains step-by-step client setup instructions, token handling, endpoint details, and capability status.</span></li>
+                <li><input type="checkbox" checked> <span>The Claude Desktop stdio command uses the exact interpreter running Workbench (<span class="mono">sys.executable -m NEExT.workbench.mcp_cli</span>) in canonical bare <span class="mono">command/args/env</span> form; Workbench validates the runtime and detects macOS protected-folder (<span class="mono">~/Desktop</span>, <span class="mono">~/Documents</span>, <span class="mono">~/Downloads</span>) environments, replacing the snippet with remediation instead of a config that fails to launch.</span></li>
+                <li><input type="checkbox" checked> <span>MCP UI navigation validates route payloads and supports draft prefill for approved configure/create Center Views.</span></li>
+                <li><input type="checkbox" checked> <span>Repository setup docs use a project virtual environment with the <span class="mono">workbench-mcp</span> extra for MCP SDK validation.</span></li>
+                <li><input type="checkbox" checked> <span>Frontend build tooling is upgraded and <span class="mono">npm audit</span> reports zero vulnerabilities.</span></li>
+                <li><input type="checkbox"> <span>Manual client verification is recorded for MCP Inspector, Cursor, and Claude Code/Desktop where supported by the installed client versions.</span></li>
+              </ul>
+            </div>
+          </div>
+          <div class="card">
+            <h3>Scope Boundary</h3>
+            <table>
+              <thead>
+                <tr>
+                  <th>Area</th>
+                  <th>Decision</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Transport</td>
+                  <td>Canonical Workbench MCP transport is SDK-backed local Streamable HTTP at <span class="mono">http://127.0.0.1:8765/mcp</span> for local clients (Cursor, Claude Code, MCP Inspector). Claude Desktop reaches a local server only over stdio (its remote/HTTP connectors run from Anthropic's cloud and cannot reach <span class="mono">127.0.0.1</span>); the stdio command runs the exact interpreter hosting Workbench and is validated before display, with macOS protected-folder remediation when the environment is unreadable by Claude Desktop's sandbox.</td>
+                </tr>
+                <tr>
+                  <td>Approvals</td>
+                  <td>Delete requests require Workbench approval. Other approved current-workflow side effects are controlled by token scopes and visible activity logging.</td>
+                </tr>
+                <tr>
+                  <td>Custom code</td>
+                  <td>Custom Python Feature validate/create is allowed through MCP with <span class="mono">custom-code</span> scope and remains trusted local code execution.</td>
+                </tr>
+                <tr>
+                  <td>Deferred</td>
+                  <td>Remote OAuth, multi-user hosting, deferred workflows, broad import/export, prediction, archive, purge, cancellation, and new route/modal patterns remain out of scope.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <section id="sprint-10">
+          <h2>Completed Sprint: Sprint 10 - Agentic MCP Foundation</h2>
+          <div class="grid two">
+            <div class="card">
+              <strong>Goal</strong>
+              <p>Move NEExT toward a Workbench-hosted, local-first MCP platform where approved Workbench operations can be exposed to agent clients and reflected in the running UI.</p>
+            </div>
+            <div class="card">
+              <strong>Acceptance Criteria</strong>
+              <ul class="checklist">
+                <li><input type="checkbox" checked> <span>Workbench exposes an authenticated local MCP endpoint at <span class="mono">/mcp</span>.</span></li>
+                <li><input type="checkbox" checked> <span>Settings Agentic generates a Claude Desktop local stdio snippet and Streamable HTTP snippets for Cursor, Claude Code, and generic MCP JSON.</span></li>
+                <li><input type="checkbox" checked> <span>MCP tools cover current approved parity gaps: custom Feature validate/create, Dataset table export, trash/restore, delete approval requests, activity, and Workbench view requests.</span></li>
+                <li><input type="checkbox" checked> <span>Delete remains Workbench-enforced through pending approval records; MCP delete tools request approval and do not delete immediately.</span></li>
+                <li><input type="checkbox" checked> <span>Workbench displays MCP activity in Settings Agentic and the Command Window, and polls MCP-requested UI state for navigation.</span></li>
+              </ul>
+            </div>
+          </div>
+          <div class="card">
+            <h3>Scope Boundary</h3>
+            <table>
+              <thead>
+                <tr>
+                  <th>Area</th>
+                  <th>Decision</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>In scope</td>
+                  <td>Current approved Workbench behavior only, local SDK-backed MCP endpoint, token-gated access, activity/approval/UI-state APIs, Settings Agentic setup, and tests.</td>
+                </tr>
+                <tr>
+                  <td>Deferred</td>
+                  <td>Remote OAuth, multi-user hosting, full server-to-client streaming, new Workbench workflows, broad import/export, prediction, archive, purge, and arbitrary import providers.</td>
+                </tr>
+                <tr>
+                  <td>Implementation constraints</td>
+                  <td>Use the existing Workbench service/storage layer; do not duplicate algorithms or simulate frontend clicks.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="card">
+            <h3>Remaining Agentic MCP Roadmap</h3>
+            <ul>
+              <li><strong>Parity audit hardening:</strong> maintain a route/tool/resource matrix as Workbench grows.</li>
+              <li><strong>Streaming validation:</strong> verify SDK Streamable HTTP behavior with MCP Inspector and supported agent clients.</li>
+              <li><strong>Draft fidelity:</strong> expand MCP UI-state draft payloads into form-level prefill for every configure/create Center View.</li>
+              <li><strong>Client verification:</strong> test with MCP Inspector, Cursor, Claude Code, and Claude Desktop/connector where supported.</li>
+              <li><strong>Deferred epic - <span class="mono">.mcpb</span> one-click bundle:</strong> package the Workbench MCP server as an MCP Bundle for drag-and-drop install in Claude Desktop. Requires research: the MCP Python SDK depends on pydantic, which cannot be portably bundled, so the viable path is a <span class="mono">server.type: "uv"</span> runtime bundle. Must also account for stable interpreter paths under macOS TCC. Not started; revisit after the manual stdio/HTTP flow is verified.</li>
+            </ul>
           </div>
         </section>
 
@@ -1017,6 +1127,12 @@
                 <td>Settings Docs</td>
                 <td>Added a Workbench-first Docs tab under Settings with topic navigation and later removed the stale Home Help ribbon command.</td>
               </tr>
+              <tr>
+                <td><strong>Sprint 10</strong></td>
+                <td><span class="pill ready">Complete</span></td>
+                <td>Agentic MCP Foundation</td>
+                <td>Added Workbench-hosted local HTTP MCP, parity tools for current approved workflows, delete approval requests, MCP activity, and UI navigation state.</td>
+              </tr>
             </tbody>
           </table>
         </section>
@@ -1044,6 +1160,7 @@
                 <li><strong>Execution:</strong> dataset preparation, built-in feature execution, custom Python feature execution, embedding execution, and model execution are real, local workflows.</li>
                 <li><strong>Lifecycle:</strong> project restore and dataset/feature/embedding/model delete, cascade, trash bundle, and bundle restore are available.</li>
                 <li><strong>Inspection:</strong> previews, analysis views, job records, command output, inspector context, and status surfaces are available.</li>
+                <li><strong>Agentic MCP:</strong> Settings Agentic can enable a token-gated SDK-backed local Streamable HTTP MCP endpoint, expose current approved Workbench operations as tools/resources/prompts, record MCP activity, request UI navigation, and route delete through Workbench approval.</li>
               </ul>
             </div>
           </div>
@@ -1062,8 +1179,8 @@
             <tbody>
               <tr>
                 <td><strong>Home</strong></td>
-                <td>Create/select projects, list projects, delete projects to workspace trash, restore projects, restore artifact deletion bundles, view workspace status, configure MCP settings, and read Settings Docs.</td>
-                <td>Project import/export, permanent trash purge, broader app settings beyond MCP, and any future standalone Help redesign.</td>
+                <td>Create/select projects, list projects, delete projects to workspace trash, restore projects, restore artifact deletion bundles, view workspace status, configure MCP settings, approve MCP delete requests, inspect MCP activity, and read Settings Docs.</td>
+                <td>Project import/export, permanent trash purge, broader app settings beyond MCP, remote OAuth MCP, and any future standalone Help redesign.</td>
               </tr>
               <tr>
                 <td><strong>Datasets</strong></td>
@@ -1188,6 +1305,16 @@
               </tr>
             </thead>
             <tbody>
+              <tr>
+                <td>2026-06-17</td>
+                <td>Make Agentic MCP Workbench-hosted and local HTTP-first, with CLI/stdio treated as compatibility or helper paths.</td>
+                <td>The project goal is shared Workbench/agent state and live visibility. A Workbench-hosted endpoint can reuse the same storage, job, activity, approval, and UI-state layers instead of spawning isolated per-client processes.</td>
+              </tr>
+              <tr>
+                <td>2026-06-17</td>
+                <td>Expose only current approved Workbench behavior through MCP and keep delete Workbench-enforced.</td>
+                <td>Agentic access should not reopen deferred product scope. Delete is the high-risk operation selected for Workbench-side approval; other enabled MCP actions remain governed by scopes and client trust.</td>
+              </tr>
               <tr>
                 <td>2026-06-11</td>
                 <td>Use <span class="mono">development-lifecycle/index.html</span> as the committed planning dashboard.</td>

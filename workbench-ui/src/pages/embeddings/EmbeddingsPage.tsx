@@ -34,6 +34,7 @@ interface ConfigureEmbeddingViewProps {
   dataset?: DatasetManifest;
   loading: boolean;
   initialSelectedFeatureId?: string;
+  draft?: Record<string, unknown>;
   onCreated: (embeddingId: string) => void;
 }
 
@@ -89,6 +90,16 @@ function formatValue(value: unknown): string {
   if (typeof value === "number") return Number.isInteger(value) ? String(value) : value.toPrecision(5);
   if (typeof value === "boolean") return value ? "Yes" : "No";
   return String(value);
+}
+
+function draftNumber(draft: Record<string, unknown> | undefined, key: string): number | undefined {
+  const value = draft?.[key];
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function draftStringArray(draft: Record<string, unknown> | undefined, key: string): string[] | undefined {
+  const value = draft?.[key];
+  return Array.isArray(value) ? value.map(String).filter(Boolean) : undefined;
 }
 
 export function EmbeddingLibraryView({
@@ -174,6 +185,7 @@ export function ConfigureEmbeddingView({
   loading,
   dataset,
   initialSelectedFeatureId = "",
+  draft,
   onCreated
 }: ConfigureEmbeddingViewProps) {
   const queryClient = useQueryClient();
@@ -187,6 +199,17 @@ export function ConfigureEmbeddingView({
     setSelectedFeatureIds(initialFeatureId ? [initialFeatureId] : []);
     setEmbeddingDimension(3);
   }, [activeProjectId, embedding?.id, dataset?.id, initialFeatureId]);
+
+  useEffect(() => {
+    if (!draft) return;
+    const requestedFeatureIds = draftStringArray(draft, "source_feature_ids") || draftStringArray(draft, "feature_ids");
+    if (requestedFeatureIds) {
+      const validFeatureIds = requestedFeatureIds.filter((featureId) => features.some((feature) => feature.id === featureId));
+      setSelectedFeatureIds(validFeatureIds);
+    }
+    const nextDimension = draftNumber(draft, "embedding_dimension");
+    if (nextDimension !== undefined) setEmbeddingDimension(nextDimension);
+  }, [activeProjectId, embedding?.id, dataset?.id, features, draft]);
 
   useEffect(() => {
     setSelectedFeatureIds((current) => current.filter((featureId) => features.some((feature) => feature.id === featureId)));

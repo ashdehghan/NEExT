@@ -903,6 +903,49 @@ input:focus, textarea:focus, select:focus {
   color: var(--muted);
   font-size: var(--text-12);
 }
+.settings-readiness {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-1);
+  background: var(--surface);
+}
+.settings-readiness.is-blocked {
+  border-color: var(--danger, #b54708);
+}
+.settings-readiness-list {
+  margin: 0;
+  padding-left: var(--space-4);
+  color: var(--chrome-700);
+  font-size: var(--text-12);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.settings-mcp-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  color: var(--chrome-700);
+  font-size: var(--text-12);
+}
+.settings-mcp-meta span {
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-1);
+  background: var(--surface);
+}
+.settings-steps {
+  margin: 0;
+  padding-left: 20px;
+  display: grid;
+  gap: 6px;
+  color: var(--chrome-700);
+  font-size: var(--text-12);
+  line-height: 1.45;
+}
 .settings-token {
   display: grid;
   gap: var(--space-2);
@@ -967,6 +1010,40 @@ input:focus, textarea:focus, select:focus {
 }
 .settings-doc-code {
   max-height: none;
+}
+.settings-approval-list,
+.settings-activity-list {
+  display: grid;
+  gap: var(--space-2);
+  min-width: 0;
+}
+.settings-approval-row,
+.settings-activity-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  min-width: 0;
+  padding: var(--space-2);
+  border: 1px solid var(--chrome-200);
+  border-radius: var(--radius-2);
+  background: var(--panel);
+}
+.settings-approval-row > div:first-child {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+.settings-approval-row strong,
+.settings-activity-row span {
+  min-width: 0;
+}
+.settings-activity-row {
+  justify-content: start;
+}
+.status-pill.is-failed {
+  background: #f7d8d3;
+  color: #8f241d;
 }
 .checkbox-field {
   display: flex;
