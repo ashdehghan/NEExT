@@ -196,6 +196,28 @@ def test_workbench_health_and_workspace_load():
         assert workspace_manifest["updated_at"]
 
 
+def test_workbench_docs_endpoint_serves_shared_topics():
+    pytest.importorskip("fastapi")
+
+    from fastapi.testclient import TestClient
+
+    from NEExT.workbench.app import create_app
+    from NEExT.workbench.docs_content import DOC_TOPICS
+
+    with TemporaryDirectory() as tmpdir:
+        client = TestClient(create_app(tmpdir))
+
+        response = client.get("/api/docs")
+        assert response.status_code == 200
+        topics = response.json()
+
+        # The endpoint backs the UI Settings Docs tab; it must serve the same
+        # shared module the MCP server reads, including the intake contract.
+        assert [topic["id"] for topic in topics] == [topic["id"] for topic in DOC_TOPICS]
+        intake = next(topic for topic in topics if topic["id"] == "dataset-intake")
+        assert "src_node_id" in json.dumps(intake)
+
+
 def test_existing_workspace_manifest_is_normalized():
     from NEExT.workbench.storage import WorkbenchStore
 

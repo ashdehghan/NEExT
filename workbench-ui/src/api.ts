@@ -889,8 +889,23 @@ async function requestDownload(path: string): Promise<DownloadPayload> {
   };
 }
 
+export interface DocSection {
+  heading: string;
+  body?: string[];
+  bullets?: string[];
+  code?: string;
+}
+
+export interface DocTopic {
+  id: string;
+  title: string;
+  summary: string;
+  sections: DocSection[];
+}
+
 export const api = {
   workspace: () => request<WorkspaceInfo>("/api/workspace"),
+  docs: () => request<DocTopic[]>("/api/docs"),
   mcpSettings: () => request<McpSettingsResponse>("/api/mcp-settings"),
   enableMcpSettings: () => request<McpSettingsResponse>("/api/mcp-settings/enable", { method: "POST" }),
   regenerateMcpSettings: () => request<McpSettingsResponse>("/api/mcp-settings/regenerate", { method: "POST" }),

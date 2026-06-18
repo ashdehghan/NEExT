@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Optional
 
+from . import docs_content
 from .mcp_service import WorkbenchMcpService
 from .schemas import McpStdioReadiness
 from .storage import WorkbenchStore
@@ -330,17 +331,35 @@ TOOL_DESCRIPTIONS = {
     "neext_list_artifacts": "List saved project artifacts of one kind.",
     "neext_get_artifact": "Read one saved project artifact manifest.",
     "neext_configure_dataset": "Add a Dataset Library catalog entry to the project as a Draft Dataset artifact.",
-    "neext_validate_dataset_intake": "Validate NEExT Dataset Intake tables supplied as records or CSV text without creating an artifact.",
-    "neext_create_dataset_intake_session": "Create a temporary Dataset Intake session for agent-supplied NEExT table data.",
-    "neext_append_dataset_intake_table": "Append or replace one NEExT table in a Dataset Intake session using records or CSV text.",
-    "neext_validate_dataset_intake_session": "Validate the current tables in a Dataset Intake session without creating an artifact.",
-    "neext_create_dataset_from_intake": "Create a Draft Dataset artifact from a valid Dataset Intake session.",
-    "neext_configure_feature": "Add a Feature Library entry to the project as a Draft Feature artifact for one Dataset artifact.",
-    "neext_validate_custom_feature": "Validate trusted local Python custom feature code against a completed Dataset artifact.",
-    "neext_configure_custom_feature": "Create a Draft custom Python Feature artifact after backend validation.",
-    "neext_configure_embedding": "Add an Embedding Library entry to the project as a Draft Embedding artifact from one or more Feature artifacts.",
-    "neext_configure_model": "Add a Model Library entry to the project as a Draft Model artifact from one or more Embedding artifacts.",
-    "neext_run_artifacts": "Start Workbench jobs for Draft or failed artifacts and return their job manifests immediately.",
+    "neext_validate_dataset_intake": (
+        "Validate NEExT Dataset Intake tables without creating an artifact. tables maps table names to "
+        '{"format": "records"|"csv", "records": [...] | "csv": "..."}. Required tables: edges '
+        "(src_node_id, dest_node_id) and node_graph_mapping (node_id, graph_id); node IDs must be integer-compatible. "
+        "See the neext://docs/dataset-intake resource for the full contract."
+    ),
+    "neext_create_dataset_intake_session": (
+        "Create a temporary Dataset Intake session for agent-supplied NEExT table data. Step 1 of the session flow: "
+        "create session, append tables, validate session, then create the dataset."
+    ),
+    "neext_append_dataset_intake_table": (
+        "Append or replace one NEExT table in a Dataset Intake session. table is "
+        '{"format": "records"|"csv", "records": [...] | "csv": "..."}; table_name is one of edges, node_graph_mapping, '
+        "graph_labels, node_features, edge_features. Call once per table before validating."
+    ),
+    "neext_validate_dataset_intake_session": "Validate the current tables in a Dataset Intake session without creating an artifact. Run before create.",
+    "neext_create_dataset_from_intake": (
+        "Create a Draft Dataset artifact from a validated Dataset Intake session. Then prepare it with "
+        "neext_run_artifacts(kind='dataset', ids=[dataset_id])."
+    ),
+    "neext_configure_feature": "Add a Feature Library entry to the project as a Draft Feature artifact for one Dataset artifact. Compute it later with neext_run_artifacts.",
+    "neext_validate_custom_feature": "Validate trusted local (unsandboxed) Python feature code against a completed Dataset artifact. Code must define compute_feature(graph). Run before configure.",
+    "neext_configure_custom_feature": "Create a Draft custom Python Feature artifact after backend validation. Code must define compute_feature(graph) returning a DataFrame ordered node_id, graph_id, then numeric feature columns.",
+    "neext_configure_embedding": "Add an Embedding Library entry to the project as a Draft Embedding artifact from one or more Feature artifacts that share one Dataset.",
+    "neext_configure_model": "Add a Model Library entry to the project as a Draft Model artifact from one or more Embedding artifacts that trace to one Dataset.",
+    "neext_run_artifacts": (
+        "Start Workbench jobs for Draft or failed artifacts (kind + ids) and return job manifests immediately; poll "
+        "neext_get_job until completed. Running an artifact can auto-run its Draft or failed upstream artifacts."
+    ),
     "neext_list_jobs": "List local Workbench jobs for a project.",
     "neext_get_job": "Read one local Workbench job manifest.",
     "neext_preview_artifact": "Preview artifact outputs with pagination; never loads full output files by default.",
@@ -357,7 +376,12 @@ TOOL_DESCRIPTIONS = {
     "neext_list_mcp_activity": "List recent MCP-originated Workbench activity.",
     "neext_list_mcp_approvals": "List Workbench-enforced MCP approval requests.",
     "neext_get_workbench_view": "Read the latest MCP-requested Workbench UI navigation state.",
-    "neext_set_workbench_view": "Ask the open Workbench UI to navigate to a Space, Center View, artifact, graph, node, or workflow draft.",
+    "neext_set_workbench_view": (
+        "Ask the open Workbench UI to navigate. route accepts top_tab (home|datasets|features|embeddings|models), "
+        "command (e.g. library|create|import|explore|projects|trash|settings), project_id, artifact_kind "
+        "(dataset|feature|embedding|model) + artifact_id, catalog_kind + catalog_id, graph_id, node_id, and a draft object "
+        "to pre-fill a form. The open UI applies the request shortly after the call."
+    ),
 }
 
 
@@ -370,7 +394,22 @@ PROMPTS = {
 }
 
 
-DOC_RESOURCES = {
+def _build_recipe_prompts() -> dict[str, str]:
+    """Render the shared recipes as project-scoped prompt templates."""
+
+    prompts: dict[str, str] = {}
+    for recipe in docs_content.RECIPES:
+        steps = "\n".join(f"{index}. {step}" for index, step in enumerate(recipe["steps"], start=1))
+        prompts[recipe["id"]] = f"{recipe['summary']}\n\nWork through these steps in project {{project_id}}:\n{steps}"
+    return prompts
+
+
+# Recipe prompts are multi-step workflows; the task-directive PROMPTS above stay terse.
+ALL_PROMPTS = {**PROMPTS, **_build_recipe_prompts()}
+
+
+# Curated agent-facing guidance that is not part of the shared UI doc topics.
+_CURATED_DOC_RESOURCES = {
     "neext://docs/workbench": {
         "name": "Workbench Operating Model",
         "description": "Current Workbench vocabulary, workflow boundaries, and MCP parity rules.",
@@ -393,6 +432,31 @@ DOC_RESOURCES = {
         ),
     },
 }
+
+
+def _build_doc_resources() -> dict[str, dict[str, str]]:
+    """Merge curated guidance with the shared operational doc topics and recipes.
+
+    Topic and recipe text come from ``docs_content`` so the agent-facing docs stay
+    in lockstep with the UI Settings Docs tab (which renders the same module).
+    """
+
+    resources: dict[str, dict[str, str]] = dict(_CURATED_DOC_RESOURCES)
+    for topic in docs_content.DOC_TOPICS:
+        resources[f"neext://docs/{topic['id']}"] = {
+            "name": topic["title"],
+            "description": topic["summary"],
+            "text": docs_content.topic_markdown(topic),
+        }
+    resources["neext://docs/recipes"] = {
+        "name": "NEExT Workbench Recipes",
+        "description": "Step-by-step recipes for common Workbench workflows (upload a dataset, run a pipeline, inspect results).",
+        "text": docs_content.recipes_markdown(),
+    }
+    return resources
+
+
+DOC_RESOURCES = _build_doc_resources()
 
 
 def _normalized_scopes(scopes: list[str] | tuple[str, ...] | set[str] | None) -> set[str] | None:
@@ -542,15 +606,15 @@ def list_prompt_payloads() -> list[dict[str, Any]]:
                 {"name": "graph_id", "description": "Prepared graph ID.", "required": "graph_id" in template},
             ],
         }
-        for name, template in PROMPTS.items()
+        for name, template in ALL_PROMPTS.items()
     ]
 
 
 def get_prompt_payload(name: str, arguments: dict[str, str] | None) -> dict[str, Any]:
-    if name not in PROMPTS:
+    if name not in ALL_PROMPTS:
         raise ValueError(f"Unknown prompt: {name}")
     args = arguments or {}
-    prompt_text = PROMPTS[name].format(
+    prompt_text = ALL_PROMPTS[name].format(
         project_id=args.get("project_id", "<project_id>"),
         graph_id=args.get("graph_id", "<graph_id>"),
     )
@@ -694,7 +758,7 @@ def create_mcp_server(service: WorkbenchMcpService):
     from mcp import types
     from mcp.server.lowlevel import Server
 
-    server = Server(MCP_SERVER_NAME)
+    server = Server(MCP_SERVER_NAME, instructions=docs_content.SERVER_INSTRUCTIONS)
     fixed_scopes = service.store.read_mcp_settings().scopes
 
     def active_scopes() -> list[str]:

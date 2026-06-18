@@ -5,6 +5,10 @@ export function useWorkspace() {
   return useQuery({ queryKey: ["workspace"], queryFn: api.workspace });
 }
 
+export function useDocs() {
+  return useQuery({ queryKey: ["docs"], queryFn: api.docs, staleTime: Infinity });
+}
+
 export function useMcpSettings() {
   return useQuery({ queryKey: ["mcp-settings"], queryFn: api.mcpSettings });
 }

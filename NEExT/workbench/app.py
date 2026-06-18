@@ -5,6 +5,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Optional, Union
 
+from .docs_content import DOC_TOPICS
 from .mcp_server import (
     MCP_PROTOCOL_VERSION,
     MCP_TRANSPORT,
@@ -229,6 +230,10 @@ def create_app(workspace_path: Optional[Union[str, Path]] = None):
             projects=len(store.list_projects()),
         )
 
+    @app.get("/api/docs")
+    def docs() -> list[dict]:
+        return DOC_TOPICS
+
     @app.get("/api/mcp-settings", response_model=McpSettingsResponse)
     def get_mcp_settings() -> McpSettingsResponse:
         try:
@@ -385,9 +390,7 @@ def create_app(workspace_path: Optional[Union[str, Path]] = None):
             raise api_exception(exc) from exc
 
     @app.post("/api/projects/{project_id}/dataset-intake/sessions", response_model=DatasetIntakeSessionResponse)
-    def create_dataset_intake_session(
-        project_id: str, request: DatasetIntakeSessionCreateRequest
-    ) -> DatasetIntakeSessionResponse:
+    def create_dataset_intake_session(project_id: str, request: DatasetIntakeSessionCreateRequest) -> DatasetIntakeSessionResponse:
         try:
             return store.create_dataset_intake_session(project_id, request)
         except Exception as exc:

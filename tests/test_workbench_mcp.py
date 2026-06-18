@@ -410,7 +410,9 @@ def test_valid_mcp_stdio_server_exposes_expected_tools_resources_and_prompts():
         )
         async with stdio_client(server_params) as (read_stream, write_stream):
             async with ClientSession(read_stream, write_stream) as session:
-                await session.initialize()
+                init_result = await session.initialize()
+                assert init_result.instructions
+                assert "dataset-first" in init_result.instructions
                 tools = await session.list_tools()
                 tool_names = {tool.name for tool in tools.tools}
                 assert {
@@ -433,10 +435,19 @@ def test_valid_mcp_stdio_server_exposes_expected_tools_resources_and_prompts():
                     "run_neext_pipeline",
                     "compare_neext_models",
                     "investigate_neext_graph",
-                } == prompt_names
+                    "upload_neext_dataset",
+                    "run_end_to_end_pipeline",
+                    "inspect_neext_results",
+                }.issubset(prompt_names)
 
                 resources = await session.list_resources()
-                assert "neext://workspace" in {str(resource.uri) for resource in resources.resources}
+                resource_uris = {str(resource.uri) for resource in resources.resources}
+                assert "neext://workspace" in resource_uris
+                assert {"neext://docs/dataset-intake", "neext://docs/recipes"}.issubset(resource_uris)
+
+                intake_doc = await session.read_resource("neext://docs/dataset-intake")
+                assert intake_doc.contents
+                assert "src_node_id" in intake_doc.contents[0].text
 
                 created = parse_tool_result(await session.call_tool("neext_create_project", {"name": "MCP Project", "description": "stdio"}))
                 assert created["name"] == "MCP Project"
