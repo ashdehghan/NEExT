@@ -1196,10 +1196,8 @@ export function EmbeddingExploreView({
                 <ArrowLeft />
                 Choose Embedding
               </button>
-              <FcIcon name="explore" size={16} />
-              {embedding.name} Explore
             </span>
-            <span className={`status-pill ${artifactStatusClass(embedding.status)}`}>{artifactStatusLabel(embedding.status)}</span>
+            <span className="explore-title">{embedding.name}</span>
           </header>
           <div className="artifact-table-empty">
             <EmptyState compact>Compute this embedding before exploring it.</EmptyState>
@@ -1218,10 +1216,8 @@ export function EmbeddingExploreView({
               <ArrowLeft />
               Choose Embedding
             </button>
-            <FcIcon name="explore" size={16} />
-            {embedding.name} Explore
           </span>
-          <span className={`status-pill ${artifactStatusClass(embedding.status)}`}>{artifactStatusLabel(embedding.status)}</span>
+          <span className="explore-title">{embedding.name}</span>
         </header>
         <div className="tab-strip">
           {(["statistics", "pca", "data"] as const).map((item) => {

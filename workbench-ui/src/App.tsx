@@ -34,6 +34,7 @@ import { DesktopShell } from "./components/shell/DesktopShell";
 import { TopTabs } from "./components/shell/TopTabs";
 import { Ribbon, type RibbonCommand } from "./components/shell/Ribbon";
 import { StatusBar } from "./components/shell/StatusBar";
+import { readNav, writeNav, readAppliedMcpUiStateId, writeAppliedMcpUiStateId } from "./navPersistence";
 
 import { SelectionPanel } from "./components/panels/SelectionPanel";
 import { Inspector } from "./components/panels/Inspector";
@@ -122,7 +123,6 @@ function modelEmbeddingIds(model: ModelManifest): string[] {
 }
 
 interface SelectionLineage {
-  contextLabel: string;
   activeDatasetId: string;
   datasets: DatasetManifest[];
   features: FeatureManifest[];
@@ -134,41 +134,48 @@ interface SelectionLineage {
 
 export default function App() {
   const queryClient = useQueryClient();
-  const [route, setRoute] = useState<Route>({ topTab: "home", command: DEFAULT_COMMANDS.home });
-  const [activeProjectId, setActiveProjectId] = useState("");
-  const [hasAutoSelectedProject, setHasAutoSelectedProject] = useState(false);
-  const [selectedDatasetId, setSelectedDatasetId] = useState("");
+  // Restore persisted navigation (Space, command, project, selections, explore
+  // targets, command window) once on mount; null when nothing was stored.
+  const [persisted] = useState(() => readNav());
+  const [route, setRoute] = useState<Route>(() => {
+    const tab = persisted ? routeMainTab(String(persisted.topTab)) : null;
+    if (!tab) return { topTab: "home", command: DEFAULT_COMMANDS.home };
+    return { topTab: tab, command: routeCommand(String(persisted!.command), DEFAULT_COMMANDS[tab]) };
+  });
+  const [activeProjectId, setActiveProjectId] = useState(() => persisted?.activeProjectId ?? "");
+  const [hasAutoSelectedProject, setHasAutoSelectedProject] = useState(() => Boolean(persisted?.activeProjectId));
+  const [selectedDatasetId, setSelectedDatasetId] = useState(() => persisted?.selectedDatasetId ?? "");
   const [selectedCatalogId, setSelectedCatalogId] = useState("");
-  const [selectedFeatureId, setSelectedFeatureId] = useState("");
+  const [selectedFeatureId, setSelectedFeatureId] = useState(() => persisted?.selectedFeatureId ?? "");
   const [selectedFeatureCatalogId, setSelectedFeatureCatalogId] = useState("");
-  const [selectedEmbeddingId, setSelectedEmbeddingId] = useState("");
+  const [selectedEmbeddingId, setSelectedEmbeddingId] = useState(() => persisted?.selectedEmbeddingId ?? "");
   const [selectedEmbeddingCatalogId, setSelectedEmbeddingCatalogId] = useState("");
-  const [selectedModelId, setSelectedModelId] = useState("");
+  const [selectedModelId, setSelectedModelId] = useState(() => persisted?.selectedModelId ?? "");
   const [selectedModelCatalogId, setSelectedModelCatalogId] = useState("");
-  const [configureDatasetCatalogId, setConfigureDatasetCatalogId] = useState("");
-  const [configureFeatureCatalogId, setConfigureFeatureCatalogId] = useState("");
-  const [configureEmbeddingCatalogId, setConfigureEmbeddingCatalogId] = useState("");
-  const [configureModelCatalogId, setConfigureModelCatalogId] = useState("");
-  const [exploreDatasetId, setExploreDatasetId] = useState("");
+  const [configureDatasetCatalogId, setConfigureDatasetCatalogId] = useState(() => persisted?.configureDatasetCatalogId ?? "");
+  const [configureFeatureCatalogId, setConfigureFeatureCatalogId] = useState(() => persisted?.configureFeatureCatalogId ?? "");
+  const [configureEmbeddingCatalogId, setConfigureEmbeddingCatalogId] = useState(() => persisted?.configureEmbeddingCatalogId ?? "");
+  const [configureModelCatalogId, setConfigureModelCatalogId] = useState(() => persisted?.configureModelCatalogId ?? "");
+  const [exploreDatasetId, setExploreDatasetId] = useState(() => persisted?.exploreDatasetId ?? "");
   const [exploreGraphId, setExploreGraphId] = useState("");
   const [exploreGraphSummary, setExploreGraphSummary] = useState<DatasetGraphSummary | null>(null);
   const [exploreNodeId, setExploreNodeId] = useState("");
   const [exploreNodeVisible, setExploreNodeVisible] = useState<boolean | null>(null);
-  const [exploreFeatureId, setExploreFeatureId] = useState("");
+  const [exploreFeatureId, setExploreFeatureId] = useState(() => persisted?.exploreFeatureId ?? "");
   const [exploreFeatureGraphId, setExploreFeatureGraphId] = useState("");
   const [exploreFeatureGraphVisible, setExploreFeatureGraphVisible] = useState<boolean | null>(null);
-  const [exploreEmbeddingId, setExploreEmbeddingId] = useState("");
+  const [exploreEmbeddingId, setExploreEmbeddingId] = useState(() => persisted?.exploreEmbeddingId ?? "");
   const [exploreEmbeddingGraphId, setExploreEmbeddingGraphId] = useState("");
   const [exploreEmbeddingGraphVisible, setExploreEmbeddingGraphVisible] = useState<boolean | null>(null);
-  const [exploreModelId, setExploreModelId] = useState("");
+  const [exploreModelId, setExploreModelId] = useState(() => persisted?.exploreModelId ?? "");
   const [exploreModelIteration, setExploreModelIteration] = useState<number | null>(null);
   const [artifactDeletePlan, setArtifactDeletePlan] = useState<ArtifactDeletionPlan | null>(null);
   const [artifactDeleteError, setArtifactDeleteError] = useState("");
   const [artifactDeleteBusy, setArtifactDeleteBusy] = useState(false);
-  const [commandWindowHeight, setCommandWindowHeight] = useState(168);
-  const [commandWindowCollapsed, setCommandWindowCollapsed] = useState(false);
+  const [commandWindowHeight, setCommandWindowHeight] = useState(() => persisted?.commandWindowHeight ?? 168);
+  const [commandWindowCollapsed, setCommandWindowCollapsed] = useState(() => persisted?.commandWindowCollapsed ?? false);
   const [mcpDraft, setMcpDraft] = useState<Record<string, unknown> | undefined>();
-  const lastAppliedMcpUiStateId = useRef("");
+  const lastAppliedMcpUiStateId = useRef(readAppliedMcpUiStateId());
 
   const workspaceQuery = useWorkspace();
   const mcpActivityQuery = useMcpActivity();
@@ -191,6 +198,59 @@ export default function App() {
       setHasAutoSelectedProject(true);
     }
   }, [activeProjectId, hasAutoSelectedProject, projectsQuery.data]);
+
+  // One-time validation: if localStorage restored a project that was deleted
+  // while away, drop it so auto-select picks a live project. Runs only on the
+  // first successful projects load so it never interferes with the create/select
+  // race (where a freshly-activated project briefly precedes the list refetch).
+  const validatedPersistedProject = useRef(false);
+  useEffect(() => {
+    if (validatedPersistedProject.current || !projectsQuery.isSuccess) return;
+    validatedPersistedProject.current = true;
+    if (activeProjectId && !(projectsQuery.data ?? []).some((item) => item.id === activeProjectId)) {
+      setActiveProjectId("");
+      setHasAutoSelectedProject(false);
+    }
+  }, [activeProjectId, projectsQuery.isSuccess, projectsQuery.data]);
+
+  useEffect(() => {
+    writeNav({
+      topTab: route.topTab,
+      command: route.command,
+      activeProjectId,
+      selectedDatasetId,
+      selectedFeatureId,
+      selectedEmbeddingId,
+      selectedModelId,
+      configureDatasetCatalogId,
+      configureFeatureCatalogId,
+      configureEmbeddingCatalogId,
+      configureModelCatalogId,
+      exploreDatasetId,
+      exploreFeatureId,
+      exploreEmbeddingId,
+      exploreModelId,
+      commandWindowHeight,
+      commandWindowCollapsed
+    });
+  }, [
+    route,
+    activeProjectId,
+    selectedDatasetId,
+    selectedFeatureId,
+    selectedEmbeddingId,
+    selectedModelId,
+    configureDatasetCatalogId,
+    configureFeatureCatalogId,
+    configureEmbeddingCatalogId,
+    configureModelCatalogId,
+    exploreDatasetId,
+    exploreFeatureId,
+    exploreEmbeddingId,
+    exploreModelId,
+    commandWindowHeight,
+    commandWindowCollapsed
+  ]);
 
   const project = useMemo(
     () => projectsQuery.data?.find((item) => item.id === activeProjectId),
@@ -299,7 +359,6 @@ export default function App() {
   }, [datasets, features, selectedModelEmbeddings]);
   const selectionLineage = useMemo<SelectionLineage>(() => {
     const projectContext = {
-      contextLabel: project ? `Context: Project ${project.name}` : "Context: No project",
       activeDatasetId: "",
       datasets,
       features: [],
@@ -336,7 +395,6 @@ export default function App() {
     };
     const datasetContext = (
       dataset: DatasetManifest,
-      contextLabel: string,
       relatedEmbeddingIds: string[] = [],
       relatedModelIds: string[] = []
     ): SelectionLineage => {
@@ -345,7 +403,6 @@ export default function App() {
       const lineageEmbeddings = embeddings.filter((embedding) => embeddingDatasetId(embedding) === datasetId);
       const lineageModels = models.filter((model) => modelDatasetId(model) === datasetId);
       return {
-        contextLabel,
         activeDatasetId: dataset.id,
         datasets,
         features: lineageFeatures,
@@ -357,7 +414,7 @@ export default function App() {
     };
 
     if (selectedDataset) {
-      return datasetContext(selectedDataset, `Context: Dataset ${selectedDataset.name}`);
+      return datasetContext(selectedDataset);
     }
 
     if (selectedFeature) {
@@ -377,10 +434,9 @@ export default function App() {
             .map((model) => model.id)
         : [];
       if (lineageDataset) {
-        return datasetContext(lineageDataset, `Context: Feature ${selectedFeature.name}`, relatedEmbeddingIds, relatedModelIds);
+        return datasetContext(lineageDataset, relatedEmbeddingIds, relatedModelIds);
       }
       return {
-        contextLabel: `Context: Feature ${selectedFeature.name}`,
         activeDatasetId: "",
         datasets: [],
         features: [selectedFeature],
@@ -400,10 +456,9 @@ export default function App() {
             .map((model) => model.id)
         : [];
       if (lineageDataset) {
-        return datasetContext(lineageDataset, `Context: Embedding ${selectedEmbedding.name}`, [], relatedModelIds);
+        return datasetContext(lineageDataset, [], relatedModelIds);
       }
       return {
-        contextLabel: `Context: Embedding ${selectedEmbedding.name}`,
         activeDatasetId: "",
         datasets: [],
         features: [],
@@ -418,10 +473,9 @@ export default function App() {
       const datasetId = modelDatasetId(selectedModel);
       const lineageDataset = datasets.find((dataset) => dataset.id === datasetId);
       if (lineageDataset) {
-        return datasetContext(lineageDataset, `Context: Model ${selectedModel.name}`);
+        return datasetContext(lineageDataset);
       }
       return {
-        contextLabel: `Context: Model ${selectedModel.name}`,
         activeDatasetId: "",
         datasets: [],
         features: [],
@@ -479,7 +533,14 @@ export default function App() {
       !exploreModelId
   );
 
+  const projectResetMounted = useRef(false);
   useEffect(() => {
+    // Skip the first run so restored selections survive the initial mount; only
+    // clear downstream state when the user actually switches the active project.
+    if (!projectResetMounted.current) {
+      projectResetMounted.current = true;
+      return;
+    }
     setSelectedDatasetId("");
     setSelectedCatalogId("");
     setSelectedFeatureId("");
@@ -860,6 +921,7 @@ export default function App() {
     const state = mcpUiStateQuery.data;
     if (!state?.id || state.id === lastAppliedMcpUiStateId.current) return;
     lastAppliedMcpUiStateId.current = state.id;
+    writeAppliedMcpUiStateId(state.id);
     applyMcpUiState(state.route);
   }, [applyMcpUiState, mcpUiStateQuery.data]);
 
@@ -1974,7 +2036,7 @@ export default function App() {
       commandWindowHeight={commandWindowHeight}
       commandWindowCollapsed={commandWindowCollapsed}
       topTabs={
-        <TopTabs activeTab={route.topTab} onSelect={setActiveTab} onRefresh={refreshAll} />
+        <TopTabs activeTab={route.topTab} onSelect={setActiveTab} />
       }
       ribbon={
         <Ribbon
@@ -1987,7 +2049,6 @@ export default function App() {
       left={
         <SelectionPanel
           project={project}
-          contextLabel={selectionLineage.contextLabel}
           datasets={selectionLineage.datasets}
           features={selectionLineage.features}
           embeddings={selectionLineage.embeddings}

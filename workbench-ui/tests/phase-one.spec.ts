@@ -872,7 +872,6 @@ test("Left Panel and Center Views scope artifacts by dataset and mark selected l
   const item = (title: string, name: string) => section(title).locator(".sel-item", { hasText: name });
 
   await expect(selection.locator(".sel-item-name", { hasText: projectName })).toBeVisible();
-  await expect(selection.locator(".sel-context")).toHaveText(`Context: Project ${projectName}`);
   await expect(section("Datasets").locator(".sel-count")).toHaveText("2");
   await expect(section("Features").locator(".sel-count")).toHaveText("0");
   await expect(section("Embeddings").locator(".sel-count")).toHaveText("0");
@@ -882,7 +881,6 @@ test("Left Panel and Center Views scope artifacts by dataset and mark selected l
   await expect(item("Models", "Alpha Classifier")).toHaveCount(0);
 
   await item("Datasets", "Lineage Alpha").click();
-  await expect(selection.locator(".sel-context")).toHaveText("Context: Dataset Lineage Alpha");
   await expect(section("Datasets").locator(".sel-count")).toHaveText("2");
   await expect(item("Datasets", "Lineage Alpha")).toHaveClass(/is-active/);
   await expect(item("Datasets", "Lineage Beta")).toBeVisible();
@@ -896,7 +894,6 @@ test("Left Panel and Center Views scope artifacts by dataset and mark selected l
   await expect(page.locator(".document table tbody tr", { hasText: "Lineage Beta" })).toBeVisible();
 
   await item("Datasets", "Lineage Beta").click();
-  await expect(selection.locator(".sel-context")).toHaveText("Context: Dataset Lineage Beta");
   await expect(section("Datasets").locator(".sel-count")).toHaveText("2");
   await expect(item("Datasets", "Lineage Beta")).toHaveClass(/is-active/);
   await expect(item("Datasets", "Lineage Alpha")).toBeVisible();
@@ -909,7 +906,6 @@ test("Left Panel and Center Views scope artifacts by dataset and mark selected l
   await expect(item("Models", "Beta Classifier")).toBeVisible();
 
   await item("Datasets", "Lineage Alpha").click();
-  await expect(selection.locator(".sel-context")).toHaveText("Context: Dataset Lineage Alpha");
 
   await page.getByRole("button", { name: "FEATURES" }).click();
   await expect(page.locator(".artifact-table-title")).toContainText("Features · 2 features");
@@ -943,7 +939,6 @@ test("Left Panel and Center Views scope artifacts by dataset and mark selected l
   await expect(page.locator(".document table tbody tr", { hasText: "Beta Classifier" })).toHaveCount(0);
 
   await item("Features", "Lineage Alpha - PageRank").click();
-  await expect(selection.locator(".sel-context")).toHaveText("Context: Feature Lineage Alpha - PageRank");
   await expect(section("Datasets").locator(".sel-count")).toHaveText("2");
   await expect(item("Datasets", "Lineage Alpha")).toHaveClass(/is-active/);
   await expect(item("Datasets", "Lineage Beta")).toBeVisible();
@@ -960,7 +955,6 @@ test("Left Panel and Center Views scope artifacts by dataset and mark selected l
   await expect(page.locator(".document table tbody tr", { hasText: "Lineage Beta - PageRank" })).toHaveCount(0);
 
   await item("Embeddings", "Alpha Combined Embedding").click();
-  await expect(selection.locator(".sel-context")).toHaveText("Context: Embedding Alpha Combined Embedding");
   await expect(section("Datasets").locator(".sel-count")).toHaveText("2");
   await expect(item("Datasets", "Lineage Alpha")).toHaveClass(/is-active/);
   await expect(item("Datasets", "Lineage Beta")).toBeVisible();
@@ -977,7 +971,6 @@ test("Left Panel and Center Views scope artifacts by dataset and mark selected l
   await expect(page.locator(".document table tbody tr", { hasText: "Beta Page Embedding" })).toHaveCount(0);
 
   await item("Models", "Alpha Classifier").click();
-  await expect(selection.locator(".sel-context")).toHaveText("Context: Model Alpha Classifier");
   await expect(section("Datasets").locator(".sel-count")).toHaveText("2");
   await expect(item("Datasets", "Lineage Alpha")).toHaveClass(/is-active/);
   await expect(item("Datasets", "Lineage Beta")).toBeVisible();
@@ -991,7 +984,6 @@ test("Left Panel and Center Views scope artifacts by dataset and mark selected l
   await expect(page.locator(".document table tbody tr", { hasText: "Beta Classifier" })).toHaveCount(0);
 
   await item("Project", projectName).click();
-  await expect(selection.locator(".sel-context")).toHaveText(`Context: Project ${projectName}`);
   await expect(section("Datasets").locator(".sel-count")).toHaveText("2");
   await expect(section("Features").locator(".sel-count")).toHaveText("0");
   await expect(section("Embeddings").locator(".sel-count")).toHaveText("0");
@@ -1095,7 +1087,7 @@ test("Home Settings enables, regenerates, and disables local MCP setup", async (
   await settingsSurface.getByRole("button", { name: "Docs" }).click();
   await expect(settingsSurface.getByRole("button", { name: "Docs" })).toHaveClass(/is-active/);
   const docsPanel = settingsSurface.locator(".settings-docs-panel");
-  await expect(docsPanel.locator(".settings-doc-topic")).toHaveCount(8);
+  await expect(docsPanel.locator(".settings-doc-topic")).toHaveCount(9);
   await expect(docsPanel.locator(".settings-doc-topic", { hasText: "Overview" })).toHaveClass(/is-active/);
   await expect(docsPanel.locator(".settings-doc-content")).toContainText("Project Create and custom Feature Create are the active Create workflows.");
   await docsPanel.locator(".settings-doc-topic", { hasText: "Features and Custom Features" }).click();
@@ -1233,7 +1225,7 @@ def compute_feature(graph):
   await expect(customRow.locator(".status-pill")).toHaveText("Ready", { timeout: 30_000 });
   await customRow.getByRole("button", { name: "Preview" }).click();
 
-  await expect(page.locator(".artifact-table-title")).toContainText("Custom UI Degree Explore");
+  await expect(page.locator(".explore-title")).toHaveText("Custom UI Degree");
   const featureExplore = page.locator(".feature-explore");
   await featureExplore.getByRole("button", { name: "Data", exact: true }).click();
   await expect(page.locator(".artifact-table .tbl thead")).toContainText("custom_degree");
@@ -1324,7 +1316,7 @@ test("Feature Explore shows statistics, PCA, data, and node inspector details", 
 
   const exploreView = page.locator(".feature-explore");
   const inspector = page.locator(".inspector-panel");
-  await expect(page.locator(".artifact-table-title")).toContainText("Tiny Feature Explore - PageRank Explore");
+  await expect(page.locator(".explore-title")).toHaveText("Tiny Feature Explore - PageRank");
   await expect(ribbon.getByRole("button", { name: "Explore" })).toHaveClass(/is-active/);
   await expect(exploreView.getByRole("button", { name: "Choose Feature" })).toBeVisible();
   await expect(exploreView.getByRole("button", { name: "Statistics", exact: true })).toHaveClass(/is-active/);
@@ -1384,7 +1376,7 @@ test("Feature Explore shows statistics, PCA, data, and node inspector details", 
   await expect(page.locator(".artifact-table-title")).toContainText("Feature Explore");
   await expect(page.locator("table tbody tr", { hasText: "Tiny Feature Explore - One Column" })).toBeVisible();
   await page.locator("table tbody tr", { hasText: "Tiny Feature Explore - One Column" }).getByRole("button", { name: "Explore" }).click();
-  await expect(page.locator(".artifact-table-title")).toContainText("Tiny Feature Explore - One Column Explore");
+  await expect(page.locator(".explore-title")).toHaveText("Tiny Feature Explore - One Column");
   await expect(exploreView.getByRole("button", { name: "PCA", exact: true })).toBeDisabled();
   await expect(exploreView).toContainText("Feature Columns");
 });
@@ -1416,7 +1408,7 @@ test("Embedding Explore shows statistics, PCA, data, and graph inspector details
 
   const exploreView = page.locator(".embedding-explore");
   const inspector = page.locator(".inspector-panel");
-  await expect(page.locator(".artifact-table-title")).toContainText("Tiny Embedding Explore - Two Dimensions Explore");
+  await expect(page.locator(".explore-title")).toHaveText("Tiny Embedding Explore - Two Dimensions");
   await expect(ribbon.getByRole("button", { name: "Explore" })).toHaveClass(/is-active/);
   await expect(exploreView.getByRole("button", { name: "Choose Embedding" })).toBeVisible();
   await expect(exploreView.getByRole("button", { name: "Statistics", exact: true })).toHaveClass(/is-active/);
@@ -1475,7 +1467,7 @@ test("Embedding Explore shows statistics, PCA, data, and graph inspector details
   await expect(page.locator(".artifact-table-title")).toContainText("Embedding Explore");
   await expect(page.locator("table tbody tr", { hasText: "Tiny Embedding Explore - One Dimension" })).toBeVisible();
   await page.locator("table tbody tr", { hasText: "Tiny Embedding Explore - One Dimension" }).getByRole("button", { name: "Explore" }).click();
-  await expect(page.locator(".artifact-table-title")).toContainText("Tiny Embedding Explore - One Dimension Explore");
+  await expect(page.locator(".explore-title")).toHaveText("Tiny Embedding Explore - One Dimension");
   await expect(exploreView.getByRole("button", { name: "PCA", exact: true })).toBeDisabled();
   await expect(exploreView).toContainText("Dimensions");
 });
@@ -1524,7 +1516,7 @@ test("Dataset Library configures single graph egonet datasets", async ({ page })
   await datasetRow.getByRole("button", { name: "Preview" }).click();
 
   const exploreView = page.locator(".dataset-explore");
-  await expect(page.locator(".artifact-table-title")).toContainText("Zachary Karate Club Explore");
+  await expect(page.locator(".explore-title")).toHaveText("Zachary Karate Club");
   await expect(exploreView.getByRole("button", { name: "Statistics", exact: true })).toHaveClass(/is-active/);
   await expect(exploreView).toContainText("Source Graph");
   await expect(exploreView).toContainText("Prepared Egonet Collection");
@@ -1641,7 +1633,7 @@ test("Datasets and Features prepare and compute through Draft artifacts and jobs
   await expect(datasetRow.locator(".status-pill")).toHaveText("Ready", { timeout: 90_000 });
   await expect(datasetRow.getByRole("button", { name: "Preview" })).toBeVisible();
   await datasetRow.getByRole("button", { name: "Preview" }).click();
-  await expect(page.locator(".artifact-table-title")).toContainText("MUTAG Explore");
+  await expect(page.locator(".explore-title")).toHaveText("MUTAG");
   await expect(ribbon.getByRole("button", { name: "Explore" })).toHaveClass(/is-active/);
   const exploreView = page.locator(".dataset-explore");
   await expect(exploreView.getByRole("button", { name: "Statistics", exact: true })).toBeVisible();
@@ -1715,7 +1707,7 @@ test("Datasets and Features prepare and compute through Draft artifacts and jobs
   await expect(page.locator(".cmd")).toContainText("Computing features: page_rank", { timeout: 20_000 });
   await expect(featureRow.locator(".status-pill")).toHaveText("Ready", { timeout: 90_000 });
   await featureRow.getByRole("button", { name: "Preview" }).click();
-  await expect(page.locator(".artifact-table-title")).toContainText("MUTAG - PageRank Explore");
+  await expect(page.locator(".explore-title")).toHaveText("MUTAG - PageRank");
   await expect(ribbon.getByRole("button", { name: "Explore" })).toHaveClass(/is-active/);
   const featureExploreView = page.locator(".feature-explore");
   await expect(featureExploreView.getByRole("button", { name: "Statistics", exact: true })).toBeVisible();
@@ -1795,7 +1787,6 @@ test("Embeddings library configures, batches, runs, and previews persisted artif
     .locator(".selection-panel .sel-section", { hasText: "Features" })
     .locator(".sel-item", { hasText: "Tiny Embedding - PageRank" })
     .click();
-  await expect(page.locator(".selection-panel .sel-context")).toContainText("Context: Feature Tiny Embedding - PageRank");
   await page.getByRole("button", { name: "EMBEDDINGS" }).click();
   await ribbon.getByRole("button", { name: "Library" }).click();
   const secondApproxRow = page.locator("table tbody tr", { hasText: "Approx Wasserstein" }).first();
@@ -1810,7 +1801,6 @@ test("Embeddings library configures, batches, runs, and previews persisted artif
 
   const approxEmbeddingRows = page.locator("table tbody tr", { hasText: "Tiny Embedding - Approx Wasserstein Embedding" });
   await expect(approxEmbeddingRows).toHaveCount(2);
-  await expect(page.locator(".selection-panel .sel-context")).toContainText("Context: Embedding Tiny Embedding - Approx Wasserstein Embedding");
   await expect(page.locator(".selection-panel .sel-section", { hasText: "Embeddings" }).locator(".sel-count")).toHaveText("2");
   await approxEmbeddingRows.nth(0).locator("input[type='checkbox']").check();
   await approxEmbeddingRows.nth(1).locator("input[type='checkbox']").check();
@@ -1821,7 +1811,7 @@ test("Embeddings library configures, batches, runs, and previews persisted artif
   await expect(approxEmbeddingRows.nth(0).locator(".status-pill")).toHaveText("Ready", { timeout: 60_000 });
   await expect(approxEmbeddingRows.nth(1).locator(".status-pill")).toHaveText("Ready", { timeout: 60_000 });
   await approxEmbeddingRows.nth(0).getByRole("button", { name: "Preview" }).click();
-  await expect(page.locator(".artifact-table-title")).toContainText("Tiny Embedding - Approx Wasserstein Embedding Explore");
+  await expect(page.locator(".explore-title")).toHaveText("Tiny Embedding - Approx Wasserstein Embedding");
   await expect(ribbon.getByRole("button", { name: "Explore" })).toHaveClass(/is-active/);
   await page.locator(".embedding-explore").getByRole("button", { name: "Data", exact: true }).click();
   await expect(page.locator(".artifact-table .tbl thead")).toContainText("graph_id");
@@ -1865,7 +1855,6 @@ test("Models library configures, runs, batches, and previews persisted artifacts
     .locator(".sel-item", { hasText: "Tiny Model - Approx Wasserstein Embedding" })
     .nth(0)
     .click();
-  await expect(page.locator(".selection-panel .sel-context")).toContainText("Context: Embedding Tiny Model - Approx Wasserstein Embedding");
   await page.getByRole("button", { name: "MODELS" }).click();
   await ribbon.getByRole("button", { name: "Library" }).click();
   await expect(page.getByText("Dataset: Tiny Model")).toBeVisible();
@@ -1911,7 +1900,7 @@ test("Models library configures, runs, batches, and previews persisted artifacts
   await expect(inspector).toContainText("Expected Metrics");
 
   await modelAnalysisGroup.getByRole("button", { name: "Explore" }).click();
-  await expect(page.locator(".artifact-table-title")).toContainText("Tiny Model - Random Forest Classifier Explore");
+  await expect(page.locator(".explore-title")).toHaveText("Tiny Model - Random Forest Classifier");
   await expect(page.locator(".artifact-table-empty")).toContainText("Train this model before exploring it.");
   await ribbon.getByRole("button", { name: "Models" }).click();
 
@@ -1924,7 +1913,7 @@ test("Models library configures, runs, batches, and previews persisted artifacts
   await expect(modelRow.getByRole("button", { name: "Preview" })).toBeVisible();
   await modelRow.getByRole("button", { name: "Preview" }).click();
   const exploreView = page.locator(".model-explore");
-  await expect(page.locator(".artifact-table-title")).toContainText("Tiny Model - Random Forest Classifier Explore");
+  await expect(page.locator(".explore-title")).toHaveText("Tiny Model - Random Forest Classifier");
   await expect(ribbon.getByRole("button", { name: "Explore" })).toHaveClass(/is-active/);
   await expect(exploreView.getByRole("button", { name: "Choose Model" })).toBeVisible();
   await expect(exploreView.getByRole("button", { name: "Overview", exact: true })).toHaveClass(/is-active/);

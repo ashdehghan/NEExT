@@ -1472,10 +1472,8 @@ export function FeatureExploreView({
                 <ArrowLeft />
                 Choose Feature
               </button>
-              <FcIcon name="explore" size={16} />
-              {feature.name} Explore
             </span>
-            <span className={`status-pill ${artifactStatusClass(feature.status)}`}>{artifactStatusLabel(feature.status)}</span>
+            <span className="explore-title">{feature.name}</span>
           </header>
           <div className="artifact-table-empty">
             <EmptyState compact>Compute this feature before exploring it.</EmptyState>
@@ -1494,10 +1492,8 @@ export function FeatureExploreView({
               <ArrowLeft />
               Choose Feature
             </button>
-            <FcIcon name="explore" size={16} />
-            {feature.name} Explore
           </span>
-          <span className={`status-pill ${artifactStatusClass(feature.status)}`}>{artifactStatusLabel(feature.status)}</span>
+          <span className="explore-title">{feature.name}</span>
         </header>
         <div className="tab-strip">
           {(["statistics", "pca", "data"] as const).map((item) => {

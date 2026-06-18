@@ -9,7 +9,6 @@ interface SelectionPanelProps {
   features: FeatureManifest[];
   embeddings: EmbeddingManifest[];
   models: ModelManifest[];
-  contextLabel: string;
   relatedEmbeddingIds: string[];
   relatedModelIds: string[];
   isProjectSelected: boolean;
@@ -72,7 +71,6 @@ export function SelectionPanel({
   features,
   embeddings,
   models,
-  contextLabel,
   relatedEmbeddingIds,
   relatedModelIds,
   isProjectSelected,
@@ -92,7 +90,6 @@ export function SelectionPanel({
         <span>Selection</span>
       </div>
       <div className="panel-body panel-body-flush">
-        <div className="sel-context">{contextLabel}</div>
         <section className="sel-section" data-kind="project">
           <header className="sel-header">
             <span className="sel-header-title">

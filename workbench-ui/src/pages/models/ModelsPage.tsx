@@ -1198,10 +1198,8 @@ export function ModelExploreView({
                 <ArrowLeft />
                 Choose Model
               </button>
-              <FcIcon name="explore" size={16} />
-              {model.name} Explore
             </span>
-            <span className={`status-pill ${artifactStatusClass(model.status)}`}>{artifactStatusLabel(model.status)}</span>
+            <span className="explore-title">{model.name}</span>
           </header>
           <div className="artifact-table-empty">
             <EmptyState compact>Train this model before exploring it.</EmptyState>
@@ -1220,10 +1218,8 @@ export function ModelExploreView({
               <ArrowLeft />
               Choose Model
             </button>
-            <FcIcon name="explore" size={16} />
-            {model.name} Explore
           </span>
-          <span className={`status-pill ${artifactStatusClass(model.status)}`}>{artifactStatusLabel(model.status)}</span>
+          <span className="explore-title">{model.name}</span>
         </header>
         <div className="tab-strip">
           {(["overview", "metrics", "data"] as const).map((item) => (

@@ -1328,10 +1328,8 @@ export function DatasetExploreView({
                 <ChevronLeft />
                 Back to Datasets
               </button>
-              <FcIcon name="explore" size={16} />
-              {dataset.name} Explore
             </span>
-            <span className={`status-pill ${artifactStatusClass(dataset.status)}`}>{artifactStatusLabel(dataset.status)}</span>
+            <span className="explore-title">{dataset.name}</span>
           </header>
           <div className="artifact-table-empty">
             <EmptyState compact>Prepare this dataset before exploring it.</EmptyState>
@@ -1350,10 +1348,8 @@ export function DatasetExploreView({
               <ChevronLeft />
               Back to Datasets
             </button>
-            <FcIcon name="explore" size={16} />
-            {dataset.name} Explore
           </span>
-          <span className={`status-pill ${artifactStatusClass(dataset.status)}`}>{artifactStatusLabel(dataset.status)}</span>
+          <span className="explore-title">{dataset.name}</span>
         </header>
         <div className="tab-strip">
           {(["statistics", "graph", "data"] as const).map((item) => (
