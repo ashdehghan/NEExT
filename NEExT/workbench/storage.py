@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import io
 import json
 import queue
 import re
@@ -11,7 +12,7 @@ import secrets
 import shutil
 import threading
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path, PurePosixPath
 from typing import Any, Callable
 
@@ -48,6 +49,13 @@ from .schemas import (
     DatasetGraphSearchResult,
     DatasetGraphSummary,
     DatasetGraphVisual,
+    DatasetIntakeRequest,
+    DatasetIntakeSessionCreateRequest,
+    DatasetIntakeSessionResponse,
+    DatasetIntakeSessionTableRequest,
+    DatasetIntakeTablePayload,
+    DatasetIntakeValidationError,
+    DatasetIntakeValidationResponse,
     DatasetManifest,
     DatasetMappingFiles,
     DatasetNodeDetail,
@@ -153,6 +161,10 @@ ARTIFACT_KIND_ORDER = {"dataset": 0, "feature": 1, "embedding": 2, "model": 3}
 DATASET_PREP_OPERATION_ID = "neext.prepare_graph_collection"
 DATASET_EGONET_PREP_OPERATION_ID = "neext.prepare_single_graph_egonets"
 DATASET_PREP_OPERATION_VERSION = "1"
+DATASET_INTAKE_SOURCE_TYPE = "uploaded_neext_tables"
+DATASET_INTAKE_SOURCE_ID = "dataset-intake"
+DATASET_INTAKE_SESSION_TTL_HOURS = 24
+DATASET_INTAKE_TABLES = {"edges", "node_graph_mapping", "graph_labels", "node_features", "edge_features"}
 FEATURE_ANALYSIS_DEFAULT_MAX_FIT_ROWS = 5000
 FEATURE_ANALYSIS_DEFAULT_MAX_POINTS = 5000
 EMBEDDING_ANALYSIS_DEFAULT_MAX_FIT_ROWS = 5000
@@ -183,6 +195,8 @@ class WorkbenchStore:
         self.mcp_ui_state_file = self.workspace_path / "mcp_ui_state.json"
         self._job_queue: queue.Queue[tuple[str, str, Callable[[], None]]] = queue.Queue()
         self._job_lock = threading.Lock()
+        self._dataset_intake_sessions: dict[str, dict[str, Any]] = {}
+        self._dataset_intake_lock = threading.Lock()
         self._job_worker = threading.Thread(target=self._job_worker_loop, daemon=True)
         self._job_worker.start()
         self.ensure_workspace()
@@ -888,6 +902,290 @@ class WorkbenchStore:
     def list_model_catalog(self) -> list[ModelCatalogEntry]:
         return list_model_catalog_entries()
 
+    def _dataset_intake_frame_from_payload(self, table_name: str, payload: DatasetIntakeTablePayload):
+        import pandas as pd
+
+        if payload.format == "records":
+            return pd.DataFrame(payload.records)
+        if payload.format == "csv":
+            if not payload.csv.strip():
+                raise ValueError("CSV payload is empty")
+            return pd.read_csv(io.StringIO(payload.csv))
+        raise ValueError(f"Unsupported table payload format: {payload.format}")
+
+    def _coerce_dataset_intake_integer_column(self, frame, table_name: str, column: str) -> None:
+        import pandas as pd
+
+        numeric = pd.to_numeric(frame[column], errors="coerce")
+        invalid = numeric.isna() | (numeric % 1 != 0)
+        if invalid.any():
+            raise ValueError(f"{table_name}.{column} must contain integer-compatible node IDs")
+        frame[column] = numeric.astype("int64")
+
+    def _coerce_dataset_intake_node_ids(self, frames: dict[str, object]) -> None:
+        self._coerce_dataset_intake_integer_column(frames["node_graph_mapping"], "node_graph_mapping", "node_id")
+        self._coerce_dataset_intake_integer_column(frames["edges"], "edges", "src_node_id")
+        self._coerce_dataset_intake_integer_column(frames["edges"], "edges", "dest_node_id")
+        if frames.get("node_features") is not None:
+            self._coerce_dataset_intake_integer_column(frames["node_features"], "node_features", "node_id")
+        if frames.get("edge_features") is not None:
+            self._coerce_dataset_intake_integer_column(frames["edge_features"], "edge_features", "src_node_id")
+            self._coerce_dataset_intake_integer_column(frames["edge_features"], "edge_features", "dest_node_id")
+
+    def _dataset_intake_validate_frames(self, frames: dict[str, object]) -> tuple[DatasetIntakeValidationResponse, dict[str, object]]:
+        frames = {name: frame.copy() for name, frame in frames.items()}
+        errors: list[DatasetIntakeValidationError] = []
+        columns = {name: list(frame.columns) for name, frame in frames.items() if hasattr(frame, "columns")}
+
+        unknown_tables = sorted(set(frames) - DATASET_INTAKE_TABLES)
+        for table in unknown_tables:
+            errors.append(DatasetIntakeValidationError(table=table, message="Unsupported table name"))
+
+        missing_tables = sorted({"edges", "node_graph_mapping"} - set(frames))
+        for table in missing_tables:
+            errors.append(DatasetIntakeValidationError(table=table, message="Required table is missing"))
+
+        required_columns = {
+            "edges": {"src_node_id", "dest_node_id"},
+            "node_graph_mapping": {"node_id", "graph_id"},
+            "graph_labels": {"graph_id", "graph_label"},
+            "node_features": {"node_id"},
+            "edge_features": {"src_node_id", "dest_node_id"},
+        }
+        for table, required in required_columns.items():
+            frame = frames.get(table)
+            if frame is None:
+                continue
+            for column in sorted(required - set(frame.columns)):
+                errors.append(DatasetIntakeValidationError(table=table, column=column, message=f"Required column is missing: {column}"))
+
+        if errors:
+            return DatasetIntakeValidationResponse(valid=False, errors=errors, columns=columns), {}
+
+        try:
+            self._coerce_dataset_intake_node_ids(frames)
+            nodes_df, edges_df = self._normalized_nodes_and_edges(frames["node_graph_mapping"], frames["edges"])
+            graph_labels_df = frames.get("graph_labels")
+            node_features_df = frames.get("node_features")
+            edge_features_df = frames.get("edge_features")
+
+            if graph_labels_df is not None:
+                self._validate_graph_labels(graph_labels_df, nodes_df)
+            if node_features_df is not None:
+                self._validate_node_features(node_features_df, nodes_df)
+            if edge_features_df is not None:
+                self._validate_edge_features(edge_features_df, nodes_df)
+        except ValueError as exc:
+            errors.append(DatasetIntakeValidationError(table="dataset", message=str(exc)))
+            return DatasetIntakeValidationResponse(valid=False, errors=errors, columns=columns), {}
+
+        normalized = {
+            "node_graph_mapping": nodes_df,
+            "edges": edges_df,
+            "graph_labels": graph_labels_df,
+            "node_features": node_features_df,
+            "edge_features": edge_features_df,
+        }
+        stats = DatasetStats(
+            graph_count=int(nodes_df["graph_id"].nunique(dropna=False)),
+            node_count=int(len(nodes_df)),
+            edge_count=int(len(edges_df)),
+            has_graph_labels=graph_labels_df is not None,
+            has_node_features=node_features_df is not None,
+            has_edge_features=edge_features_df is not None,
+        )
+        return DatasetIntakeValidationResponse(valid=True, stats=stats, columns=columns), normalized
+
+    def _dataset_intake_frames_from_request(self, request: DatasetIntakeRequest) -> tuple[DatasetIntakeValidationResponse, dict[str, object]]:
+        frames = {}
+        errors: list[DatasetIntakeValidationError] = []
+        for table_name, payload in request.tables.items():
+            try:
+                frames[table_name] = self._dataset_intake_frame_from_payload(table_name, payload)
+            except Exception as exc:
+                errors.append(DatasetIntakeValidationError(table=table_name, message=f"Could not read table payload: {exc}"))
+        if errors:
+            columns = {name: list(frame.columns) for name, frame in frames.items() if hasattr(frame, "columns")}
+            return DatasetIntakeValidationResponse(valid=False, errors=errors, columns=columns), {}
+        return self._dataset_intake_validate_frames(frames)
+
+    def validate_dataset_intake(self, project_id: str, request: DatasetIntakeRequest) -> DatasetIntakeValidationResponse:
+        self.read_project(project_id)
+        validation, _ = self._dataset_intake_frames_from_request(request)
+        return validation
+
+    def create_dataset_from_intake(self, project_id: str, request: DatasetIntakeRequest) -> DatasetManifest:
+        project = self.read_project(project_id)
+        validation, frames = self._dataset_intake_frames_from_request(request)
+        if not validation.valid:
+            message = "; ".join(error.message for error in validation.errors[:3])
+            raise ValueError(f"Dataset intake validation failed: {message}")
+        return self._create_dataset_from_intake_frames(project.id, request, validation, frames)
+
+    def _dataset_intake_cleanup_sessions(self) -> None:
+        now = datetime.now(timezone.utc)
+        expired = []
+        for session_id, session in self._dataset_intake_sessions.items():
+            expires_at = datetime.fromisoformat(session["expires_at"])
+            if expires_at <= now:
+                expired.append(session_id)
+        for session_id in expired:
+            self._dataset_intake_sessions.pop(session_id, None)
+
+    def _dataset_intake_session_response(
+        self, session: dict[str, object], validation: DatasetIntakeValidationResponse | None = None
+    ) -> DatasetIntakeSessionResponse:
+        return DatasetIntakeSessionResponse(
+            id=str(session["id"]),
+            project_id=str(session["project_id"]),
+            name=str(session["name"]),
+            description=str(session["description"]),
+            created_at=str(session["created_at"]),
+            updated_at=str(session["updated_at"]),
+            expires_at=str(session["expires_at"]),
+            tables=sorted(str(table) for table in session["frames"]),
+            validation=validation,
+        )
+
+    def create_dataset_intake_session(
+        self, project_id: str, request: DatasetIntakeSessionCreateRequest
+    ) -> DatasetIntakeSessionResponse:
+        project = self.read_project(project_id)
+        now = datetime.now(timezone.utc)
+        session_id = str(uuid.uuid4())
+        session = {
+            "id": session_id,
+            "project_id": project.id,
+            "name": request.name.strip(),
+            "description": request.description,
+            "params": request.params,
+            "created_at": now.isoformat(),
+            "updated_at": now.isoformat(),
+            "expires_at": (now + timedelta(hours=DATASET_INTAKE_SESSION_TTL_HOURS)).isoformat(),
+            "frames": {},
+        }
+        with self._dataset_intake_lock:
+            self._dataset_intake_cleanup_sessions()
+            self._dataset_intake_sessions[session_id] = session
+        return self._dataset_intake_session_response(session)
+
+    def append_dataset_intake_session_table(
+        self,
+        project_id: str,
+        session_id: str,
+        table_name: str,
+        request: DatasetIntakeSessionTableRequest,
+    ) -> DatasetIntakeSessionResponse:
+        import pandas as pd
+
+        project = self.read_project(project_id)
+        table_name = table_name.strip()
+        if table_name not in DATASET_INTAKE_TABLES:
+            raise ValueError(f"Unsupported dataset intake table: {table_name}")
+        frame = self._dataset_intake_frame_from_payload(table_name, request.table)
+        with self._dataset_intake_lock:
+            self._dataset_intake_cleanup_sessions()
+            session = self._dataset_intake_sessions.get(session_id)
+            if session is None or session["project_id"] != project.id:
+                raise FileNotFoundError(f"Dataset intake session not found: {session_id}")
+            frames = session["frames"]
+            if request.replace or table_name not in frames:
+                frames[table_name] = frame
+            else:
+                frames[table_name] = pd.concat([frames[table_name], frame], ignore_index=True)
+            session["updated_at"] = datetime.now(timezone.utc).isoformat()
+            validation, _ = self._dataset_intake_validate_frames(frames)
+            return self._dataset_intake_session_response(session, validation)
+
+    def validate_dataset_intake_session(self, project_id: str, session_id: str) -> DatasetIntakeSessionResponse:
+        project = self.read_project(project_id)
+        with self._dataset_intake_lock:
+            self._dataset_intake_cleanup_sessions()
+            session = self._dataset_intake_sessions.get(session_id)
+            if session is None or session["project_id"] != project.id:
+                raise FileNotFoundError(f"Dataset intake session not found: {session_id}")
+            validation, _ = self._dataset_intake_validate_frames(session["frames"])
+            return self._dataset_intake_session_response(session, validation)
+
+    def create_dataset_from_intake_session(self, project_id: str, session_id: str) -> DatasetManifest:
+        project = self.read_project(project_id)
+        with self._dataset_intake_lock:
+            self._dataset_intake_cleanup_sessions()
+            session = self._dataset_intake_sessions.get(session_id)
+            if session is None or session["project_id"] != project.id:
+                raise FileNotFoundError(f"Dataset intake session not found: {session_id}")
+            validation, frames = self._dataset_intake_validate_frames(session["frames"])
+            if not validation.valid:
+                message = "; ".join(error.message for error in validation.errors[:3])
+                raise ValueError(f"Dataset intake validation failed: {message}")
+            request = DatasetIntakeRequest(
+                name=str(session["name"]),
+                description=str(session["description"]),
+                tables={},
+                params=session["params"],
+            )
+
+        dataset = self._create_dataset_from_intake_frames(project.id, request, validation, frames)
+        with self._dataset_intake_lock:
+            self._dataset_intake_sessions.pop(session_id, None)
+        return dataset
+
+    def _create_dataset_from_intake_frames(
+        self,
+        project_id: str,
+        request: DatasetIntakeRequest,
+        validation: DatasetIntakeValidationResponse,
+        frames: dict[str, object],
+    ) -> DatasetManifest:
+        project = self.read_project(project_id)
+        operation = OperationSpec(
+            operation_id=DATASET_PREP_OPERATION_ID,
+            operation_version=DATASET_PREP_OPERATION_VERSION,
+            params={
+                "graph_type": request.params.graph_type,
+                "reindex_nodes": True,
+                "filter_largest_component": request.params.filter_largest_component,
+            },
+        )
+        dataset_id = self._new_dataset_id(project.id)
+        artifact_path = self.dataset_path(project.id, dataset_id)
+        artifact_path.mkdir(parents=True, exist_ok=False)
+
+        try:
+            source_files = self._write_raw_dataset_snapshot(
+                artifact_path / "source",
+                frames["node_graph_mapping"],
+                frames["edges"],
+                frames.get("graph_labels"),
+                frames.get("node_features"),
+                frames.get("edge_features"),
+                relative_prefix="source",
+            )
+            now = utc_now()
+            manifest = DatasetManifest(
+                id=dataset_id,
+                project_id=project.id,
+                name=request.name.strip(),
+                description=request.description,
+                status="planned",
+                created_at=now,
+                updated_at=now,
+                source_type=DATASET_INTAKE_SOURCE_TYPE,
+                source_catalog_id=DATASET_INTAKE_SOURCE_ID,
+                source_name=request.name.strip(),
+                source="Dataset Import",
+                source_domain="User-provided NEExT tables",
+                source_graph_shape="graph_collection",
+                operation=operation,
+                source_stats=validation.stats,
+                raw_data_files=source_files,
+            )
+            self._write_json(artifact_path / "artifact.json", manifest.model_dump())
+            return manifest
+        except Exception:
+            shutil.rmtree(artifact_path, ignore_errors=True)
+            raise
+
     def list_datasets(self, project_id: str) -> list[DatasetManifest]:
         project = self.read_project(project_id)
         datasets_path = self.project_path(project.id) / "artifacts" / "datasets"
@@ -1505,11 +1803,15 @@ class WorkbenchStore:
         try:
             import pyarrow  # noqa: F401
 
-            catalog = get_catalog_dataset(dataset.source_catalog_id)
-            if catalog is None:
-                raise FileNotFoundError(f"Dataset catalog entry not found: {dataset.source_catalog_id}")
+            catalog = None
+            if dataset.source_type != DATASET_INTAKE_SOURCE_TYPE:
+                catalog = get_catalog_dataset(dataset.source_catalog_id)
+                if catalog is None:
+                    raise FileNotFoundError(f"Dataset catalog entry not found: {dataset.source_catalog_id}")
 
             if dataset.operation.operation_id == DATASET_EGONET_PREP_OPERATION_ID:
+                if catalog is None:
+                    raise ValueError("Imported dataset intake sources do not support egonet preparation")
                 return self._prepare_single_graph_egonet_dataset(
                     project_id=project_id,
                     dataset=dataset,
@@ -1522,7 +1824,10 @@ class WorkbenchStore:
                 raise ValueError(f"Unsupported dataset preparation operation: {dataset.operation.operation_id}")
 
             self._log_job(project_id, job_id, f"Preparing dataset {dataset.name}")
-            frames = self._read_catalog_frames(catalog.files)
+            if dataset.source_type == DATASET_INTAKE_SOURCE_TYPE:
+                frames = self._read_uploaded_dataset_source_frames(project_id, dataset)
+            else:
+                frames = self._read_catalog_frames(catalog.files)
             nodes_df, edges_df = self._normalized_nodes_and_edges(frames["node_graph_mapping"], frames["edges"])
             graph_labels_df = frames.get("graph_labels")
             node_features_df = frames.get("node_features")
@@ -1701,20 +2006,22 @@ class WorkbenchStore:
         graph_labels_df,
         node_features_df,
         edge_features_df,
+        *,
+        relative_prefix: str = "raw",
     ) -> DatasetDataFiles:
         raw_dir.mkdir(parents=True, exist_ok=True)
         nodes_df.to_parquet(raw_dir / "nodes.parquet", index=False)
         edges_df.to_parquet(raw_dir / "edges.parquet", index=False)
-        files = DatasetDataFiles(nodes="raw/nodes.parquet", edges="raw/edges.parquet")
+        files = DatasetDataFiles(nodes=f"{relative_prefix}/nodes.parquet", edges=f"{relative_prefix}/edges.parquet")
         if graph_labels_df is not None:
             graph_labels_df.to_parquet(raw_dir / "graph_labels.parquet", index=False)
-            files.graph_labels = "raw/graph_labels.parquet"
+            files.graph_labels = f"{relative_prefix}/graph_labels.parquet"
         if node_features_df is not None:
             node_features_df.to_parquet(raw_dir / "node_features.parquet", index=False)
-            files.node_features = "raw/node_features.parquet"
+            files.node_features = f"{relative_prefix}/node_features.parquet"
         if edge_features_df is not None:
             edge_features_df.to_parquet(raw_dir / "edge_features.parquet", index=False)
-            files.edge_features = "raw/edge_features.parquet"
+            files.edge_features = f"{relative_prefix}/edge_features.parquet"
         return files
 
     def _build_graph_collection_for_dataset(
@@ -1742,6 +2049,35 @@ class WorkbenchStore:
             filter_largest_component=filter_largest_component,
             node_sample_rate=1.0,
         )
+
+    def _read_uploaded_dataset_source_frames(self, project_id: str, dataset: DatasetManifest):
+        import pandas as pd
+
+        if dataset.raw_data_files is None:
+            raise ValueError("Imported dataset is missing source table files")
+        artifact_path = self.dataset_path(project_id, dataset.id)
+        files = dataset.raw_data_files
+
+        def read_frame(relative_path: str, table_name: str):
+            path = artifact_path / relative_path
+            if not path.exists():
+                raise FileNotFoundError(f"Imported dataset source table is missing: {table_name}")
+            try:
+                return pd.read_parquet(path)
+            except Exception as exc:
+                raise ValueError(f"Could not read imported dataset source table: {table_name}") from exc
+
+        frames = {
+            "node_graph_mapping": read_frame(files.nodes, "node_graph_mapping"),
+            "edges": read_frame(files.edges, "edges"),
+        }
+        if files.graph_labels is not None:
+            frames["graph_labels"] = read_frame(files.graph_labels, "graph_labels")
+        if files.node_features is not None:
+            frames["node_features"] = read_frame(files.node_features, "node_features")
+        if files.edge_features is not None:
+            frames["edge_features"] = read_frame(files.edge_features, "edge_features")
+        return frames
 
     def _read_single_graph_catalog_frames(self, files: dict[str, str]):
         import pandas as pd

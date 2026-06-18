@@ -11,10 +11,9 @@ import {
   ChevronRight,
   Eye,
   Play,
+  Plus,
   RotateCcw,
-  Save,
   Search,
-  Settings2,
   Sigma,
   Trash2
 } from "lucide-react";
@@ -114,6 +113,20 @@ function formatAverage(covered: number, total: number): string {
   return `${((covered / total) * 100).toFixed(1)}%`;
 }
 
+function artifactStatusLabel(status: string): string {
+  if (status === "planned") return "Draft";
+  if (status === "completed") return "Ready";
+  if (status === "running") return "Running";
+  if (status === "failed") return "Failed";
+  return status;
+}
+
+function artifactStatusClass(status: string): string {
+  if (status === "completed") return "is-ready";
+  if (status === "failed") return "is-failed";
+  return "is-idle";
+}
+
 function draftString(draft: Record<string, unknown> | undefined, key: string): string | undefined {
   const value = draft?.[key];
   return typeof value === "string" ? value : undefined;
@@ -188,8 +201,8 @@ export function FeatureLibraryView({
                           onConfigure(entry.id);
                         }}
                       >
-                        <Settings2 />
-                        Configure
+                        <Plus />
+                        Add to Project
                       </button>
                     </td>
                   </tr>
@@ -280,7 +293,7 @@ export function ConfigureFeatureView({ activeProjectId, feature, dataset, draft,
           <FcIcon name="features" size={32} />
         </span>
         <div>
-          <h3>Configure {feature.name}</h3>
+          <h3>Add {feature.name} to Project</h3>
           <p className="form-subtitle">{feature.description}</p>
         </div>
       </header>
@@ -322,8 +335,8 @@ export function ConfigureFeatureView({ activeProjectId, feature, dataset, draft,
       </div>
       <footer className="card-foot">
         <button type="submit" className="btn btn-primary" disabled={!canSave}>
-          <Save />
-          {createFeature.isPending ? "Saving" : "Save"}
+          <Plus />
+          {createFeature.isPending ? "Creating" : "Create Feature"}
         </button>
       </footer>
     </form>
@@ -558,10 +571,10 @@ export function CreateFeatureView({ activeProjectId, dataset, draft, onCreated }
           </section>
 
           <section className="feature-guide-section">
-            <h4>Validate and Save</h4>
+            <h4>Validate and Create</h4>
             <ul>
               <li>Validate runs the code against the first prepared graph in the active completed Dataset.</li>
-              <li>Save repeats backend validation before creating the planned Feature artifact.</li>
+              <li>Create repeats backend validation before creating the Draft Feature artifact.</li>
               <li>The code is trusted local Python, not sandboxed. Missing Python packages are reported clearly, but Workbench does not install packages.</li>
               <li>Workbench uses fixed execution defaults for custom features: <span className="mono">n_jobs=1</span> and <span className="mono">parallel_backend="threading"</span>. The Normalize checkbox controls <span className="mono">normalize_features</span>.</li>
             </ul>
@@ -661,8 +674,8 @@ export function CreateFeatureView({ activeProjectId, dataset, draft, onCreated }
           {validateCustomFeature.isPending ? "Validating" : "Validate"}
         </button>
         <button type="submit" className="btn btn-primary" disabled={!canSave}>
-          <Save />
-          {createCustomFeature.isPending ? "Saving" : "Save"}
+          <Plus />
+          {createCustomFeature.isPending ? "Creating" : "Create Feature"}
         </button>
       </footer>
     </form>
@@ -744,7 +757,7 @@ export function ProjectFeaturesView({
               onClick={() => runBatch.mutate(runnableCheckedFeatureIds)}
             >
               <Play />
-              Run Selected
+              Compute Selected
             </button>
           </div>
           <div className="artifact-table-scroll">
@@ -796,7 +809,7 @@ export function ProjectFeaturesView({
                       <td>{datasetName}</td>
                       <td>{methodName}</td>
                       <td>
-                        <span className={`status-pill ${feature.status === "completed" ? "is-ready" : "is-idle"}`}>{feature.status}</span>
+                        <span className={`status-pill ${artifactStatusClass(feature.status)}`}>{artifactStatusLabel(feature.status)}</span>
                       </td>
                       <td className="muted mono">{feature.updated_at}</td>
                       <td className="actions-cell actions-cell-wide">
@@ -811,7 +824,7 @@ export function ProjectFeaturesView({
                             }}
                           >
                             {feature.status === "failed" ? <RotateCcw /> : <Play />}
-                            {feature.status === "failed" ? "Retry" : isRunning ? "Running" : "Run"}
+                            {feature.status === "failed" ? "Retry Compute" : isRunning ? "Computing" : "Compute"}
                           </button>
                         ) : null}
                         {feature.status === "completed" ? (
@@ -1422,7 +1435,7 @@ export function FeatureExploreView({
                         <td>{datasetName}</td>
                         <td>{methodName}</td>
                         <td>
-                          <span className={`status-pill ${item.status === "completed" ? "is-ready" : "is-idle"}`}>{item.status}</span>
+                          <span className={`status-pill ${artifactStatusClass(item.status)}`}>{artifactStatusLabel(item.status)}</span>
                         </td>
                         <td className="actions-cell actions-cell-wide">
                           <button
@@ -1434,7 +1447,7 @@ export function FeatureExploreView({
                             }}
                           >
                             <Eye />
-                            {item.status === "completed" ? "Explore" : "Run First"}
+                            {item.status === "completed" ? "Explore" : "Compute First"}
                           </button>
                         </td>
                       </tr>
@@ -1455,19 +1468,17 @@ export function FeatureExploreView({
         <section className="artifact-table">
           <header className="artifact-table-head">
             <span className="artifact-table-title">
-              <FcIcon name="explore" size={16} />
-              {feature.name} Explore
-            </span>
-            <div className="artifact-table-head-actions">
-              <span className="muted">{feature.status}</span>
               <button type="button" className="btn" onClick={onClearExploreFeature}>
                 <ArrowLeft />
                 Choose Feature
               </button>
-            </div>
+              <FcIcon name="explore" size={16} />
+              {feature.name} Explore
+            </span>
+            <span className={`status-pill ${artifactStatusClass(feature.status)}`}>{artifactStatusLabel(feature.status)}</span>
           </header>
           <div className="artifact-table-empty">
-            <EmptyState compact>Run feature computation before exploring this feature.</EmptyState>
+            <EmptyState compact>Compute this feature before exploring it.</EmptyState>
           </div>
         </section>
       </div>
@@ -1479,16 +1490,14 @@ export function FeatureExploreView({
       <section className="artifact-table dataset-explore feature-explore">
         <header className="artifact-table-head">
           <span className="artifact-table-title">
-            <FcIcon name="explore" size={16} />
-            {feature.name} Explore
-          </span>
-          <div className="artifact-table-head-actions">
-            <span className="muted">{feature.output_stats ? `${formatCount(feature.output_stats.row_count)} rows` : feature.status}</span>
             <button type="button" className="btn" onClick={onClearExploreFeature}>
               <ArrowLeft />
               Choose Feature
             </button>
-          </div>
+            <FcIcon name="explore" size={16} />
+            {feature.name} Explore
+          </span>
+          <span className={`status-pill ${artifactStatusClass(feature.status)}`}>{artifactStatusLabel(feature.status)}</span>
         </header>
         <div className="tab-strip">
           {(["statistics", "pca", "data"] as const).map((item) => {

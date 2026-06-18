@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Copy, Power, RefreshCw, ShieldCheck, ShieldOff } from "lucide-react";
-import { api, type McpClientConfigSnippet, type McpSettingsResponse } from "../../api";
+import { api, type McpClientConfigSnippet, type McpSettingsResponse, type ProjectManifest, type WorkspaceInfo } from "../../api";
 import { EmptyState } from "../../components/primitives/EmptyState";
 import { FcIcon } from "../../components/primitives/FcIcon";
 import { useMcpActivity, useMcpApprovals, useMcpSettings } from "../../hooks/useWorkspace";
@@ -22,6 +22,12 @@ interface SettingsDocTopic {
   sections: SettingsDocSection[];
 }
 
+interface SettingsViewProps {
+  workspace?: WorkspaceInfo;
+  projects: ProjectManifest[];
+  activeProject?: ProjectManifest;
+}
+
 const SETTINGS_TABS: { id: SettingsTab; label: string }[] = [
   { id: "general", label: "General" },
   { id: "agentic", label: "Agentic" },
@@ -38,7 +44,7 @@ const SETTINGS_DOC_TOPICS: SettingsDocTopic[] = [
         heading: "What Workbench Manages",
         body: [
           "Workbench organizes work into projects. Each project owns datasets, feature sets, embeddings, models, jobs, and local trash state.",
-          "The main workflow is dataset-first: configure or select a Dataset artifact, compute Feature artifacts, compute Embedding artifacts, then train Model artifacts."
+          "The main workflow is dataset-first: add or select a Dataset artifact, compute Feature artifacts, compute Embedding artifacts, then train Model artifacts."
         ]
       },
       {
@@ -46,7 +52,7 @@ const SETTINGS_DOC_TOPICS: SettingsDocTopic[] = [
         bullets: [
           "Project Create and custom Feature Create are the active Create workflows.",
           "Dataset, Embedding, and Model Create are archived until their workflows are designed.",
-          "Broader import/export remains deferred except for current-table CSV export in Dataset Explore.",
+          "Broader import/export remains deferred except for Dataset Import and current-table CSV export in Dataset Explore.",
           "Operational docs live here in Settings Docs."
         ]
       }
@@ -70,9 +76,9 @@ const SETTINGS_DOC_TOPICS: SettingsDocTopic[] = [
         heading: "Typical Path",
         bullets: [
           "Create or select a project from Home.",
-          "Configure a Dataset from the Dataset Library, then run Dataset preparation.",
-          "Configure built-in Features or create a custom Feature for the active Dataset, then run Feature jobs.",
-          "Configure Embeddings from Feature artifacts and Models from Embedding artifacts.",
+          "Add a Dataset from the Dataset Library, then prepare it.",
+          "Add built-in Features or create a custom Feature for the active Dataset, then compute Feature jobs.",
+          "Add Embeddings from Feature artifacts, then train Models from Embedding artifacts.",
           "Use Explore views to inspect statistics, plots, tables, lineage, and previews."
         ]
       }
@@ -94,7 +100,7 @@ const SETTINGS_DOC_TOPICS: SettingsDocTopic[] = [
         heading: "Datasets",
         bullets: [
           "Dataset Library rows are templates, not executable project artifacts.",
-          "A catalog row must be configured into a project Dataset artifact before Features, Embeddings, or Models can use it.",
+          "A catalog row must be added to the project as a Dataset artifact before Features, Embeddings, or Models can use it.",
           "Dataset preparation writes canonical Parquet outputs, mappings, summaries, and job logs.",
           "Browser previews stay limited and paginated; they do not load complete large files by default."
         ]
@@ -109,8 +115,8 @@ const SETTINGS_DOC_TOPICS: SettingsDocTopic[] = [
       {
         heading: "Built-in Features",
         body: [
-          "Feature Library workflows are dataset-first. Select a Dataset in the Left Panel, choose a feature method from the Library, configure it, save the planned artifact, then run it.",
-          "If a Feature run targets a planned Dataset, Workbench prepares the Dataset first before computing the Feature output."
+          "Feature Library workflows are dataset-first. Select a Dataset in the Left Panel, choose a feature method from the Library, create the Draft artifact, then compute it.",
+          "If a Feature computation targets a Draft Dataset, Workbench prepares the Dataset first before computing the Feature output."
         ]
       },
       {
@@ -119,7 +125,7 @@ const SETTINGS_DOC_TOPICS: SettingsDocTopic[] = [
           "Custom Feature Create requires an active completed Dataset artifact.",
           "The Python code must define compute_feature(graph).",
           "The function must return a pandas.DataFrame with columns ordered as node_id, graph_id, then one or more numeric feature columns.",
-          "Validate runs against the first prepared graph. Save repeats backend validation before creating the planned Feature artifact.",
+          "Validate runs against the first prepared graph. Create repeats backend validation before creating the Draft Feature artifact.",
           "Custom code is trusted local Python, not sandboxed. Missing packages are reported clearly, but Workbench does not install packages."
         ],
         code: `import pandas as pd
@@ -144,19 +150,19 @@ def compute_feature(graph):
       {
         heading: "Embeddings",
         bullets: [
-          "Embedding Library rows are templates. Configure one into a project Embedding artifact from the active Dataset context.",
-          "Embedding Configure lists Feature artifacts from the active Dataset only.",
-          "When an active Feature belongs to the active Dataset branch, it is preselected for Embedding Configure.",
-          "Embedding execution can auto-run planned or failed upstream Dataset and Feature work."
+          "Embedding Library rows are templates. Add one into a project Embedding artifact from the active Dataset context.",
+          "Embedding Add-to-Project lists Feature artifacts from the active Dataset only.",
+          "When an active Feature belongs to the active Dataset branch, it is preselected.",
+          "Embedding execution can auto-run Draft or failed upstream Dataset and Feature work."
         ]
       },
       {
         heading: "Models",
         bullets: [
-          "Model Library rows are templates. Configure one into a project Model artifact from the active Dataset context.",
-          "Model Configure lists Embedding artifacts from the active Dataset only.",
-          "When an active Embedding belongs to the active Dataset branch, it is preselected for Model Configure.",
-          "Model execution can auto-run planned or failed upstream Embedding, Feature, and Dataset work before training."
+          "Model Library rows are templates. Add one into a project Model artifact from the active Dataset context.",
+          "Model Add-to-Project lists Embedding artifacts from the active Dataset only.",
+          "When an active Embedding belongs to the active Dataset branch, it is preselected.",
+          "Model execution can auto-run Draft or failed upstream Embedding, Feature, and Dataset work before training."
         ]
       }
     ]
@@ -244,9 +250,9 @@ results = nxt.train_ml_model(graphs, embeddings, model_type="classifier")`
       {
         heading: "Agentic Behavior",
         bullets: [
-          "MCP tools can read catalogs and artifacts, configure current approved workflows, run jobs, preview and analyze outputs, request Workbench navigation, and record visible activity.",
+          "MCP tools can read catalogs and artifacts, add current approved library workflows to projects, run jobs, preview and analyze outputs, request Workbench navigation, and record visible activity.",
           "Tool access is gated by scopes: read, write, run, custom-code, ui-control, export, and lifecycle.",
-          "MCP UI navigation can open existing Spaces, Center Views, artifacts, graphs, nodes, and approved configure/create form drafts.",
+          "MCP UI navigation can open existing Spaces, Center Views, artifacts, graphs, nodes, and approved add/create form drafts.",
           "MCP delete tools create Workbench approval requests instead of deleting immediately.",
           "Recent MCP activity is visible in Settings Agentic and the Command Window."
         ]
@@ -340,7 +346,7 @@ function SettingsDocsView() {
   );
 }
 
-export function SettingsView() {
+export function SettingsView({ workspace, projects, activeProject }: SettingsViewProps) {
   const queryClient = useQueryClient();
   const settingsQuery = useMcpSettings();
   const activityQuery = useMcpActivity();
@@ -438,7 +444,52 @@ export function SettingsView() {
 
         {activeSettingsTab === "general" ? (
           <div className="settings-tab-panel settings-general-panel">
-            <EmptyState compact>No general settings yet.</EmptyState>
+            <section className="settings-panel">
+              <header className="settings-panel-head">
+                <h4>Workspace</h4>
+              </header>
+              <div className="settings-general-grid">
+                <div className="settings-general-item">
+                  <span>Location</span>
+                  <strong className="mono">{workspace?.path || "Unavailable"}</strong>
+                </div>
+                <div className="settings-general-item">
+                  <span>Schema Version</span>
+                  <strong>{workspace?.version || "Unavailable"}</strong>
+                </div>
+                <div className="settings-general-item">
+                  <span>Projects</span>
+                  <strong>{workspace?.projects ?? projects.length}</strong>
+                </div>
+                <div className="settings-general-item">
+                  <span>Active Project</span>
+                  <strong>{activeProject?.name || "None"}</strong>
+                </div>
+              </div>
+            </section>
+            <section className="settings-panel">
+              <header className="settings-panel-head">
+                <h4>About NEExT</h4>
+              </header>
+              <div className="settings-general-grid">
+                <div className="settings-general-item">
+                  <span>Application</span>
+                  <strong>NEExT Workbench</strong>
+                </div>
+                <div className="settings-general-item">
+                  <span>License</span>
+                  <strong>MIT License</strong>
+                </div>
+                <div className="settings-general-item">
+                  <span>Runtime</span>
+                  <strong>Local single-user Workbench</strong>
+                </div>
+                <div className="settings-general-item">
+                  <span>Release Notes</span>
+                  <strong>No bundled release notes file</strong>
+                </div>
+              </div>
+            </section>
           </div>
         ) : activeSettingsTab === "docs" ? (
           <SettingsDocsView />

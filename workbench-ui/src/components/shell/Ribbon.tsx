@@ -7,6 +7,7 @@ export type RibbonCommand = "import" | "create" | "projects" | "trash" | "settin
 interface RibbonProps {
   activeTab: MainTab;
   activeCommand: string;
+  trashHasItems: boolean;
   onCommand: (command: RibbonCommand) => void;
 }
 
@@ -29,7 +30,6 @@ const GROUPS: Record<MainTab, GroupDef[]> = {
     {
       label: "Project Management",
       tools: [
-        STRUCTURAL_TOOLS.import,
         STRUCTURAL_TOOLS.create,
         { label: "Projects", icon: "projects", command: "projects" },
         { label: "Trash", icon: "trash", command: "trash" }
@@ -58,7 +58,6 @@ const GROUPS: Record<MainTab, GroupDef[]> = {
     {
       label: "Feature Management",
       tools: [
-        STRUCTURAL_TOOLS.import,
         STRUCTURAL_TOOLS.library,
         STRUCTURAL_TOOLS.create,
         { label: "Features", icon: "features", command: "features" }
@@ -73,7 +72,6 @@ const GROUPS: Record<MainTab, GroupDef[]> = {
     {
       label: "Embedding Management",
       tools: [
-        STRUCTURAL_TOOLS.import,
         STRUCTURAL_TOOLS.library,
         { label: "Embeddings", icon: "embeddings", command: "embeddings" }
       ]
@@ -87,7 +85,6 @@ const GROUPS: Record<MainTab, GroupDef[]> = {
     {
       label: "Model Management",
       tools: [
-        STRUCTURAL_TOOLS.import,
         STRUCTURAL_TOOLS.library,
         { label: "Models", icon: "models", command: "models" }
       ]
@@ -99,7 +96,7 @@ const GROUPS: Record<MainTab, GroupDef[]> = {
   ]
 };
 
-export function Ribbon({ activeTab, activeCommand, onCommand }: RibbonProps) {
+export function Ribbon({ activeTab, activeCommand, trashHasItems, onCommand }: RibbonProps) {
   return (
     <section className="ribbon" aria-label="Ribbon commands">
       {GROUPS[activeTab].map((group) => (
@@ -108,11 +105,10 @@ export function Ribbon({ activeTab, activeCommand, onCommand }: RibbonProps) {
             {group.tools.map((tool) => (
               <ToolButton
                 key={`${group.label}-${tool.label}`}
-                icon={tool.icon}
+                icon={tool.command === "trash" && trashHasItems ? "trashFull" : tool.icon}
                 label={tool.label}
                 command={String(tool.command)}
                 active={tool.command === activeCommand}
-                disabled={activeTab === "home" && tool.command === "import"}
                 onClick={() => onCommand(tool.command)}
               />
             ))}

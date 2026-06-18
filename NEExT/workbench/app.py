@@ -27,6 +27,11 @@ from .schemas import (
     DatasetAnalysis,
     DatasetCreateRequest,
     DatasetGraphSearchResponse,
+    DatasetIntakeRequest,
+    DatasetIntakeSessionCreateRequest,
+    DatasetIntakeSessionResponse,
+    DatasetIntakeSessionTableRequest,
+    DatasetIntakeValidationResponse,
     DatasetNodeDetail,
     EmbeddingAnalysis,
     EmbeddingCreateRequest,
@@ -362,6 +367,58 @@ def create_app(workspace_path: Optional[Union[str, Path]] = None):
     def create_project_dataset(project_id: str, request: DatasetCreateRequest):
         try:
             return store.create_dataset_from_library(project_id, request)
+        except Exception as exc:
+            raise api_exception(exc) from exc
+
+    @app.post("/api/projects/{project_id}/dataset-intake/validate", response_model=DatasetIntakeValidationResponse)
+    def validate_dataset_intake(project_id: str, request: DatasetIntakeRequest) -> DatasetIntakeValidationResponse:
+        try:
+            return store.validate_dataset_intake(project_id, request)
+        except Exception as exc:
+            raise api_exception(exc) from exc
+
+    @app.post("/api/projects/{project_id}/dataset-intake/create")
+    def create_dataset_from_intake(project_id: str, request: DatasetIntakeRequest):
+        try:
+            return store.create_dataset_from_intake(project_id, request)
+        except Exception as exc:
+            raise api_exception(exc) from exc
+
+    @app.post("/api/projects/{project_id}/dataset-intake/sessions", response_model=DatasetIntakeSessionResponse)
+    def create_dataset_intake_session(
+        project_id: str, request: DatasetIntakeSessionCreateRequest
+    ) -> DatasetIntakeSessionResponse:
+        try:
+            return store.create_dataset_intake_session(project_id, request)
+        except Exception as exc:
+            raise api_exception(exc) from exc
+
+    @app.post(
+        "/api/projects/{project_id}/dataset-intake/sessions/{session_id}/tables/{table_name}",
+        response_model=DatasetIntakeSessionResponse,
+    )
+    def append_dataset_intake_session_table(
+        project_id: str,
+        session_id: str,
+        table_name: str,
+        request: DatasetIntakeSessionTableRequest,
+    ) -> DatasetIntakeSessionResponse:
+        try:
+            return store.append_dataset_intake_session_table(project_id, session_id, table_name, request)
+        except Exception as exc:
+            raise api_exception(exc) from exc
+
+    @app.post("/api/projects/{project_id}/dataset-intake/sessions/{session_id}/validate", response_model=DatasetIntakeSessionResponse)
+    def validate_dataset_intake_session(project_id: str, session_id: str) -> DatasetIntakeSessionResponse:
+        try:
+            return store.validate_dataset_intake_session(project_id, session_id)
+        except Exception as exc:
+            raise api_exception(exc) from exc
+
+    @app.post("/api/projects/{project_id}/dataset-intake/sessions/{session_id}/create")
+    def create_dataset_from_intake_session(project_id: str, session_id: str):
+        try:
+            return store.create_dataset_from_intake_session(project_id, session_id)
         except Exception as exc:
             raise api_exception(exc) from exc
 

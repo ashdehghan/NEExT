@@ -134,7 +134,7 @@ export interface DatasetManifest {
   status: "planned" | "running" | "completed" | "failed";
   created_at: string;
   updated_at: string;
-  source_type: "neext_csv_bundle" | "neext_single_graph_csv";
+  source_type: "neext_csv_bundle" | "neext_single_graph_csv" | "uploaded_neext_tables";
   source_catalog_id: string;
   source_name: string;
   source: string;
@@ -692,6 +692,37 @@ export interface DatasetCreatePayload {
   };
 }
 
+export interface DatasetIntakeTablePayload {
+  format: "records" | "csv";
+  records?: Array<Record<string, unknown>>;
+  csv?: string;
+}
+
+export interface DatasetIntakePayload {
+  name: string;
+  description: string;
+  tables: Record<string, DatasetIntakeTablePayload>;
+  params: {
+    graph_type: "networkx" | "igraph";
+    filter_largest_component: boolean;
+  };
+}
+
+export interface DatasetIntakeValidationError {
+  table: string;
+  message: string;
+  column?: string | null;
+  row?: number | null;
+  sample?: unknown[] | null;
+}
+
+export interface DatasetIntakeValidationResponse {
+  valid: boolean;
+  errors: DatasetIntakeValidationError[];
+  stats?: DatasetStats | null;
+  columns: Record<string, string[]>;
+}
+
 export interface FeatureCatalogEntry {
   id: string;
   name: string;
@@ -900,6 +931,18 @@ export const api = {
   projectJob: (projectId: string, jobId: string) => request<JobManifest>(`/api/projects/${projectId}/jobs/${jobId}`),
   createDataset: (projectId: string, payload: DatasetCreatePayload) =>
     request<DatasetManifest>(`/api/projects/${projectId}/datasets`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    }),
+  validateDatasetIntake: (projectId: string, payload: DatasetIntakePayload) =>
+    request<DatasetIntakeValidationResponse>(`/api/projects/${projectId}/dataset-intake/validate`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    }),
+  createDatasetFromIntake: (projectId: string, payload: DatasetIntakePayload) =>
+    request<DatasetManifest>(`/api/projects/${projectId}/dataset-intake/create`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload)

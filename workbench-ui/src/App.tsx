@@ -13,7 +13,8 @@ import {
   useProjectModels,
   useProjectJobs,
   useWorkspace,
-  useProjects
+  useProjects,
+  useTrash
 } from "./hooks/useWorkspace";
 import {
   api,
@@ -42,7 +43,7 @@ import { ConfirmDialog } from "./components/primitives/ConfirmDialog";
 import { EmptyState } from "./components/primitives/EmptyState";
 import { CreateProjectView, ProjectsView, TrashView } from "./pages/home/ProjectsPage";
 import { SettingsView } from "./pages/home/SettingsPage";
-import { ConfigureDatasetView, DatasetExploreView, DatasetLibraryView, ProjectDatasetsView } from "./pages/datasets/DatasetsPage";
+import { ConfigureDatasetView, DatasetExploreView, DatasetImportView, DatasetLibraryView, ProjectDatasetsView } from "./pages/datasets/DatasetsPage";
 import { ConfigureFeatureView, CreateFeatureView, FeatureExploreView, FeatureLibraryView, ProjectFeaturesView } from "./pages/features/FeaturesPage";
 import { ConfigureEmbeddingView, EmbeddingExploreView, EmbeddingLibraryView, ProjectEmbeddingsView } from "./pages/embeddings/EmbeddingsPage";
 import { ConfigureModelView, ModelExploreView, ModelLibraryView, ProjectModelsView } from "./pages/models/ModelsPage";
@@ -164,6 +165,8 @@ export default function App() {
   const [artifactDeletePlan, setArtifactDeletePlan] = useState<ArtifactDeletionPlan | null>(null);
   const [artifactDeleteError, setArtifactDeleteError] = useState("");
   const [artifactDeleteBusy, setArtifactDeleteBusy] = useState(false);
+  const [commandWindowHeight, setCommandWindowHeight] = useState(168);
+  const [commandWindowCollapsed, setCommandWindowCollapsed] = useState(false);
   const [mcpDraft, setMcpDraft] = useState<Record<string, unknown> | undefined>();
   const lastAppliedMcpUiStateId = useRef("");
 
@@ -171,6 +174,7 @@ export default function App() {
   const mcpActivityQuery = useMcpActivity();
   const mcpUiStateQuery = useMcpUiState();
   const projectsQuery = useProjects();
+  const trashQuery = useTrash();
   const datasetLibraryQuery = useDatasetLibrary();
   const featureLibraryQuery = useFeatureLibrary();
   const embeddingLibraryQuery = useEmbeddingLibrary();
@@ -450,6 +454,7 @@ export default function App() {
   );
   const importedCatalogIds = useMemo(() => new Set(datasets.map((dataset) => dataset.source_catalog_id)), [datasets]);
   const jobs = projectJobsQuery.data || [];
+  const trashHasItems = Boolean((trashQuery.data?.projects.length || 0) + (trashQuery.data?.artifact_deletions.length || 0));
   const isProjectSelected = Boolean(
     project &&
       !selectedDatasetId &&
@@ -1589,7 +1594,10 @@ export default function App() {
       return <TrashView />;
     }
     if (route.topTab === "home" && route.command === "settings") {
-      return <SettingsView />;
+      return <SettingsView workspace={workspaceQuery.data} projects={projectsQuery.data || []} activeProject={project} />;
+    }
+    if (route.topTab === "datasets" && route.command === "import") {
+      return <DatasetImportView activeProjectId={activeProjectId} onCreated={handleDatasetCreated} />;
     }
     if (route.topTab === "datasets" && route.command === "library" && configureDatasetCatalogId) {
       return (
@@ -1963,6 +1971,8 @@ export default function App() {
   return (
     <>
       <DesktopShell
+      commandWindowHeight={commandWindowHeight}
+      commandWindowCollapsed={commandWindowCollapsed}
       topTabs={
         <TopTabs activeTab={route.topTab} onSelect={setActiveTab} onRefresh={refreshAll} />
       }
@@ -1970,6 +1980,7 @@ export default function App() {
         <Ribbon
           activeTab={route.topTab}
           activeCommand={String(route.command)}
+          trashHasItems={trashHasItems}
           onCommand={setActiveCommand}
         />
       }
@@ -2000,7 +2011,14 @@ export default function App() {
           <section className="document">
             <div className="doc-body">{renderCenterView()}</div>
           </section>
-          <CommandWindow jobs={jobs} mcpActivity={mcpActivityQuery.data?.entries || []} />
+          <CommandWindow
+            jobs={jobs}
+            mcpActivity={mcpActivityQuery.data?.entries || []}
+            collapsed={commandWindowCollapsed}
+            height={commandWindowHeight}
+            onToggleCollapsed={() => setCommandWindowCollapsed((current) => !current)}
+            onHeightChange={setCommandWindowHeight}
+          />
         </>
       }
       right={
@@ -2018,8 +2036,8 @@ export default function App() {
               selectedCatalogEntry
                 ? activeProjectId
                   ? importedCatalogIds.has(selectedCatalogEntry.id)
-                    ? "Configured"
-                    : "Not configured"
+                    ? "Added to Project"
+                    : "Not added"
                   : "No active project"
                 : undefined
             }

@@ -1,8 +1,9 @@
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import * as echarts from "echarts";
 import type { EChartsOption } from "echarts";
-import { ChevronLeft, ChevronRight, Database, Download, Eye, Play, RotateCcw, Save, Search, Settings2, Trash2 } from "lucide-react";
+import JSZip from "jszip";
+import { ChevronLeft, ChevronRight, Database, Download, Eye, Play, Plus, RotateCcw, Search, Trash2, Upload } from "lucide-react";
 import {
   api,
   type DatasetCatalogEntry,
@@ -10,6 +11,8 @@ import {
   type DatasetGraphSearchResult,
   type DatasetGraphSummary,
   type DatasetGraphVisual,
+  type DatasetIntakePayload,
+  type DatasetIntakeValidationResponse,
   type DatasetManifest,
   type DatasetPreviewTable,
   type TabularPreview
@@ -32,6 +35,11 @@ interface ConfigureDatasetViewProps {
   entry?: DatasetCatalogEntry;
   draft?: Record<string, unknown>;
   onBack: () => void;
+  onCreated: (datasetId: string) => void;
+}
+
+interface DatasetImportViewProps {
+  activeProjectId: string;
   onCreated: (datasetId: string) => void;
 }
 
@@ -93,6 +101,20 @@ function formatAverage(total: number, count: number): string {
   return (total / count).toFixed(1);
 }
 
+function artifactStatusLabel(status: string): string {
+  if (status === "planned") return "Draft";
+  if (status === "completed") return "Ready";
+  if (status === "running") return "Running";
+  if (status === "failed") return "Failed";
+  return status;
+}
+
+function artifactStatusClass(status: string): string {
+  if (status === "completed") return "is-ready";
+  if (status === "failed") return "is-failed";
+  return "is-idle";
+}
+
 function draftString(draft: Record<string, unknown> | undefined, key: string): string | undefined {
   const value = draft?.[key];
   return typeof value === "string" ? value : undefined;
@@ -119,6 +141,43 @@ const DATASET_TABLE_LABELS: Record<DatasetPreviewTable, string> = {
   mapping: "Node Mapping"
 };
 
+const DATASET_INTAKE_TABLES = ["edges", "node_graph_mapping", "graph_labels", "node_features", "edge_features"] as const;
+const REQUIRED_DATASET_INTAKE_TABLES = new Set<string>(["edges", "node_graph_mapping"]);
+type DatasetIntakeTableName = (typeof DATASET_INTAKE_TABLES)[number];
+
+const DATASET_INTAKE_LABELS: Record<DatasetIntakeTableName, string> = {
+  edges: "edges.csv",
+  node_graph_mapping: "node_graph_mapping.csv",
+  graph_labels: "graph_labels.csv",
+  node_features: "node_features.csv",
+  edge_features: "edge_features.csv"
+};
+
+const GRAPH_LABEL_COLORS = [
+  { background: "#e9f5ff", borderColor: "#87bde8", color: "#155f8e" },
+  { background: "#eaf7ef", borderColor: "#82c89a", color: "#236f3b" },
+  { background: "#fff3d6", borderColor: "#e3b85f", color: "#7a5510" },
+  { background: "#f0e9ff", borderColor: "#ad93e5", color: "#5c3ea0" },
+  { background: "#ffe9ef", borderColor: "#e99aae", color: "#8f2d49" },
+  { background: "#eaf7f6", borderColor: "#7fc7c1", color: "#1e6d67" }
+];
+
+function intakeTableNameFromPath(path: string): DatasetIntakeTableName | null {
+  const fileName = path.split(/[\\/]/).pop()?.trim().toLowerCase() || "";
+  if (!fileName.endsWith(".csv")) return null;
+  const stem = fileName.replace(/\.csv$/, "");
+  return DATASET_INTAKE_TABLES.includes(stem as DatasetIntakeTableName) ? (stem as DatasetIntakeTableName) : null;
+}
+
+function graphLabelStyle(label: unknown): CSSProperties {
+  const text = formatValue(label);
+  let hash = 0;
+  for (let index = 0; index < text.length; index += 1) {
+    hash = (hash * 31 + text.charCodeAt(index)) >>> 0;
+  }
+  return GRAPH_LABEL_COLORS[hash % GRAPH_LABEL_COLORS.length];
+}
+
 function availableDatasetTables(dataset: DatasetManifest): { id: DatasetPreviewTable; label: string }[] {
   const tables: { id: DatasetPreviewTable; label: string }[] = [
     { id: "nodes", label: DATASET_TABLE_LABELS.nodes },
@@ -130,6 +189,247 @@ function availableDatasetTables(dataset: DatasetManifest): { id: DatasetPreviewT
   if (dataset.mapping_files?.node_mapping) tables.push({ id: "node_mapping", label: DATASET_TABLE_LABELS.node_mapping });
   if (dataset.mapping_files?.graph_mapping) tables.push({ id: "graph_mapping", label: DATASET_TABLE_LABELS.graph_mapping });
   return tables;
+}
+
+export function DatasetImportView({ activeProjectId, onCreated }: DatasetImportViewProps) {
+  const queryClient = useQueryClient();
+  const [name, setName] = useState("");
+  const [description, setDescription] = useState("");
+  const [graphType, setGraphType] = useState<"networkx" | "igraph">("networkx");
+  const [filterLargestComponent, setFilterLargestComponent] = useState(true);
+  const [tables, setTables] = useState<Partial<Record<DatasetIntakeTableName, string>>>({});
+  const [fileError, setFileError] = useState("");
+  const [validation, setValidation] = useState<DatasetIntakeValidationResponse | null>(null);
+
+  const missingRequiredTables = DATASET_INTAKE_TABLES.filter((table) => REQUIRED_DATASET_INTAKE_TABLES.has(table) && !tables[table]);
+  const hasRequiredTables = missingRequiredTables.length === 0;
+
+  const buildPayload = (): DatasetIntakePayload => ({
+    name: name.trim(),
+    description,
+    tables: Object.fromEntries(
+      Object.entries(tables).map(([table, csv]) => [
+        table,
+        {
+          format: "csv" as const,
+          csv
+        }
+      ])
+    ) as DatasetIntakePayload["tables"],
+    params: {
+      graph_type: graphType,
+      filter_largest_component: filterLargestComponent
+    }
+  });
+
+  const validateImport = useMutation({
+    mutationFn: () => api.validateDatasetIntake(activeProjectId, buildPayload()),
+    onSuccess: (result) => setValidation(result)
+  });
+  const createDataset = useMutation({
+    mutationFn: () => api.createDatasetFromIntake(activeProjectId, buildPayload()),
+    onSuccess: (created) => {
+      queryClient.invalidateQueries({ queryKey: ["projects", activeProjectId, "datasets"] });
+      onCreated(created.id);
+    }
+  });
+
+  const resetValidation = () => {
+    setValidation(null);
+    validateImport.reset();
+    createDataset.reset();
+  };
+
+  const parseFiles = async (files: FileList | null) => {
+    resetValidation();
+    setFileError("");
+    if (!files?.length) {
+      setTables({});
+      return;
+    }
+
+    const nextTables: Partial<Record<DatasetIntakeTableName, string>> = {};
+    const rejected: string[] = [];
+    for (const file of Array.from(files)) {
+      if (file.name.toLowerCase().endsWith(".zip")) {
+        const zip = await JSZip.loadAsync(file);
+        for (const [path, entry] of Object.entries(zip.files)) {
+          if (entry.dir) continue;
+          const tableName = intakeTableNameFromPath(path);
+          if (!tableName) {
+            if (path.toLowerCase().endsWith(".csv")) rejected.push(path);
+            continue;
+          }
+          nextTables[tableName] = await entry.async("string");
+        }
+        continue;
+      }
+
+      const tableName = intakeTableNameFromPath(file.name);
+      if (!tableName) {
+        rejected.push(file.name);
+        continue;
+      }
+      nextTables[tableName] = await file.text();
+    }
+
+    setTables(nextTables);
+    if (Object.keys(nextTables).length === 0) {
+      setFileError("No NEExT table CSV files were found.");
+    } else if (rejected.length) {
+      setFileError(`Ignored unsupported CSV file names: ${rejected.slice(0, 4).join(", ")}${rejected.length > 4 ? ", ..." : ""}`);
+    }
+  };
+
+  const canValidate = Boolean(activeProjectId && name.trim() && hasRequiredTables && !validateImport.isPending && !createDataset.isPending);
+  const canCreate = Boolean(canValidate && validation?.valid && !createDataset.isPending);
+
+  return (
+    <form
+      className="card dataset-import-card"
+      onSubmit={(event) => {
+        event.preventDefault();
+        if (!canCreate) return;
+        createDataset.mutate();
+      }}
+    >
+      <header className="card-head">
+        <span className="card-head-fc">
+          <FcIcon name="import" size={32} />
+        </span>
+        <div>
+          <h3>Import Dataset</h3>
+          <p className="form-subtitle">Create a Draft Dataset from NEExT table CSV files.</p>
+        </div>
+      </header>
+      <div className="card-body">
+        {!activeProjectId ? <p className="muted form-note">An active project is required.</p> : null}
+        <div className="field-grid">
+          <label className="field">
+            <span>Name</span>
+            <input
+              value={name}
+              onChange={(event) => {
+                setName(event.target.value);
+                resetValidation();
+              }}
+              placeholder="Dataset name"
+            />
+          </label>
+          <label className="field">
+            <span>Graph Backend</span>
+            <select
+              value={graphType}
+              onChange={(event) => {
+                setGraphType(event.target.value as "networkx" | "igraph");
+                resetValidation();
+              }}
+            >
+              <option value="networkx">networkx</option>
+              <option value="igraph">igraph</option>
+            </select>
+          </label>
+          <label className="field field-wide">
+            <span>Description</span>
+            <textarea
+              value={description}
+              rows={3}
+              onChange={(event) => {
+                setDescription(event.target.value);
+                resetValidation();
+              }}
+              placeholder="Dataset description"
+            />
+          </label>
+          <label className="field field-wide">
+            <span>CSV Files or Zip Bundle</span>
+            <input
+              type="file"
+              accept=".csv,.zip,text/csv,application/zip"
+              multiple
+              onChange={(event) => {
+                parseFiles(event.target.files).catch((error) => {
+                  setTables({});
+                  setFileError(error instanceof Error ? error.message : String(error));
+                });
+              }}
+            />
+          </label>
+          <label className="checkbox-field">
+            <input
+              type="checkbox"
+              checked={filterLargestComponent}
+              onChange={(event) => {
+                setFilterLargestComponent(event.target.checked);
+                resetValidation();
+              }}
+            />
+            <span>Filter Largest Component</span>
+          </label>
+          <label className="checkbox-field">
+            <input type="checkbox" checked readOnly />
+            <span>Reindex Nodes</span>
+          </label>
+        </div>
+
+        <section className="dataset-intake-contract">
+          <header>
+            <strong>NEExT Tables</strong>
+            <span className="muted">Node IDs must be integer-compatible; graph labels use graph_label.</span>
+          </header>
+          <div className="dataset-intake-table-list">
+            {DATASET_INTAKE_TABLES.map((table) => {
+              const loaded = Boolean(tables[table]);
+              const required = REQUIRED_DATASET_INTAKE_TABLES.has(table);
+              return (
+                <div className="dataset-intake-table-row" key={table}>
+                  <span className="mono">{DATASET_INTAKE_LABELS[table]}</span>
+                  <span className={`status-pill ${loaded ? "is-ready" : "is-idle"}`}>{loaded ? "loaded" : required ? "required" : "optional"}</span>
+                </div>
+              );
+            })}
+          </div>
+        </section>
+
+        {fileError ? <p className="table-error">{fileError}</p> : null}
+        {missingRequiredTables.length ? (
+          <p className="table-note">Missing required tables: {missingRequiredTables.map((table) => DATASET_INTAKE_LABELS[table]).join(", ")}.</p>
+        ) : null}
+        {validateImport.error ? <p className="table-error">{validateImport.error.message}</p> : null}
+        {createDataset.error ? <p className="table-error">{createDataset.error.message}</p> : null}
+        {validation ? (
+          <section className={`dataset-intake-validation ${validation.valid ? "is-valid" : "is-invalid"}`}>
+            <strong>{validation.valid ? "Validation passed" : "Validation failed"}</strong>
+            {validation.stats ? (
+              <span className="muted">
+                {formatCount(validation.stats.graph_count)} graphs · {formatCount(validation.stats.node_count)} nodes ·{" "}
+                {formatCount(validation.stats.edge_count)} edges
+              </span>
+            ) : null}
+            {validation.errors.length ? (
+              <ul>
+                {validation.errors.slice(0, 6).map((error, index) => (
+                  <li key={`${error.table}-${error.column || ""}-${index}`}>
+                    <span className="mono">{error.table}</span> {error.message}
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+          </section>
+        ) : null}
+      </div>
+      <footer className="card-foot">
+        <button type="button" className="btn" onClick={() => validateImport.mutate()} disabled={!canValidate}>
+          <Upload />
+          {validateImport.isPending ? "Validating" : "Validate"}
+        </button>
+        <button type="submit" className="btn btn-primary" disabled={!canCreate}>
+          <Plus />
+          {createDataset.isPending ? "Creating" : "Create Dataset"}
+        </button>
+      </footer>
+    </form>
+  );
 }
 
 export function DatasetLibraryView({
@@ -151,7 +451,7 @@ export function DatasetLibraryView({
             <FcIcon name="library" size={16} />
             Dataset Library · {catalog.length} {catalog.length === 1 ? "dataset" : "datasets"}
           </span>
-          <span className="muted">{activeProjectId ? "Project target active" : "No active project"}</span>
+          <span className="muted">{activeProjectId ? "Templates for new project Dataset artifacts" : "No active project"}</span>
         </header>
         {loading ? (
           <div className="artifact-table-empty">
@@ -193,7 +493,7 @@ export function DatasetLibraryView({
                       <td>{catalogSize(entry)}</td>
                       <td>
                         <span className={`status-pill ${isConfigured ? "is-ready" : "is-idle"}`}>
-                          {isConfigured ? "configured" : "available"}
+                          {isConfigured ? "Added" : "Available"}
                         </span>
                       </td>
                       <td className="actions-cell actions-cell-wide">
@@ -207,8 +507,8 @@ export function DatasetLibraryView({
                           }}
                           disabled={!activeProjectId}
                         >
-                          <Settings2 />
-                          Configure
+                          <Plus />
+                          Add to Project
                         </button>
                       </td>
                     </tr>
@@ -320,7 +620,7 @@ export function ConfigureDatasetView({ activeProjectId, entry, draft, onBack, on
           <FcIcon name="datasets" size={32} />
         </span>
         <div>
-          <h3>Configure {entry.name}</h3>
+          <h3>Add {entry.name} to Project</h3>
           <p className="form-subtitle">{entry.description}</p>
         </div>
       </header>
@@ -416,7 +716,7 @@ export function ConfigureDatasetView({ activeProjectId, entry, draft, onBack, on
             </div>
           </>
         ) : (
-          <div className="field-grid">
+          <div className="field-grid dataset-config-grid">
             <label className="field">
               <span>Graph Backend</span>
               <select value={graphType} onChange={(event) => setGraphType(event.target.value as "networkx" | "igraph")}>
@@ -424,18 +724,20 @@ export function ConfigureDatasetView({ activeProjectId, entry, draft, onBack, on
                 <option value="igraph">igraph</option>
               </select>
             </label>
-            <label className="checkbox-field">
-              <input
-                type="checkbox"
-                checked={filterLargestComponent}
-                onChange={(event) => setFilterLargestComponent(event.target.checked)}
-              />
-              <span>Filter Largest Component</span>
-            </label>
-            <label className="checkbox-field">
-              <input type="checkbox" checked readOnly />
-              <span>Reindex Nodes</span>
-            </label>
+            <div className="checkbox-stack">
+              <label className="checkbox-field">
+                <input
+                  type="checkbox"
+                  checked={filterLargestComponent}
+                  onChange={(event) => setFilterLargestComponent(event.target.checked)}
+                />
+                <span>Filter Largest Component</span>
+              </label>
+              <label className="checkbox-field">
+                <input type="checkbox" checked readOnly />
+                <span>Reindex Nodes</span>
+              </label>
+            </div>
           </div>
         )}
       </div>
@@ -445,8 +747,8 @@ export function ConfigureDatasetView({ activeProjectId, entry, draft, onBack, on
           Back
         </button>
         <button type="submit" className="btn btn-primary" disabled={!canSave}>
-          <Save />
-          {createDataset.isPending ? "Saving" : "Save"}
+          <Plus />
+          {createDataset.isPending ? "Creating" : "Create Dataset"}
         </button>
       </footer>
     </form>
@@ -523,11 +825,11 @@ export function ProjectDatasetsView({
                           <strong>{dataset.name}</strong>
                         </span>
                       </td>
-                      <td className="muted">{dataset.source_catalog_id}</td>
+                      <td className="muted">{dataset.source_name || dataset.source_catalog_id}</td>
                       <td>{String(dataset.operation.params.graph_type)}</td>
                       <td>{dataset.operation.params.filter_largest_component ? "Yes" : "No"}</td>
                       <td>
-                        <span className={`status-pill ${dataset.status === "completed" ? "is-ready" : "is-idle"}`}>{dataset.status}</span>
+                        <span className={`status-pill ${artifactStatusClass(dataset.status)}`}>{artifactStatusLabel(dataset.status)}</span>
                       </td>
                       <td className="muted mono">{dataset.updated_at}</td>
                       <td className="actions-cell actions-cell-wide">
@@ -542,7 +844,7 @@ export function ProjectDatasetsView({
                             disabled={isRunning}
                           >
                             {dataset.status === "failed" ? <RotateCcw /> : <Play />}
-                            {dataset.status === "failed" ? "Retry" : isRunning ? "Running" : "Run"}
+                            {dataset.status === "failed" ? "Retry Prepare" : isRunning ? "Preparing" : "Prepare"}
                           </button>
                         ) : null}
                         {dataset.status === "completed" ? (
@@ -989,7 +1291,7 @@ export function DatasetExploreView({
                       </td>
                       <td className="muted">{item.source_catalog_id}</td>
                       <td>
-                        <span className={`status-pill ${item.status === "completed" ? "is-ready" : "is-idle"}`}>{item.status}</span>
+                        <span className={`status-pill ${artifactStatusClass(item.status)}`}>{artifactStatusLabel(item.status)}</span>
                       </td>
                       <td className="muted mono">{item.updated_at}</td>
                       <td className="actions-cell actions-cell-wide">
@@ -1022,19 +1324,17 @@ export function DatasetExploreView({
         <section className="artifact-table">
           <header className="artifact-table-head">
             <span className="artifact-table-title">
-              <FcIcon name="explore" size={16} />
-              {dataset.name} Explore
-            </span>
-            <div className="artifact-table-head-actions">
-              <span className="muted">{dataset.status}</span>
               <button type="button" className="btn" onClick={onBackToDatasets}>
                 <ChevronLeft />
                 Back to Datasets
               </button>
-            </div>
+              <FcIcon name="explore" size={16} />
+              {dataset.name} Explore
+            </span>
+            <span className={`status-pill ${artifactStatusClass(dataset.status)}`}>{artifactStatusLabel(dataset.status)}</span>
           </header>
           <div className="artifact-table-empty">
-            <EmptyState compact>Run dataset preparation before exploring this dataset.</EmptyState>
+            <EmptyState compact>Prepare this dataset before exploring it.</EmptyState>
           </div>
         </section>
       </div>
@@ -1046,16 +1346,14 @@ export function DatasetExploreView({
       <section className="artifact-table dataset-explore">
         <header className="artifact-table-head">
           <span className="artifact-table-title">
-            <FcIcon name="explore" size={16} />
-            {dataset.name} Explore
-          </span>
-          <div className="artifact-table-head-actions">
-            <span className="muted">{dataset.prepared_stats ? `${formatCount(dataset.prepared_stats.node_count)} nodes` : dataset.status}</span>
             <button type="button" className="btn" onClick={onBackToDatasets}>
               <ChevronLeft />
               Back to Datasets
             </button>
-          </div>
+            <FcIcon name="explore" size={16} />
+            {dataset.name} Explore
+          </span>
+          <span className={`status-pill ${artifactStatusClass(dataset.status)}`}>{artifactStatusLabel(dataset.status)}</span>
         </header>
         <div className="tab-strip">
           {(["statistics", "graph", "data"] as const).map((item) => (
@@ -1072,6 +1370,10 @@ export function DatasetExploreView({
         ) : null}
         {tab === "statistics" && analysis.data ? (
           <div className="dataset-tab-panel dataset-stat-panel">
+            <section className="dataset-stats-section">
+              <h3>Description</h3>
+              <p className="dataset-description-text">{dataset.description || "No description."}</p>
+            </section>
             {analysis.data.egonet_metadata ? (
               <>
                 <section className="dataset-stats-section">
@@ -1300,7 +1602,9 @@ export function DatasetExploreView({
                     <span className="graph-meta-badge">{formatCount(selectedSummary.node_count)} nodes</span>
                     <span className="graph-meta-badge">{formatCount(selectedSummary.edge_count)} edges</span>
                     {selectedSummary.graph_label != null ? (
-                      <span className="graph-label-badge">Label {formatValue(selectedSummary.graph_label)}</span>
+                      <span className="graph-label-badge" style={graphLabelStyle(selectedSummary.graph_label)}>
+                        Label {formatValue(selectedSummary.graph_label)}
+                      </span>
                     ) : null}
                     {selectedSummary.source_node_id ? (
                       <span className="graph-center-badge">Center Source Node {selectedSummary.source_node_id}</span>
@@ -1353,8 +1657,12 @@ export function DatasetExploreView({
                           <strong>{result.kind === "node" ? result.node_id : result.graph_id}</strong>
                           <span className="muted">
                             {result.kind === "node" ? `graph ${result.graph_id} · ` : ""}
-                            {formatCount(result.node_count)} nodes · {formatCount(result.edge_count)} edges · label{" "}
-                            {formatValue(result.graph_label)}
+                            {formatCount(result.node_count)} nodes · {formatCount(result.edge_count)} edges
+                            {result.graph_label != null ? (
+                              <span className="graph-label-badge inline-label-badge" style={graphLabelStyle(result.graph_label)}>
+                                Label {formatValue(result.graph_label)}
+                              </span>
+                            ) : null}
                           </span>
                         </button>
                       ))

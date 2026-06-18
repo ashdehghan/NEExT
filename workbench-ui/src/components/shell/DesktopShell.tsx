@@ -5,6 +5,8 @@ interface DesktopShellProps {
   center: React.ReactNode;
   right: React.ReactNode;
   statusBar: React.ReactNode;
+  commandWindowHeight: number;
+  commandWindowCollapsed: boolean;
 }
 
 export function DesktopShell({
@@ -13,7 +15,9 @@ export function DesktopShell({
   left,
   center,
   right,
-  statusBar
+  statusBar,
+  commandWindowHeight,
+  commandWindowCollapsed
 }: DesktopShellProps) {
   return (
     <div className="shell">
@@ -21,7 +25,14 @@ export function DesktopShell({
       {ribbon}
       <main className="desktop">
         <aside className="desktop-left">{left}</aside>
-        <section className="desktop-center">{center}</section>
+        <section
+          className="desktop-center"
+          style={{
+            gridTemplateRows: commandWindowCollapsed ? "minmax(0, 1fr) 28px" : `minmax(0, 1fr) ${commandWindowHeight}px`
+          }}
+        >
+          {center}
+        </section>
         <aside className="desktop-right">{right}</aside>
       </main>
       {statusBar}

@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import * as echarts from "echarts";
 import type { EChartsOption } from "echarts";
-import { ArrowLeft, Box, ChevronLeft, ChevronRight, Eye, Play, RotateCcw, Save, Search, Settings2, Trash2 } from "lucide-react";
+import { ArrowLeft, Box, ChevronLeft, ChevronRight, Eye, Play, Plus, RotateCcw, Search, Trash2 } from "lucide-react";
 import {
   api,
   type DatasetManifest,
@@ -92,6 +92,20 @@ function formatValue(value: unknown): string {
   return String(value);
 }
 
+function artifactStatusLabel(status: string): string {
+  if (status === "planned") return "Draft";
+  if (status === "completed") return "Ready";
+  if (status === "running") return "Running";
+  if (status === "failed") return "Failed";
+  return status;
+}
+
+function artifactStatusClass(status: string): string {
+  if (status === "completed") return "is-ready";
+  if (status === "failed") return "is-failed";
+  return "is-idle";
+}
+
 function draftNumber(draft: Record<string, unknown> | undefined, key: string): number | undefined {
   const value = draft?.[key];
   return typeof value === "number" && Number.isFinite(value) ? value : undefined;
@@ -163,8 +177,8 @@ export function EmbeddingLibraryView({
                           onConfigure(entry.id);
                         }}
                       >
-                        <Settings2 />
-                        Configure
+                        <Plus />
+                        Add to Project
                       </button>
                     </td>
                   </tr>
@@ -288,7 +302,7 @@ export function ConfigureEmbeddingView({
           <FcIcon name="embeddings" size={32} />
         </span>
         <div>
-          <h3>Configure {embedding.name}</h3>
+          <h3>Add {embedding.name} to Project</h3>
           <p className="form-subtitle">{embedding.description}</p>
         </div>
       </header>
@@ -299,7 +313,7 @@ export function ConfigureEmbeddingView({
         <div className="field-grid">
           <label className="field">
             <span>Algorithm</span>
-            <input value={embedding.id} readOnly />
+            <span className="readonly-value mono">{embedding.id}</span>
           </label>
           <label className="field">
             <span>Embedding Dimension</span>
@@ -356,7 +370,7 @@ export function ConfigureEmbeddingView({
                       </td>
                       <td>{dataset?.name || "Unknown dataset"}</td>
                       <td>
-                        <span className={`status-pill ${feature.status === "completed" ? "is-ready" : "is-idle"}`}>{feature.status}</span>
+                        <span className={`status-pill ${artifactStatusClass(feature.status)}`}>{artifactStatusLabel(feature.status)}</span>
                       </td>
                     </tr>
                   );
@@ -368,8 +382,8 @@ export function ConfigureEmbeddingView({
       </div>
       <footer className="card-foot">
         <button type="submit" className="btn btn-primary" disabled={!canSave || createEmbedding.isPending}>
-          <Save />
-          {createEmbedding.isPending ? "Saving" : "Save"}
+          <Plus />
+          {createEmbedding.isPending ? "Creating" : "Create Embedding"}
         </button>
       </footer>
     </form>
@@ -456,7 +470,7 @@ export function ProjectEmbeddingsView({
                 onClick={() => runBatch.mutate(runnableCheckedEmbeddingIds)}
               >
                 <Play />
-                Run Selected
+                Compute Selected
               </button>
             </div>
             <div className="artifact-table-scroll">
@@ -520,7 +534,7 @@ export function ProjectEmbeddingsView({
                         <td>{featureNames}</td>
                         <td>{String(embedding.operation.params.embedding_dimension)}</td>
                         <td>
-                          <span className={`status-pill ${embedding.status === "completed" ? "is-ready" : "is-idle"}`}>{embedding.status}</span>
+                          <span className={`status-pill ${artifactStatusClass(embedding.status)}`}>{artifactStatusLabel(embedding.status)}</span>
                         </td>
                         <td className="muted mono">{embedding.updated_at}</td>
                         <td className="actions-cell actions-cell-wide">
@@ -535,7 +549,7 @@ export function ProjectEmbeddingsView({
                               }}
                             >
                               {embedding.status === "failed" ? <RotateCcw /> : <Play />}
-                              {embedding.status === "failed" ? "Retry" : isRunning ? "Running" : "Run"}
+                              {embedding.status === "failed" ? "Retry Compute" : isRunning ? "Computing" : "Compute"}
                             </button>
                           ) : null}
                           {embedding.status === "completed" ? (
@@ -1145,7 +1159,7 @@ export function EmbeddingExploreView({
                         <td>{algorithm}</td>
                         <td>{featureNames}</td>
                         <td>
-                          <span className={`status-pill ${item.status === "completed" ? "is-ready" : "is-idle"}`}>{item.status}</span>
+                          <span className={`status-pill ${artifactStatusClass(item.status)}`}>{artifactStatusLabel(item.status)}</span>
                         </td>
                         <td className="actions-cell actions-cell-wide">
                           <button
@@ -1157,7 +1171,7 @@ export function EmbeddingExploreView({
                             }}
                           >
                             <Eye />
-                            {item.status === "completed" ? "Explore" : "Run First"}
+                            {item.status === "completed" ? "Explore" : "Compute First"}
                           </button>
                         </td>
                       </tr>
@@ -1178,19 +1192,17 @@ export function EmbeddingExploreView({
         <section className="artifact-table">
           <header className="artifact-table-head">
             <span className="artifact-table-title">
-              <FcIcon name="explore" size={16} />
-              {embedding.name} Explore
-            </span>
-            <div className="artifact-table-head-actions">
-              <span className="muted">{embedding.status}</span>
               <button type="button" className="btn" onClick={onClearExploreEmbedding}>
                 <ArrowLeft />
                 Choose Embedding
               </button>
-            </div>
+              <FcIcon name="explore" size={16} />
+              {embedding.name} Explore
+            </span>
+            <span className={`status-pill ${artifactStatusClass(embedding.status)}`}>{artifactStatusLabel(embedding.status)}</span>
           </header>
           <div className="artifact-table-empty">
-            <EmptyState compact>Run embedding computation before exploring this embedding.</EmptyState>
+            <EmptyState compact>Compute this embedding before exploring it.</EmptyState>
           </div>
         </section>
       </div>
@@ -1202,16 +1214,14 @@ export function EmbeddingExploreView({
       <section className="artifact-table dataset-explore embedding-explore">
         <header className="artifact-table-head">
           <span className="artifact-table-title">
-            <FcIcon name="explore" size={16} />
-            {embedding.name} Explore
-          </span>
-          <div className="artifact-table-head-actions">
-            <span className="muted">{embedding.output_stats ? `${formatCount(embedding.output_stats.row_count)} graphs` : embedding.status}</span>
             <button type="button" className="btn" onClick={onClearExploreEmbedding}>
               <ArrowLeft />
               Choose Embedding
             </button>
-          </div>
+            <FcIcon name="explore" size={16} />
+            {embedding.name} Explore
+          </span>
+          <span className={`status-pill ${artifactStatusClass(embedding.status)}`}>{artifactStatusLabel(embedding.status)}</span>
         </header>
         <div className="tab-strip">
           {(["statistics", "pca", "data"] as const).map((item) => {

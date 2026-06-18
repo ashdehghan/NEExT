@@ -11,6 +11,10 @@ from .schemas import (
     CustomFeatureCreateRequest,
     CustomFeatureValidateRequest,
     DatasetCreateRequest,
+    DatasetIntakeRequest,
+    DatasetIntakeSessionCreateRequest,
+    DatasetIntakeSessionTableRequest,
+    DatasetIntakeTablePayload,
     DatasetPrepareParams,
     EmbeddingCreateParams,
     EmbeddingCreateRequest,
@@ -156,9 +160,97 @@ class WorkbenchMcpService:
         result = self.store.create_dataset_from_library(project_id, request)
         self.store.record_mcp_activity(
             "tool_call",
-            f'Configured dataset "{result.name}"',
+            f'Added dataset "{result.name}" to project',
             tool_name="neext_configure_dataset",
             details={"project_id": project_id, "dataset_id": result.id},
+        )
+        return self._dump(result)
+
+    def _dataset_intake_tables(self, tables: dict[str, Any]) -> dict[str, DatasetIntakeTablePayload]:
+        return {str(name): DatasetIntakeTablePayload.model_validate(payload) for name, payload in tables.items()}
+
+    def validate_dataset_intake(
+        self,
+        project_id: str,
+        name: str,
+        tables: dict[str, Any],
+        description: str = "",
+        params: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        request = DatasetIntakeRequest(
+            name=name,
+            description=description,
+            tables=self._dataset_intake_tables(tables),
+            params=DatasetPrepareParams.model_validate(params or {}),
+        )
+        result = self.store.validate_dataset_intake(project_id, request)
+        self.store.record_mcp_activity(
+            "tool_call",
+            "Validated Dataset Intake tables",
+            tool_name="neext_validate_dataset_intake",
+            details={"project_id": project_id, "valid": result.valid, "tables": sorted(tables)},
+        )
+        return self._dump(result)
+
+    def create_dataset_intake_session(
+        self,
+        project_id: str,
+        name: str,
+        description: str = "",
+        params: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        request = DatasetIntakeSessionCreateRequest(
+            name=name,
+            description=description,
+            params=DatasetPrepareParams.model_validate(params or {}),
+        )
+        result = self.store.create_dataset_intake_session(project_id, request)
+        self.store.record_mcp_activity(
+            "tool_call",
+            f'Created Dataset Intake session "{result.name}"',
+            tool_name="neext_create_dataset_intake_session",
+            details={"project_id": project_id, "session_id": result.id},
+        )
+        return self._dump(result)
+
+    def append_dataset_intake_table(
+        self,
+        project_id: str,
+        session_id: str,
+        table_name: str,
+        table: dict[str, Any],
+        replace: bool = False,
+    ) -> dict[str, Any]:
+        request = DatasetIntakeSessionTableRequest(
+            table=DatasetIntakeTablePayload.model_validate(table),
+            replace=replace,
+        )
+        result = self.store.append_dataset_intake_session_table(project_id, session_id, table_name, request)
+        self.store.record_mcp_activity(
+            "tool_call",
+            f'Appended Dataset Intake table "{table_name}"',
+            tool_name="neext_append_dataset_intake_table",
+            details={"project_id": project_id, "session_id": session_id, "table": table_name, "replace": replace},
+        )
+        return self._dump(result)
+
+    def validate_dataset_intake_session(self, project_id: str, session_id: str) -> dict[str, Any]:
+        result = self.store.validate_dataset_intake_session(project_id, session_id)
+        self.store.record_mcp_activity(
+            "tool_call",
+            "Validated Dataset Intake session",
+            tool_name="neext_validate_dataset_intake_session",
+            details={"project_id": project_id, "session_id": session_id, "valid": result.validation.valid if result.validation else False},
+        )
+        return self._dump(result)
+
+    def create_dataset_from_intake(self, project_id: str, session_id: str) -> dict[str, Any]:
+        result = self.store.create_dataset_from_intake_session(project_id, session_id)
+        self.store.record_mcp_activity(
+            "tool_call",
+            f'Created Dataset artifact "{result.name}" from Dataset Intake',
+            tool_name="neext_create_dataset_from_intake",
+            details={"project_id": project_id, "session_id": session_id, "dataset_id": result.id},
         )
         return self._dump(result)
 
@@ -177,7 +269,7 @@ class WorkbenchMcpService:
         result = self.store.create_feature(project_id, request)
         self.store.record_mcp_activity(
             "tool_call",
-            f'Configured feature "{result.name}"',
+            f'Added feature "{result.name}" to project',
             tool_name="neext_configure_feature",
             details={"project_id": project_id, "feature_id": result.id},
         )
@@ -223,7 +315,7 @@ class WorkbenchMcpService:
         result = self.store.create_custom_feature(project_id, request)
         self.store.record_mcp_activity(
             "tool_call",
-            f'Configured custom feature "{result.name}"',
+            f'Created custom feature "{result.name}"',
             tool_name="neext_configure_custom_feature",
             details={"project_id": project_id, "feature_id": result.id, "source_dataset_id": source_dataset_id},
         )
@@ -244,7 +336,7 @@ class WorkbenchMcpService:
         result = self.store.create_embedding(project_id, request)
         self.store.record_mcp_activity(
             "tool_call",
-            f'Configured embedding "{result.name}"',
+            f'Added embedding "{result.name}" to project',
             tool_name="neext_configure_embedding",
             details={"project_id": project_id, "embedding_id": result.id},
         )
@@ -265,7 +357,7 @@ class WorkbenchMcpService:
         result = self.store.create_model(project_id, request)
         self.store.record_mcp_activity(
             "tool_call",
-            f'Configured model "{result.name}"',
+            f'Added model "{result.name}" to project',
             tool_name="neext_configure_model",
             details={"project_id": project_id, "model_id": result.id},
         )

@@ -1,3 +1,4 @@
+import importlib
 import json
 import os
 import socket
@@ -10,8 +11,77 @@ from tempfile import TemporaryDirectory
 
 import pytest
 
-pytest.importorskip("mcp.server.lowlevel")
-pytest.importorskip("mcp.server.streamable_http_manager")
+REQUIRE_WORKBENCH_MCP_ENV = "NEEXT_REQUIRE_WORKBENCH_MCP"
+
+
+def require_module(module_name: str):
+    if os.environ.get(REQUIRE_WORKBENCH_MCP_ENV) == "1":
+        try:
+            return importlib.import_module(module_name)
+        except ImportError as exc:
+            pytest.fail(f"{module_name} is required when {REQUIRE_WORKBENCH_MCP_ENV}=1: {exc}")
+    return pytest.importorskip(module_name)
+
+
+def require_mcp_server_sdk() -> None:
+    require_module("mcp.server.lowlevel")
+    require_module("mcp.server.streamable_http_manager")
+
+
+def require_mcp_stdio_client() -> None:
+    require_mcp_server_sdk()
+    require_module("mcp.client.stdio")
+
+
+def require_mcp_streamable_http_client() -> None:
+    require_mcp_server_sdk()
+    require_module("mcp.client.streamable_http")
+
+
+def intake_records_tables() -> dict[str, dict]:
+    return {
+        "node_graph_mapping": {
+            "format": "records",
+            "records": [
+                {"node_id": 1, "graph_id": "g1"},
+                {"node_id": 2, "graph_id": "g1"},
+                {"node_id": 3, "graph_id": "g2"},
+                {"node_id": 4, "graph_id": "g2"},
+            ],
+        },
+        "edges": {
+            "format": "records",
+            "records": [
+                {"src_node_id": 1, "dest_node_id": 2},
+                {"src_node_id": 3, "dest_node_id": 4},
+            ],
+        },
+        "graph_labels": {
+            "format": "records",
+            "records": [
+                {"graph_id": "g1", "graph_label": 0},
+                {"graph_id": "g2", "graph_label": 1},
+            ],
+        },
+        "node_features": {
+            "format": "records",
+            "records": [
+                {"node_id": 1, "feature_a": 0.1},
+                {"node_id": 2, "feature_a": 0.2},
+                {"node_id": 3, "feature_a": 0.3},
+                {"node_id": 4, "feature_a": 0.4},
+            ],
+        },
+    }
+
+
+def intake_csv_tables() -> dict[str, dict]:
+    return {
+        "node_graph_mapping": {"format": "csv", "csv": "node_id,graph_id\n1,g1\n2,g1\n3,g2\n4,g2\n"},
+        "edges": {"format": "csv", "csv": "src_node_id,dest_node_id\n1,2\n3,4\n"},
+        "graph_labels": {"format": "csv", "csv": "graph_id,graph_label\ng1,0\ng2,1\n"},
+        "node_features": {"format": "csv", "csv": "node_id,feature_a\n1,0.1\n2,0.2\n3,0.3\n4,0.4\n"},
+    }
 
 
 def write_labeled_graph_source_bundle(source_dir: Path, *, graph_count: int = 8) -> dict[str, str]:
@@ -64,10 +134,216 @@ def parse_tool_result(result):
     return json.loads(result.content[0].text)
 
 
+async def call_json_tool(session, name: str, arguments: dict | None = None) -> dict:
+    return parse_tool_result(await session.call_tool(name, arguments or {}))
+
+
+def tool_error_text(result) -> str:
+    assert result.isError is True
+    assert result.content
+    return result.content[0].text
+
+
+async def wait_for_mcp_job(session, project_id: str, job_id: str, timeout_s: float = 10.0) -> dict:
+    import anyio
+
+    deadline = time.time() + timeout_s
+    while time.time() < deadline:
+        job = await call_json_tool(session, "neext_get_job", {"project_id": project_id, "job_id": job_id})
+        if job["status"] in {"completed", "failed"}:
+            return job
+        await anyio.sleep(0.05)
+    raise AssertionError(f"Timed out waiting for MCP job {job_id}")
+
+
+async def assert_mcp_dataset_intake_upload_flow(session, workspace_path: str, tables: dict[str, dict], *, project_name: str) -> dict:
+    tools = await session.list_tools()
+    tool_names = {tool.name for tool in tools.tools}
+    assert {
+        "neext_create_project",
+        "neext_validate_dataset_intake",
+        "neext_create_dataset_intake_session",
+        "neext_append_dataset_intake_table",
+        "neext_validate_dataset_intake_session",
+        "neext_create_dataset_from_intake",
+        "neext_run_artifacts",
+        "neext_get_job",
+        "neext_preview_artifact",
+        "neext_analyze_artifact",
+        "neext_search_graphs",
+        "neext_get_graph_detail",
+    }.issubset(tool_names)
+    assert not any("archive" in tool_name for tool_name in tool_names)
+
+    project = await call_json_tool(session, "neext_create_project", {"name": project_name, "description": "mcp intake"})
+    project_id = project["id"]
+    assert workspace_path not in json.dumps(project)
+    assert "path" not in project
+
+    invalid_validation = await call_json_tool(
+        session,
+        "neext_validate_dataset_intake",
+        {
+            "project_id": project_id,
+            "name": "Missing Required Table",
+            "tables": {"edges": tables["edges"]},
+        },
+    )
+    assert invalid_validation["valid"] is False
+    assert any(error["table"] == "node_graph_mapping" for error in invalid_validation["errors"])
+
+    validation = await call_json_tool(
+        session,
+        "neext_validate_dataset_intake",
+        {
+            "project_id": project_id,
+            "name": "Agent Tables",
+            "description": "Synthetic graph data supplied through MCP",
+            "tables": tables,
+            "params": {"graph_type": "networkx", "filter_largest_component": True},
+        },
+    )
+    assert validation["valid"] is True
+    assert validation["errors"] == []
+    assert validation["stats"] == {
+        "graph_count": 2,
+        "node_count": 4,
+        "edge_count": 2,
+        "has_graph_labels": True,
+        "has_node_features": True,
+        "has_edge_features": False,
+    }
+
+    intake_session = await call_json_tool(
+        session,
+        "neext_create_dataset_intake_session",
+        {
+            "project_id": project_id,
+            "name": "Agent Tables",
+            "description": "Synthetic graph data supplied through MCP",
+            "params": {"graph_type": "networkx", "filter_largest_component": True},
+        },
+    )
+    session_id = intake_session["id"]
+    assert intake_session["tables"] == []
+    assert workspace_path not in json.dumps(intake_session)
+
+    for table_name, table in tables.items():
+        append_result = await call_json_tool(
+            session,
+            "neext_append_dataset_intake_table",
+            {
+                "project_id": project_id,
+                "session_id": session_id,
+                "table_name": table_name,
+                "table": table,
+                "replace": True,
+            },
+        )
+        assert table_name in append_result["tables"]
+
+    session_validation = await call_json_tool(
+        session,
+        "neext_validate_dataset_intake_session",
+        {"project_id": project_id, "session_id": session_id},
+    )
+    assert session_validation["validation"]["valid"] is True
+    assert session_validation["validation"]["stats"]["graph_count"] == 2
+
+    dataset = await call_json_tool(
+        session,
+        "neext_create_dataset_from_intake",
+        {"project_id": project_id, "session_id": session_id},
+    )
+    dataset_id = dataset["id"]
+    assert dataset["status"] == "planned"
+    assert dataset["source_type"] == "uploaded_neext_tables"
+    assert dataset["source_catalog_id"] == "dataset-intake"
+    assert dataset["inputs"] == []
+    assert dataset["raw_data_files"]["nodes"] == "source/nodes.parquet"
+    assert workspace_path not in json.dumps(dataset)
+    assert "path" not in json.dumps(dataset)
+
+    artifact_listing = await call_json_tool(session, "neext_list_artifacts", {"project_id": project_id, "kind": "datasets"})
+    assert [artifact["id"] for artifact in artifact_listing] == [dataset_id]
+
+    run = await call_json_tool(session, "neext_run_artifacts", {"project_id": project_id, "kind": "datasets", "ids": [dataset_id]})
+    job_id = run["jobs"][0]["id"]
+    completed_job = await wait_for_mcp_job(session, project_id, job_id)
+    assert completed_job["status"] == "completed"
+
+    prepared = await call_json_tool(
+        session,
+        "neext_get_artifact",
+        {"project_id": project_id, "kind": "datasets", "artifact_id": dataset_id},
+    )
+    assert prepared["status"] == "completed"
+    assert prepared["prepared_stats"] == {
+        "graph_count": 2,
+        "node_count": 4,
+        "edge_count": 2,
+        "has_graph_labels": True,
+        "has_node_features": True,
+        "has_edge_features": False,
+    }
+    assert prepared["raw_data_files"]["nodes"] == "raw/nodes.parquet"
+    assert workspace_path not in json.dumps(prepared)
+
+    preview = await call_json_tool(
+        session,
+        "neext_preview_artifact",
+        {"project_id": project_id, "kind": "datasets", "artifact_id": dataset_id, "table": "nodes", "limit": 2, "offset": 0},
+    )
+    assert preview["total_rows"] == 4
+    assert preview["limit"] == 2
+    assert len(preview["rows"]) == 2
+
+    analysis = await call_json_tool(
+        session,
+        "neext_analyze_artifact",
+        {"project_id": project_id, "kind": "datasets", "artifact_id": dataset_id, "options": {"graph_id": "g1"}},
+    )
+    assert analysis["selected_graph_id"] == "g1"
+    assert analysis["prepared_stats"]["graph_count"] == 2
+
+    search = await call_json_tool(
+        session,
+        "neext_search_graphs",
+        {"project_id": project_id, "kind": "datasets", "artifact_id": dataset_id, "query": "g1", "limit": 5},
+    )
+    assert search["results"][0]["graph_id"] == "g1"
+
+    graph_detail = await call_json_tool(
+        session,
+        "neext_get_graph_detail",
+        {"project_id": project_id, "kind": "datasets", "artifact_id": dataset_id, "graph_id": "g1"},
+    )
+    assert graph_detail["graph_id"] == "g1"
+    assert workspace_path not in json.dumps(
+        {
+            "artifact_listing": artifact_listing,
+            "run": run,
+            "completed_job": completed_job,
+            "preview": preview,
+            "analysis": analysis,
+            "search": search,
+            "graph_detail": graph_detail,
+        }
+    )
+    return {"project_id": project_id, "dataset_id": dataset_id, "job_id": job_id}
+
+
 def free_port() -> int:
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
         sock.bind(("127.0.0.1", 0))
         return int(sock.getsockname()[1])
+
+
+def test_workbench_mcp_sdk_modules_are_available_when_required():
+    if os.environ.get(REQUIRE_WORKBENCH_MCP_ENV) != "1":
+        pytest.skip(f"Set {REQUIRE_WORKBENCH_MCP_ENV}=1 to make MCP SDK imports mandatory")
+    require_mcp_stdio_client()
+    require_mcp_streamable_http_client()
 
 
 def test_mcp_cli_rejects_disabled_missing_and_invalid_tokens():
@@ -118,6 +394,8 @@ def test_mcp_cli_rejects_disabled_missing_and_invalid_tokens():
 
 
 def test_valid_mcp_stdio_server_exposes_expected_tools_resources_and_prompts():
+    require_mcp_stdio_client()
+
     import anyio
     from mcp import ClientSession, StdioServerParameters
     from mcp.client.stdio import stdio_client
@@ -183,7 +461,44 @@ def test_valid_mcp_stdio_server_exposes_expected_tools_resources_and_prompts():
         anyio.run(inspect_server, str(Path(tmpdir).resolve()), token)
 
 
+def test_mcp_stdio_client_uploads_prepares_and_previews_dataset_intake_tables():
+    pytest.importorskip("pyarrow")
+    require_mcp_stdio_client()
+
+    import anyio
+    from mcp import ClientSession, StdioServerParameters
+    from mcp.client.stdio import stdio_client
+
+    async def upload_with_stdio(workspace_path: str, token: str):
+        env = os.environ.copy()
+        env["NEEXT_WORKBENCH_MCP_TOKEN"] = token
+        server_params = StdioServerParameters(
+            command=sys.executable,
+            args=["-m", "NEExT.workbench.mcp_cli", "--workspace", workspace_path],
+            env=env,
+        )
+        async with stdio_client(server_params) as (read_stream, write_stream):
+            async with ClientSession(read_stream, write_stream) as session:
+                await session.initialize()
+                result = await assert_mcp_dataset_intake_upload_flow(
+                    session,
+                    workspace_path,
+                    intake_records_tables(),
+                    project_name="MCP Stdio Intake",
+                )
+                assert result["dataset_id"]
+
+    with TemporaryDirectory() as tmpdir:
+        from NEExT.workbench.storage import WorkbenchStore
+
+        store = WorkbenchStore(Path(tmpdir))
+        _, token = store.enable_mcp()
+        anyio.run(upload_with_stdio, str(Path(tmpdir).resolve()), token)
+
+
 def test_sdk_streamable_http_client_connects_to_workbench_mcp():
+    require_mcp_streamable_http_client()
+
     import anyio
     import httpx
     import uvicorn
@@ -227,6 +542,199 @@ def test_sdk_streamable_http_client_connects_to_workbench_mcp():
 
     with TemporaryDirectory() as tmpdir:
         anyio.run(inspect_http_server, str(Path(tmpdir).resolve()))
+
+
+def test_mcp_streamable_http_client_uploads_prepares_and_previews_dataset_intake_tables():
+    pytest.importorskip("pyarrow")
+    require_mcp_streamable_http_client()
+
+    import anyio
+    import httpx
+    import uvicorn
+    from mcp import ClientSession
+    from mcp.client.streamable_http import streamable_http_client
+
+    from NEExT.workbench.app import create_app
+    from NEExT.workbench.storage import MCP_DEFAULT_SCOPES
+
+    async def upload_with_http(workspace_path: str):
+        app = create_app(workspace_path)
+        _, token = app.state.store.enable_mcp()
+        port = free_port()
+        server = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=port, log_level="error"))
+        thread = threading.Thread(target=server.run, daemon=True)
+        thread.start()
+        try:
+            deadline = time.time() + 10.0
+            while not server.started and time.time() < deadline:
+                await anyio.sleep(0.05)
+            assert server.started
+
+            settings = app.state.store.read_mcp_settings()
+            settings.scopes = ["read"]
+            app.state.store._write_mcp_settings(settings)
+
+            headers = {"Authorization": f"Bearer {token}"}
+            async with httpx.AsyncClient(headers=headers) as http_client:
+                async with streamable_http_client(f"http://127.0.0.1:{port}/mcp", http_client=http_client) as (
+                    read_stream,
+                    write_stream,
+                    _,
+                ):
+                    async with ClientSession(read_stream, write_stream) as session:
+                        await session.initialize()
+                        tools = await session.list_tools()
+                        tool_names = {tool.name for tool in tools.tools}
+                        assert "neext_workspace_summary" in tool_names
+                        assert "neext_create_project" not in tool_names
+                        assert "neext_create_dataset_intake_session" not in tool_names
+
+            settings.scopes = MCP_DEFAULT_SCOPES
+            app.state.store._write_mcp_settings(settings)
+
+            async with httpx.AsyncClient(headers=headers) as http_client:
+                async with streamable_http_client(f"http://127.0.0.1:{port}/mcp", http_client=http_client) as (
+                    read_stream,
+                    write_stream,
+                    _,
+                ):
+                    async with ClientSession(read_stream, write_stream) as session:
+                        await session.initialize()
+                        result = await assert_mcp_dataset_intake_upload_flow(
+                            session,
+                            workspace_path,
+                            intake_csv_tables(),
+                            project_name="MCP HTTP Intake",
+                        )
+                        assert result["dataset_id"]
+        finally:
+            server.should_exit = True
+            thread.join(timeout=10.0)
+
+    with TemporaryDirectory() as tmpdir:
+        anyio.run(upload_with_http, str(Path(tmpdir).resolve()))
+
+
+def test_mcp_service_creates_dataset_from_intake_session():
+    pytest.importorskip("pyarrow")
+
+    from NEExT.workbench.mcp_service import WorkbenchMcpService
+    from NEExT.workbench.storage import WorkbenchStore
+
+    with TemporaryDirectory() as tmpdir:
+        store = WorkbenchStore(Path(tmpdir))
+        service = WorkbenchMcpService(store)
+        project = service.create_project("Agent Intake", "mcp")
+        project_id = project["id"]
+
+        session = service.create_dataset_intake_session(project_id, "Agent Tables", "Synthetic graph data")
+        session_id = session["id"]
+        service.append_dataset_intake_table(
+            project_id,
+            session_id,
+            "node_graph_mapping",
+            {"format": "records", "records": [{"node_id": 1, "graph_id": "g1"}, {"node_id": 2, "graph_id": "g1"}]},
+            replace=True,
+        )
+        service.append_dataset_intake_table(
+            project_id,
+            session_id,
+            "edges",
+            {"format": "records", "records": [{"src_node_id": 1, "dest_node_id": 2}]},
+            replace=True,
+        )
+        service.append_dataset_intake_table(
+            project_id,
+            session_id,
+            "graph_labels",
+            {"format": "records", "records": [{"graph_id": "g1", "graph_label": 1}]},
+            replace=True,
+        )
+
+        validation = service.validate_dataset_intake_session(project_id, session_id)
+        assert validation["validation"]["valid"] is True
+        created = service.create_dataset_from_intake(project_id, session_id)
+        assert created["source_type"] == "uploaded_neext_tables"
+        assert created["status"] == "planned"
+        assert created["raw_data_files"]["nodes"] == "source/nodes.parquet"
+
+        job = store.run_dataset_preparation(project_id, created["id"])
+        completed = wait_for_store_job(store, project_id, job.id)
+        assert completed["status"] == "completed"
+        prepared = store.read_dataset(project_id, created["id"])
+        assert prepared.status == "completed"
+        assert prepared.prepared_stats.graph_count == 1
+
+
+def test_mcp_service_dataset_intake_validation_errors_and_append_semantics():
+    from NEExT.workbench.mcp_service import WorkbenchMcpService
+    from NEExT.workbench.storage import WorkbenchStore
+
+    with TemporaryDirectory() as tmpdir:
+        service = WorkbenchMcpService(WorkbenchStore(Path(tmpdir)))
+        project = service.create_project("Agent Intake Validation", "mcp")
+        project_id = project["id"]
+
+        missing_required = service.validate_dataset_intake(
+            project_id,
+            "Missing Nodes",
+            {"edges": intake_records_tables()["edges"]},
+        )
+        assert missing_required["valid"] is False
+        assert any(error["table"] == "node_graph_mapping" and "Required table" in error["message"] for error in missing_required["errors"])
+
+        wrong_columns = service.validate_dataset_intake(
+            project_id,
+            "Wrong Columns",
+            {
+                "node_graph_mapping": {"format": "records", "records": [{"node": 1, "graph_id": "g1"}]},
+                "edges": intake_records_tables()["edges"],
+            },
+        )
+        assert wrong_columns["valid"] is False
+        assert any(error["table"] == "node_graph_mapping" and error["column"] == "node_id" for error in wrong_columns["errors"])
+
+        invalid_node_ids = service.validate_dataset_intake(
+            project_id,
+            "Invalid Node IDs",
+            {
+                **intake_records_tables(),
+                "node_graph_mapping": {"format": "records", "records": [{"node_id": "node-a", "graph_id": "g1"}]},
+            },
+        )
+        assert invalid_node_ids["valid"] is False
+        assert "integer-compatible node IDs" in invalid_node_ids["errors"][0]["message"]
+
+        session = service.create_dataset_intake_session(project_id, "Append Semantics", "mcp")
+        session_id = session["id"]
+        with pytest.raises(ValueError, match="Unsupported dataset intake table"):
+            service.append_dataset_intake_table(
+                project_id,
+                session_id,
+                "unknown_table",
+                {"format": "records", "records": [{"value": 1}]},
+                replace=True,
+            )
+
+        service.append_dataset_intake_table(
+            project_id,
+            session_id,
+            "node_graph_mapping",
+            {"format": "records", "records": [{"node_id": 1, "graph_id": "g1"}, {"node_id": 2, "graph_id": "g1"}]},
+            replace=True,
+        )
+        service.append_dataset_intake_table(
+            project_id,
+            session_id,
+            "node_graph_mapping",
+            {"format": "records", "records": [{"node_id": 3, "graph_id": "g2"}, {"node_id": 4, "graph_id": "g2"}]},
+            replace=False,
+        )
+        service.append_dataset_intake_table(project_id, session_id, "edges", intake_records_tables()["edges"], replace=True)
+        validation = service.validate_dataset_intake_session(project_id, session_id)
+        assert validation["validation"]["valid"] is True
+        assert validation["validation"]["stats"]["node_count"] == 4
+        assert validation["validation"]["stats"]["graph_count"] == 2
 
 
 def test_mcp_service_configures_runs_previews_and_analyzes_pipeline(monkeypatch):

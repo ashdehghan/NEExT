@@ -372,9 +372,9 @@
           <p class="subtitle">Canonical planning dashboard for the NEExT core library and Workbench. This file is the shared human-agent interface for current state, active sprint work, backlog, and decisions.</p>
         </div>
         <div class="meta">
-          <span class="pill">Active: Sprint 11</span>
+          <span class="pill ready">Latest: Sprint 12 complete</span>
           <span class="pill ready">Tracked artifact</span>
-          <span class="pill">Updated 2026-06-17</span>
+          <span class="pill">Updated 2026-06-18</span>
         </div>
       </div>
       <div class="note">
@@ -386,7 +386,8 @@
       <nav class="toc" aria-label="Table of contents">
         <div class="toc-title">Table of Contents</div>
         <a href="#status">Status Summary</a>
-        <a href="#sprint-11">Active Sprint 11</a>
+        <a href="#sprint-12">Completed Sprint 12</a>
+        <a href="#sprint-11">Deferred Sprint 11</a>
         <a href="#sprint-10">Completed Sprint 10</a>
         <a href="#sprint-9">Completed Sprint 9</a>
         <a href="#sprint-8">Completed Sprint 8</a>
@@ -422,14 +423,78 @@
             </div>
             <div class="card">
               <strong>Lifecycle Dashboard</strong>
-              <p class="muted">Committed static HTML planning artifact for sprint state, handoff context, and current/future development tracking. Sprint 0 through Sprint 10 are complete; Sprint 11 is active for MCP production hardening.</p>
-              <span class="pill">Sprint 11 active</span>
+              <p class="muted">Committed static HTML planning artifact for sprint state, handoff context, and current/future development tracking. Sprint 0 through Sprint 10 are complete; Sprint 11 MCP production hardening has manual client verification deferred; Sprint 12 Workbench import and UI clarity is complete.</p>
+              <span class="pill ready">Sprint 12 complete</span>
             </div>
           </div>
         </section>
 
+        <section id="sprint-12">
+          <h2>Completed Sprint: Sprint 12 - Workbench Import and UI Clarity</h2>
+          <div class="grid two">
+            <div class="card">
+              <strong>Goal</strong>
+              <p>Make the Workbench dataset-to-model workflow clearer and implement a real Dataset Import path that agents and browser users can use without relying on local path strings or ambiguous Configure/Save/Run language.</p>
+            </div>
+            <div class="card">
+              <strong>Acceptance Criteria</strong>
+              <ul class="checklist">
+                <li><input type="checkbox" checked> <span>Home, Features, Embeddings, and Models ribbons no longer expose stale Import commands; Datasets keeps Import as the approved Dataset Intake workflow.</span></li>
+                <li><input type="checkbox" checked> <span>Dataset Import validates the NEExT table contract, supports browser CSV/zip files, supports MCP/API records or CSV payloads, creates Draft Dataset artifacts, and prepares them through existing Dataset preparation.</span></li>
+                <li><input type="checkbox" checked> <span>Library row actions use Add to Project, creation buttons use Create Dataset/Feature/Embedding/Model, and execution buttons use Prepare, Compute, or Train with Draft/Ready display labels.</span></li>
+                <li><input type="checkbox" checked> <span>Settings General shows real workspace and app state including workspace path, schema version, project count, active project, application, license, runtime, and release-notes state.</span></li>
+                <li><input type="checkbox" checked> <span>Home Trash uses empty/full trash icons based on the Trash API.</span></li>
+                <li><input type="checkbox" checked> <span>Dataset/Feature/Embedding/Model Add-to-Project forms and Feature Create are restructured so labels, checkboxes, read-only algorithm values, and submit actions are aligned and understandable.</span></li>
+                <li><input type="checkbox" checked> <span>Explore views put Back/Choose controls on the left, remove noisy top-row counts, include Dataset description in Statistics, and make graph labels visible with deterministic color mapping.</span></li>
+                <li><input type="checkbox" checked> <span>The Command Window can collapse/expand and resize by dragging its top grip.</span></li>
+              </ul>
+            </div>
+          </div>
+          <div class="card">
+            <h3>Verification</h3>
+            <ul>
+              <li><span class="mono">git diff --check</span> passed.</li>
+              <li><span class="mono">python3 -m ruff check NEExT/workbench/app.py NEExT/workbench/storage.py NEExT/workbench/mcp_server.py NEExT/workbench/mcp_service.py tests/test_workbench.py tests/test_workbench_mcp.py</span> passed.</li>
+              <li><span class="mono">NEEXT_REQUIRE_WORKBENCH_MCP=1 .venv/bin/python -m pytest tests/test_workbench.py tests/test_workbench_mcp.py</span> passed with 57 passed and 7 existing warnings; MCP SDK-dependent tests were mandatory and did not skip.</li>
+              <li><span class="mono">npm exec tsc</span> passed.</li>
+              <li><span class="mono">npm run build</span> passed and rebuilt <span class="mono">NEExT/workbench/static/</span>; Vite reported the existing large bundle-size warning.</li>
+              <li><span class="mono">npm run test:e2e</span> passed with 16 browser tests.</li>
+              <li>Live Workbench sanity check passed at <span class="mono">http://127.0.0.1:8765</span>; <span class="mono">/api/mcp-settings</span> reported <span class="mono">sdk_transport_available: true</span>.</li>
+            </ul>
+          </div>
+          <div class="card">
+            <h3>Scope Boundary</h3>
+            <table>
+              <thead>
+                <tr>
+                  <th>Area</th>
+                  <th>Decision</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Dataset Import</td>
+                  <td>Approved only for the NEExT table contract: required <span class="mono">edges.csv</span> and <span class="mono">node_graph_mapping.csv</span>, optional <span class="mono">graph_labels.csv</span>, <span class="mono">node_features.csv</span>, and <span class="mono">edge_features.csv</span>. Node IDs must be integer-compatible because current NEExT graph objects require integer node IDs.</td>
+                </tr>
+                <tr>
+                  <td>Agent intake</td>
+                  <td>MCP/API Dataset Intake accepts records or CSV payloads and temporary sessions. Agents should transform external or synthetic data into the approved table contract before creating a Workbench Dataset artifact.</td>
+                </tr>
+                <tr>
+                  <td>Library workflows</td>
+                  <td>Library catalog entries are templates. Add to Project creates Draft artifacts; Prepare/Compute/Train performs execution. Saved artifacts are not edited in place.</td>
+                </tr>
+                <tr>
+                  <td>Deferred</td>
+                  <td>Arbitrary URL imports, path-string imports, project archive import/export, non-dataset artifact import/export, Dataset Create, Embedding Create, Model Create, prediction, purge, archive, and additional import providers remain out of scope.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
         <section id="sprint-11">
-          <h2>Active Sprint: Sprint 11 - MCP Production Hardening</h2>
+          <h2>Deferred Sprint: Sprint 11 - MCP Production Hardening</h2>
           <div class="grid two">
             <div class="card">
               <strong>Goal</strong>
@@ -1133,6 +1198,18 @@
                 <td>Agentic MCP Foundation</td>
                 <td>Added Workbench-hosted local HTTP MCP, parity tools for current approved workflows, delete approval requests, MCP activity, and UI navigation state.</td>
               </tr>
+              <tr>
+                <td><strong>Sprint 11</strong></td>
+                <td><span class="pill hold">Deferred Verification</span></td>
+                <td>MCP Production Hardening</td>
+                <td>SDK-backed Streamable HTTP, scoped tools, setup guidance, and UI control hardening are implemented; manual client verification for MCP Inspector/Cursor/Claude clients remains deferred.</td>
+              </tr>
+              <tr>
+                <td><strong>Sprint 12</strong></td>
+                <td><span class="pill ready">Complete</span></td>
+                <td>Workbench Import and UI Clarity</td>
+                <td>Implemented Dataset Import/Intake, removed stale imports, clarified Add-to-Project/Create/Prepare/Compute/Train workflows, polished Settings/Explore/Command Window UI, and verified through tests plus canonical browser walkthrough.</td>
+              </tr>
             </tbody>
           </table>
         </section>
@@ -1157,9 +1234,10 @@
                 <li><strong>Runtime:</strong> local single-user FastAPI backend with React release assets.</li>
                 <li><strong>Workspace:</strong> project-first persisted workspace under <span class="mono">~/NEExT-Workbench</span>.</li>
                 <li><strong>Artifacts:</strong> datasets, features, embeddings, models, and jobs are persisted as project artifacts.</li>
-                <li><strong>Execution:</strong> dataset preparation, built-in feature execution, custom Python feature execution, embedding execution, and model execution are real, local workflows.</li>
+                <li><strong>Input:</strong> Dataset Library templates and Dataset Import/Intake create Draft Dataset artifacts through approved Workbench workflows.</li>
+                <li><strong>Execution:</strong> dataset preparation, built-in feature execution, custom Python feature execution, embedding execution, and model training are real, local workflows.</li>
                 <li><strong>Lifecycle:</strong> project restore and dataset/feature/embedding/model delete, cascade, trash bundle, and bundle restore are available.</li>
-                <li><strong>Inspection:</strong> previews, analysis views, job records, command output, inspector context, and status surfaces are available.</li>
+                <li><strong>Inspection:</strong> previews, analysis views, job records, command output, resizable/collapsible Command Window, inspector context, and status surfaces are available.</li>
                 <li><strong>Agentic MCP:</strong> Settings Agentic can enable a token-gated SDK-backed local Streamable HTTP MCP endpoint, expose current approved Workbench operations as tools/resources/prompts, record MCP activity, request UI navigation, and route delete through Workbench approval.</li>
               </ul>
             </div>
@@ -1179,27 +1257,27 @@
             <tbody>
               <tr>
                 <td><strong>Home</strong></td>
-                <td>Create/select projects, list projects, delete projects to workspace trash, restore projects, restore artifact deletion bundles, view workspace status, configure MCP settings, approve MCP delete requests, inspect MCP activity, and read Settings Docs.</td>
-                <td>Project import/export, permanent trash purge, broader app settings beyond MCP, remote OAuth MCP, and any future standalone Help redesign.</td>
+                <td>Create/select projects, list projects, delete projects to workspace trash, restore projects, restore artifact deletion bundles, view General workspace/app state, configure MCP settings, approve MCP delete requests, inspect MCP activity, and read Settings Docs. Trash icon state reflects empty versus non-empty trash.</td>
+                <td>Project import/export, permanent trash purge, remote OAuth MCP, and any future standalone Help redesign.</td>
               </tr>
               <tr>
                 <td><strong>Datasets</strong></td>
-                <td>Configure curated library datasets, run preparation, preview tables, explore statistics, graph visuals, graph/node search, data, current-table CSV export, and delete with downstream cascade planning.</td>
-                <td>Dataset Create and broader import/export are archived for now; arbitrary URL imports, archive, individual restore, broader import providers, and dataset bundle export remain deferred.</td>
+                <td>Import NEExT table CSV/zip datasets, add curated library templates to the project, prepare Draft datasets, preview tables, explore statistics with descriptions, inspect graph visuals with colored graph labels, graph/node search, data, current-table CSV export, and delete with downstream cascade planning.</td>
+                <td>Dataset Create and broader import/export are archived for now; arbitrary URL imports, path-string imports, archive, individual restore, broader import providers, and dataset bundle export remain deferred.</td>
               </tr>
               <tr>
                 <td><strong>Features</strong></td>
-                <td>Dataset-first built-in Feature Library configuration, trusted custom Python node Feature Create, practical Create guide, advisory Validate, run single or batch jobs, preview outputs, explore statistics, PCA/direct plots, graph search, data, and delete with downstream cascade planning.</td>
+                <td>Dataset-first built-in Feature Add-to-Project, trusted custom Python node Feature Create, practical Create guide, advisory Validate, compute single or batch jobs, preview outputs, explore statistics, PCA/direct plots, graph search, data, and delete with downstream cascade planning.</td>
                 <td>Feature editing, duplication, import/export, sandboxing, and package/environment management for custom code.</td>
               </tr>
               <tr>
                 <td><strong>Embeddings</strong></td>
-                <td>Dataset-first built-in Embedding Library configuration from one or more Feature artifacts, active-Feature preselection, run single or batch jobs, preview outputs, explore statistics, PCA, search, data, and delete with downstream cascade planning.</td>
+                <td>Dataset-first built-in Embedding Add-to-Project from one or more Feature artifacts, active-Feature preselection, compute single or batch jobs, preview outputs, explore statistics, PCA, search, data, and delete with downstream cascade planning.</td>
                 <td>Embedding Create is archived for now; custom embedding authoring, editing, duplication, import/export, and additional lifecycle actions remain deferred.</td>
               </tr>
               <tr>
                 <td><strong>Models</strong></td>
-                <td>Dataset-first built-in Model Library configuration from one or more Embedding artifacts, active-Embedding preselection, run single or batch jobs, preview metrics, explore overview, metric charts, iterations, data, lineage, and leaf delete.</td>
+                <td>Dataset-first built-in Model Add-to-Project from one or more Embedding artifacts, active-Embedding preselection, train single or batch jobs, preview metrics, explore overview, metric charts, iterations, data, lineage, and leaf delete.</td>
                 <td>Model Create is archived for now; custom model authoring, editing, duplication, import/export, prediction workflows, and feature-importance views remain deferred.</td>
               </tr>
             </tbody>
@@ -1208,11 +1286,11 @@
 
         <section id="dag">
           <h2>Compute DAG</h2>
-          <p class="muted">Workbench compute starts at configured Dataset artifacts. Downstream artifacts store typed input references so the lineage remains explicit.</p>
+          <p class="muted">Workbench compute starts at Dataset artifacts created from Dataset Import or Dataset Library templates. Downstream artifacts store typed input references so the lineage remains explicit.</p>
           <div class="flow" aria-label="Dataset to model workflow">
             <div class="flow-step">
               <h3>Dataset</h3>
-              <p>Configured from library source templates, then prepared into canonical Parquet plus manifests, mappings, stats, and logs.</p>
+              <p>Imported from the NEExT table contract or added from library source templates, then prepared into canonical Parquet plus manifests, mappings, stats, and logs.</p>
             </div>
             <div class="flow-step">
               <h3>Feature</h3>
@@ -1231,7 +1309,7 @@
             <span class="pill">UUID artifacts</span>
             <span class="pill">Relative paths only</span>
             <span class="pill">Single local worker</span>
-            <span class="pill">Auto-runs upstream planned/failed work</span>
+            <span class="pill">Auto-runs upstream Draft/failed work</span>
             <span class="pill">Trash bundles preserve delete sets</span>
           </div>
         </section>
@@ -1280,9 +1358,9 @@
               </tr>
               <tr>
                 <td><strong>Workbench Import/Export</strong></td>
-                <td><span class="pill hold">Archived</span></td>
-                <td>Reopen only if the user explicitly prioritizes import/export again.</td>
-                <td>Broader import/export is set aside for now. Dataset current-table CSV export remains available as a narrow Dataset Explore action.</td>
+                <td><span class="pill hold">Partial</span></td>
+                <td>Reopen only for a specific provider, artifact type, or archive/export behavior approved by the user.</td>
+                <td>Dataset Import/Intake is implemented for the NEExT table contract and Dataset current-table CSV export remains available. Broader import/export remains deferred.</td>
               </tr>
               <tr>
                 <td><strong>Workbench Documentation</strong></td>
@@ -1305,6 +1383,26 @@
               </tr>
             </thead>
             <tbody>
+              <tr>
+                <td>2026-06-18</td>
+                <td>Approve Dataset Import only through the NEExT table contract and Dataset Intake API/MCP tools.</td>
+                <td>Agents and browser users can create or transform data into explicit tables in memory or files. Local path strings are not a viable cross-agent workflow, and the approved contract maps directly to current NEExT graph construction constraints.</td>
+              </tr>
+              <tr>
+                <td>2026-06-18</td>
+                <td>Rename library configuration language to Add to Project, artifact creation to Create, and execution to Prepare, Compute, or Train.</td>
+                <td>Library rows are templates, not live project artifacts. The new wording separates creating DAG artifacts from executing them and removes the ambiguous Configure/Save/Run model.</td>
+              </tr>
+              <tr>
+                <td>2026-06-18</td>
+                <td>Remove stale Import commands from Home, Features, Embeddings, and Models while keeping Dataset Import.</td>
+                <td>Only Dataset Import has approved real behavior in this phase. Keeping title-only or dead import commands in other Spaces creates false affordances.</td>
+              </tr>
+              <tr>
+                <td>2026-06-18</td>
+                <td>Keep Settings General focused on real local workspace and application state.</td>
+                <td>General settings should expose factual state that exists today: workspace path, schema version, project count, active project, app identity, license, runtime, and release-note availability.</td>
+              </tr>
               <tr>
                 <td>2026-06-17</td>
                 <td>Make Agentic MCP Workbench-hosted and local HTTP-first, with CLI/stdio treated as compatibility or helper paths.</td>

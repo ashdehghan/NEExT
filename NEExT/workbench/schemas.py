@@ -152,7 +152,7 @@ class DatasetManifest(BaseModel):
     status: Literal["planned", "running", "completed", "failed"] = "planned"
     created_at: str
     updated_at: str
-    source_type: Literal["neext_csv_bundle", "neext_single_graph_csv"] = "neext_csv_bundle"
+    source_type: Literal["neext_csv_bundle", "neext_single_graph_csv", "uploaded_neext_tables"] = "neext_csv_bundle"
     source_catalog_id: str
     source_name: str = ""
     source: str = ""
@@ -288,6 +288,57 @@ class DatasetPrepareParams(BaseModel):
 class DatasetCreateRequest(BaseModel):
     catalog_id: str = Field(min_length=1)
     params: DatasetPrepareParams = Field(default_factory=DatasetPrepareParams)
+
+
+class DatasetIntakeTablePayload(BaseModel):
+    format: Literal["records", "csv"] = "records"
+    records: list[dict[str, Any]] = Field(default_factory=list)
+    csv: str = ""
+
+
+class DatasetIntakeRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    description: str = ""
+    tables: dict[str, DatasetIntakeTablePayload] = Field(default_factory=dict)
+    params: DatasetPrepareParams = Field(default_factory=DatasetPrepareParams)
+
+
+class DatasetIntakeSessionCreateRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    description: str = ""
+    params: DatasetPrepareParams = Field(default_factory=DatasetPrepareParams)
+
+
+class DatasetIntakeSessionTableRequest(BaseModel):
+    table: DatasetIntakeTablePayload
+    replace: bool = False
+
+
+class DatasetIntakeValidationError(BaseModel):
+    table: str
+    message: str
+    column: Optional[str] = None
+    row: Optional[int] = None
+    sample: Optional[list[Any]] = None
+
+
+class DatasetIntakeValidationResponse(BaseModel):
+    valid: bool
+    errors: list[DatasetIntakeValidationError] = Field(default_factory=list)
+    stats: Optional[DatasetStats] = None
+    columns: dict[str, list[str]] = Field(default_factory=dict)
+
+
+class DatasetIntakeSessionResponse(BaseModel):
+    id: str
+    project_id: str
+    name: str
+    description: str = ""
+    created_at: str
+    updated_at: str
+    expires_at: str
+    tables: list[str] = Field(default_factory=list)
+    validation: Optional[DatasetIntakeValidationResponse] = None
 
 
 class FeatureExpectedOutput(BaseModel):

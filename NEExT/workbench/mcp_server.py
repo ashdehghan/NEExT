@@ -37,6 +37,15 @@ def _object_schema(properties: dict[str, Any], required: list[str] | None = None
     }
 
 
+DATASET_INTAKE_TABLE_PAYLOAD_SCHEMA = _object_schema(
+    {
+        "format": {"type": "string", "enum": ["records", "csv"], "default": "records"},
+        "records": {"type": "array", "items": {"type": "object", "additionalProperties": True}, "default": []},
+        "csv": {"type": "string", "default": ""},
+    }
+)
+
+
 TOOL_SCHEMAS: dict[str, dict[str, Any]] = {
     "neext_workspace_summary": _object_schema({}),
     "neext_list_projects": _object_schema({}),
@@ -60,6 +69,49 @@ TOOL_SCHEMAS: dict[str, dict[str, Any]] = {
             "params": {"type": "object", "additionalProperties": True, "default": {}},
         },
         ["project_id", "source_catalog_id"],
+    ),
+    "neext_validate_dataset_intake": _object_schema(
+        {
+            "project_id": {"type": "string"},
+            "name": {"type": "string", "minLength": 1, "maxLength": 120},
+            "description": {"type": "string", "default": ""},
+            "tables": {"type": "object", "additionalProperties": DATASET_INTAKE_TABLE_PAYLOAD_SCHEMA},
+            "params": {"type": "object", "additionalProperties": True, "default": {}},
+        },
+        ["project_id", "name", "tables"],
+    ),
+    "neext_create_dataset_intake_session": _object_schema(
+        {
+            "project_id": {"type": "string"},
+            "name": {"type": "string", "minLength": 1, "maxLength": 120},
+            "description": {"type": "string", "default": ""},
+            "params": {"type": "object", "additionalProperties": True, "default": {}},
+        },
+        ["project_id", "name"],
+    ),
+    "neext_append_dataset_intake_table": _object_schema(
+        {
+            "project_id": {"type": "string"},
+            "session_id": {"type": "string"},
+            "table_name": {"type": "string"},
+            "table": DATASET_INTAKE_TABLE_PAYLOAD_SCHEMA,
+            "replace": {"type": "boolean", "default": False},
+        },
+        ["project_id", "session_id", "table_name", "table"],
+    ),
+    "neext_validate_dataset_intake_session": _object_schema(
+        {
+            "project_id": {"type": "string"},
+            "session_id": {"type": "string"},
+        },
+        ["project_id", "session_id"],
+    ),
+    "neext_create_dataset_from_intake": _object_schema(
+        {
+            "project_id": {"type": "string"},
+            "session_id": {"type": "string"},
+        },
+        ["project_id", "session_id"],
     ),
     "neext_configure_feature": _object_schema(
         {
@@ -239,6 +291,11 @@ TOOL_CAPABILITIES: dict[str, ToolCapability] = {
     "neext_list_artifacts": ToolCapability(MCP_SCOPE_READ, read_only=True, idempotent=True),
     "neext_get_artifact": ToolCapability(MCP_SCOPE_READ, read_only=True, idempotent=True),
     "neext_configure_dataset": ToolCapability(MCP_SCOPE_WRITE, read_only=False),
+    "neext_validate_dataset_intake": ToolCapability(MCP_SCOPE_WRITE, read_only=False),
+    "neext_create_dataset_intake_session": ToolCapability(MCP_SCOPE_WRITE, read_only=False),
+    "neext_append_dataset_intake_table": ToolCapability(MCP_SCOPE_WRITE, read_only=False),
+    "neext_validate_dataset_intake_session": ToolCapability(MCP_SCOPE_WRITE, read_only=False),
+    "neext_create_dataset_from_intake": ToolCapability(MCP_SCOPE_WRITE, read_only=False),
     "neext_configure_feature": ToolCapability(MCP_SCOPE_WRITE, read_only=False),
     "neext_validate_custom_feature": ToolCapability(MCP_SCOPE_CUSTOM_CODE, read_only=False),
     "neext_configure_custom_feature": ToolCapability(MCP_SCOPE_CUSTOM_CODE, read_only=False),
@@ -272,13 +329,18 @@ TOOL_DESCRIPTIONS = {
     "neext_list_catalog": "List source catalog entries for datasets, features, embeddings, or models.",
     "neext_list_artifacts": "List saved project artifacts of one kind.",
     "neext_get_artifact": "Read one saved project artifact manifest.",
-    "neext_configure_dataset": "Create a planned Dataset artifact from a Dataset Library catalog entry.",
-    "neext_configure_feature": "Create a planned Feature artifact from a Dataset artifact and Feature Library entry.",
+    "neext_configure_dataset": "Add a Dataset Library catalog entry to the project as a Draft Dataset artifact.",
+    "neext_validate_dataset_intake": "Validate NEExT Dataset Intake tables supplied as records or CSV text without creating an artifact.",
+    "neext_create_dataset_intake_session": "Create a temporary Dataset Intake session for agent-supplied NEExT table data.",
+    "neext_append_dataset_intake_table": "Append or replace one NEExT table in a Dataset Intake session using records or CSV text.",
+    "neext_validate_dataset_intake_session": "Validate the current tables in a Dataset Intake session without creating an artifact.",
+    "neext_create_dataset_from_intake": "Create a Draft Dataset artifact from a valid Dataset Intake session.",
+    "neext_configure_feature": "Add a Feature Library entry to the project as a Draft Feature artifact for one Dataset artifact.",
     "neext_validate_custom_feature": "Validate trusted local Python custom feature code against a completed Dataset artifact.",
-    "neext_configure_custom_feature": "Create a planned custom Python Feature artifact after backend validation.",
-    "neext_configure_embedding": "Create a planned Embedding artifact from one or more Feature artifacts.",
-    "neext_configure_model": "Create a planned Model artifact from one or more Embedding artifacts.",
-    "neext_run_artifacts": "Start Workbench jobs for planned or failed artifacts and return their job manifests immediately.",
+    "neext_configure_custom_feature": "Create a Draft custom Python Feature artifact after backend validation.",
+    "neext_configure_embedding": "Add an Embedding Library entry to the project as a Draft Embedding artifact from one or more Feature artifacts.",
+    "neext_configure_model": "Add a Model Library entry to the project as a Draft Model artifact from one or more Embedding artifacts.",
+    "neext_run_artifacts": "Start Workbench jobs for Draft or failed artifacts and return their job manifests immediately.",
     "neext_list_jobs": "List local Workbench jobs for a project.",
     "neext_get_job": "Read one local Workbench job manifest.",
     "neext_preview_artifact": "Preview artifact outputs with pagination; never loads full output files by default.",
@@ -301,8 +363,8 @@ TOOL_DESCRIPTIONS = {
 
 PROMPTS = {
     "explore_neext_project": "Explore project {project_id}: list artifacts, inspect completed outputs, summarize lineage, and identify useful next analysis steps.",
-    "configure_neext_pipeline": "Configure a NEExT pipeline in project {project_id}: choose catalog entries, create planned artifacts, and stop before running jobs unless asked.",
-    "run_neext_pipeline": "Run planned or failed artifacts in project {project_id}, poll jobs until completion, and summarize outputs and errors.",
+    "configure_neext_pipeline": "Configure a NEExT pipeline in project {project_id}: choose catalog entries, create Draft artifacts, and stop before running jobs unless asked.",
+    "run_neext_pipeline": "Run Draft or failed artifacts in project {project_id}, poll jobs until completion, and summarize outputs and errors.",
     "compare_neext_models": "Compare completed model artifacts in project {project_id}; use metrics previews and explain differences in model performance.",
     "investigate_neext_graph": "Investigate graph {graph_id} in project {project_id}; search related graph/node details and summarize structural observations.",
 }
@@ -515,6 +577,34 @@ def _tool_handlers(service: WorkbenchMcpService) -> dict[str, Callable[[dict[str
             args["project_id"],
             args["source_catalog_id"],
             args.get("params"),
+        ),
+        "neext_validate_dataset_intake": lambda args: service.validate_dataset_intake(
+            args["project_id"],
+            args["name"],
+            args["tables"],
+            args.get("description", ""),
+            args.get("params"),
+        ),
+        "neext_create_dataset_intake_session": lambda args: service.create_dataset_intake_session(
+            args["project_id"],
+            args["name"],
+            args.get("description", ""),
+            args.get("params"),
+        ),
+        "neext_append_dataset_intake_table": lambda args: service.append_dataset_intake_table(
+            args["project_id"],
+            args["session_id"],
+            args["table_name"],
+            args["table"],
+            bool(args.get("replace", False)),
+        ),
+        "neext_validate_dataset_intake_session": lambda args: service.validate_dataset_intake_session(
+            args["project_id"],
+            args["session_id"],
+        ),
+        "neext_create_dataset_from_intake": lambda args: service.create_dataset_from_intake(
+            args["project_id"],
+            args["session_id"],
         ),
         "neext_configure_feature": lambda args: service.configure_feature(
             args["project_id"],

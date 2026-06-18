@@ -25,6 +25,10 @@ export function useProjects() {
   return useQuery({ queryKey: ["projects"], queryFn: api.projects, refetchInterval: 60_000 });
 }
 
+export function useTrash() {
+  return useQuery({ queryKey: ["trash"], queryFn: api.trash, refetchInterval: 5_000 });
+}
+
 export function useDatasetLibrary() {
   return useQuery({ queryKey: ["dataset-library"], queryFn: api.datasetLibrary });
 }

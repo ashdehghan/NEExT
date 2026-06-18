@@ -621,6 +621,85 @@ def test_dataset_library_catalog_endpoint_exposes_curated_metadata_without_paths
             assert entry["edge_count"] > 0
 
 
+def test_dataset_intake_validates_creates_and_prepares_uploaded_neext_tables():
+    pytest.importorskip("fastapi")
+    pytest.importorskip("pyarrow")
+
+    from fastapi.testclient import TestClient
+
+    from NEExT.workbench.app import create_app
+
+    payload = {
+        "name": "Imported Tables",
+        "description": "NEExT table import",
+        "tables": {
+            "node_graph_mapping": {"format": "csv", "csv": "node_id,graph_id\n1,g1\n2,g1\n3,g2\n4,g2\n"},
+            "edges": {"format": "csv", "csv": "src_node_id,dest_node_id\n1,2\n3,4\n"},
+            "graph_labels": {"format": "csv", "csv": "graph_id,graph_label\ng1,0\ng2,1\n"},
+            "node_features": {"format": "csv", "csv": "node_id,feature_a\n1,0.1\n2,0.2\n3,0.3\n4,0.4\n"},
+        },
+        "params": {"graph_type": "networkx", "filter_largest_component": True},
+    }
+
+    with TemporaryDirectory() as tmpdir:
+        client = TestClient(create_app(tmpdir))
+        project = client.post("/api/projects", json={"name": "Intake Project"}).json()
+        project_id = project["id"]
+
+        validation = client.post(f"/api/projects/{project_id}/dataset-intake/validate", json=payload)
+        assert validation.status_code == 200
+        validation_payload = validation.json()
+        assert validation_payload["valid"] is True
+        assert validation_payload["errors"] == []
+        assert validation_payload["stats"] == {
+            "graph_count": 2,
+            "node_count": 4,
+            "edge_count": 2,
+            "has_graph_labels": True,
+            "has_node_features": True,
+            "has_edge_features": False,
+        }
+
+        created = client.post(f"/api/projects/{project_id}/dataset-intake/create", json=payload)
+        assert created.status_code == 200
+        dataset = created.json()
+        dataset_id = dataset["id"]
+        assert_uuid4(dataset_id)
+        assert dataset["status"] == "planned"
+        assert dataset["source_type"] == "uploaded_neext_tables"
+        assert dataset["source_catalog_id"] == "dataset-intake"
+        assert dataset["source_name"] == "Imported Tables"
+        assert dataset["raw_data_files"]["nodes"] == "source/nodes.parquet"
+        assert dataset["raw_data_files"]["edges"] == "source/edges.parquet"
+        assert "path" not in json.dumps(dataset)
+
+        artifact_path = Path(tmpdir) / "projects" / project_id / "artifacts" / "datasets" / dataset_id
+        assert (artifact_path / "source" / "nodes.parquet").is_file()
+        assert not (artifact_path / "raw").exists()
+
+        run = client.post(f"/api/projects/{project_id}/datasets/{dataset_id}/run")
+        assert run.status_code == 200
+        job = wait_for_job(client, project_id, run.json()["id"])
+        assert job["status"] == "completed"
+        prepared = client.get(f"/api/projects/{project_id}/datasets/{dataset_id}").json()
+        assert prepared["status"] == "completed"
+        assert prepared["prepared_stats"]["graph_count"] == 2
+        assert prepared["raw_data_files"]["nodes"] == "raw/nodes.parquet"
+        assert (artifact_path / "prepared" / "nodes.parquet").is_file()
+
+        invalid_payload = {
+            **payload,
+            "tables": {
+                **payload["tables"],
+                "node_graph_mapping": {"format": "csv", "csv": "node_id,graph_id\nnode-a,g1\n"},
+            },
+        }
+        invalid = client.post(f"/api/projects/{project_id}/dataset-intake/validate", json=invalid_payload)
+        assert invalid.status_code == 200
+        assert invalid.json()["valid"] is False
+        assert "integer-compatible node IDs" in invalid.json()["errors"][0]["message"]
+
+
 def test_configure_and_run_dataset_writes_prepared_outputs_and_mapping(monkeypatch):
     pytest.importorskip("fastapi")
     pytest.importorskip("pyarrow")

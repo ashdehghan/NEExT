@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import * as echarts from "echarts";
 import type { EChartsOption } from "echarts";
-import { ArrowLeft, BarChart3, Eye, Play, RotateCcw, Save, Settings2, Trash2 } from "lucide-react";
+import { ArrowLeft, BarChart3, Eye, Play, Plus, RotateCcw, Trash2 } from "lucide-react";
 import {
   api,
   type DatasetManifest,
@@ -107,6 +107,20 @@ export function algorithmLabel(catalogEntry?: ModelCatalogEntry, fallback?: stri
   return catalogEntry?.name || fallback || "";
 }
 
+function artifactStatusLabel(status: string): string {
+  if (status === "planned") return "Draft";
+  if (status === "completed") return "Ready";
+  if (status === "running") return "Running";
+  if (status === "failed") return "Failed";
+  return status;
+}
+
+function artifactStatusClass(status: string): string {
+  if (status === "completed") return "is-ready";
+  if (status === "failed") return "is-failed";
+  return "is-idle";
+}
+
 function draftString(draft: Record<string, unknown> | undefined, key: string): string | undefined {
   const value = draft?.[key];
   return typeof value === "string" ? value : undefined;
@@ -142,7 +156,7 @@ export function ModelLibraryView({
         <header className="artifact-table-head">
           <span className="artifact-table-title">
             <FcIcon name="library" size={16} />
-            Model Library - {catalog.length} {catalog.length === 1 ? "algorithm" : "algorithms"}
+            Model Library · {catalog.length} {catalog.length === 1 ? "algorithm" : "algorithms"}
           </span>
           <span className="muted">{selectedDataset ? `Dataset: ${selectedDataset.name}` : activeProjectId ? "Select a dataset first" : "No active project"}</span>
         </header>
@@ -188,8 +202,8 @@ export function ModelLibraryView({
                           onConfigure(entry.id);
                         }}
                       >
-                        <Settings2 />
-                        Configure
+                        <Plus />
+                        Add to Project
                       </button>
                     </td>
                   </tr>
@@ -348,7 +362,7 @@ export function ConfigureModelView({
           <FcIcon name="models" size={32} />
         </span>
         <div>
-          <h3>Configure {model.name}</h3>
+          <h3>Add {model.name} to Project</h3>
           <p className="form-subtitle">{model.description}</p>
         </div>
       </header>
@@ -359,7 +373,7 @@ export function ConfigureModelView({
         <div className="field-grid">
           <label className="field">
             <span>Algorithm</span>
-            <input value={model.id} readOnly />
+            <span className="readonly-value mono">{model.id}</span>
           </label>
           <label className="field">
             <span>Task Type</span>
@@ -448,7 +462,7 @@ export function ConfigureModelView({
                       </td>
                       <td>{dataset?.name || "Unknown dataset"}</td>
                       <td>
-                        <span className={`status-pill ${embedding.status === "completed" ? "is-ready" : "is-idle"}`}>{embedding.status}</span>
+                        <span className={`status-pill ${artifactStatusClass(embedding.status)}`}>{artifactStatusLabel(embedding.status)}</span>
                       </td>
                     </tr>
                   );
@@ -460,8 +474,8 @@ export function ConfigureModelView({
       </div>
       <footer className="card-foot">
         <button type="submit" className="btn btn-primary" disabled={!canSave || createModel.isPending}>
-          <Save />
-          {createModel.isPending ? "Saving" : "Save"}
+          <Plus />
+          {createModel.isPending ? "Creating" : "Create Model"}
         </button>
       </footer>
     </form>
@@ -519,7 +533,7 @@ export function ProjectModelsView({
         <header className="artifact-table-head">
           <span className="artifact-table-title">
             <FcIcon name="models" size={16} />
-            Models - {models.length} {models.length === 1 ? "model" : "models"}
+            Models · {models.length} {models.length === 1 ? "model" : "models"}
           </span>
           <span className="muted">{activeProjectId ? "Active project" : "No active project"}</span>
         </header>
@@ -547,7 +561,7 @@ export function ProjectModelsView({
                 onClick={() => runBatch.mutate(runnableCheckedModelIds)}
               >
                 <Play />
-                Run Selected
+                Train Selected
               </button>
             </div>
             <div className="artifact-table-scroll">
@@ -611,7 +625,7 @@ export function ProjectModelsView({
                         <td>{taskLabel(String(model.operation.params.task_type))}</td>
                         <td>{embeddingNames}</td>
                         <td>
-                          <span className={`status-pill ${model.status === "completed" ? "is-ready" : "is-idle"}`}>{model.status}</span>
+                          <span className={`status-pill ${artifactStatusClass(model.status)}`}>{artifactStatusLabel(model.status)}</span>
                         </td>
                         <td className="muted mono">{model.updated_at}</td>
                         <td className="actions-cell actions-cell-wide">
@@ -626,7 +640,7 @@ export function ProjectModelsView({
                               }}
                             >
                               {model.status === "failed" ? <RotateCcw /> : <Play />}
-                              {model.status === "failed" ? "Retry" : isRunning ? "Running" : "Run"}
+                              {model.status === "failed" ? "Retry Train" : isRunning ? "Training" : "Train"}
                             </button>
                           ) : null}
                           {model.status === "completed" ? (
@@ -1147,7 +1161,7 @@ export function ModelExploreView({
                         <td>{taskLabel(String(item.operation.params.task_type))}</td>
                         <td>{embeddingNames}</td>
                         <td>
-                          <span className={`status-pill ${item.status === "completed" ? "is-ready" : "is-idle"}`}>{item.status}</span>
+                          <span className={`status-pill ${artifactStatusClass(item.status)}`}>{artifactStatusLabel(item.status)}</span>
                         </td>
                         <td className="actions-cell actions-cell-wide">
                           <button
@@ -1159,7 +1173,7 @@ export function ModelExploreView({
                             }}
                           >
                             <Eye />
-                            {item.status === "completed" ? "Explore" : "Run First"}
+                            {item.status === "completed" ? "Explore" : "Train First"}
                           </button>
                         </td>
                       </tr>
@@ -1180,48 +1194,36 @@ export function ModelExploreView({
         <section className="artifact-table">
           <header className="artifact-table-head">
             <span className="artifact-table-title">
-              <FcIcon name="explore" size={16} />
-              {model.name} Explore
-            </span>
-            <div className="artifact-table-head-actions">
-              <span className="muted">{model.status}</span>
               <button type="button" className="btn" onClick={onClearExploreModel}>
                 <ArrowLeft />
                 Choose Model
               </button>
-            </div>
+              <FcIcon name="explore" size={16} />
+              {model.name} Explore
+            </span>
+            <span className={`status-pill ${artifactStatusClass(model.status)}`}>{artifactStatusLabel(model.status)}</span>
           </header>
           <div className="artifact-table-empty">
-            <EmptyState compact>Run model training before exploring this model.</EmptyState>
+            <EmptyState compact>Train this model before exploring it.</EmptyState>
           </div>
         </section>
       </div>
     );
   }
 
-  const sourceFeatureNames = modelFeatureIds(model, embeddings)
-    .map((featureId) => featuresById.get(featureId)?.name)
-    .filter(Boolean)
-    .join(", ");
-
   return (
     <div className="workflow workflow-fill">
       <section className="artifact-table dataset-explore model-explore">
         <header className="artifact-table-head">
           <span className="artifact-table-title">
-            <FcIcon name="explore" size={16} />
-            {model.name} Explore
-          </span>
-          <div className="artifact-table-head-actions">
-            <span className="muted">
-              {model.output_stats ? `${formatCount(model.output_stats.sample_size)} iterations` : model.status}
-              {sourceFeatureNames ? ` · ${sourceFeatureNames}` : ""}
-            </span>
             <button type="button" className="btn" onClick={onClearExploreModel}>
               <ArrowLeft />
               Choose Model
             </button>
-          </div>
+            <FcIcon name="explore" size={16} />
+            {model.name} Explore
+          </span>
+          <span className={`status-pill ${artifactStatusClass(model.status)}`}>{artifactStatusLabel(model.status)}</span>
         </header>
         <div className="tab-strip">
           {(["overview", "metrics", "data"] as const).map((item) => (

@@ -4,8 +4,6 @@ import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 
-const TITLE_ONLY_COMMANDS = ["Import", "Create"] as const;
-
 async function clearProjects(page: Page) {
   const response = await page.request.get("/api/projects");
   const projects = (await response.json()) as { id: string }[];
@@ -728,7 +726,7 @@ test("loads the packaged Workbench shell and creates a project", async ({ page }
 
   const ribbon = page.locator(".ribbon");
   await expect(page.getByRole("button", { name: "HOME", exact: true })).toHaveClass(/is-active/);
-  await expect(ribbon.getByRole("button", { name: "Import" })).toBeVisible();
+  await expect(ribbon.getByRole("button", { name: "Import" })).toHaveCount(0);
   await expect(ribbon.getByRole("button", { name: "Create" })).toBeVisible();
   await expect(ribbon.getByRole("button", { name: "Projects" })).toBeVisible();
   await expect(ribbon.getByRole("button", { name: "Trash" })).toBeVisible();
@@ -836,14 +834,17 @@ test("Home commands switch center views", async ({ page }) => {
   await page.goto("/");
 
   const ribbon = page.locator(".ribbon");
-  await expect(ribbon.getByRole("button", { name: "Import" })).toBeDisabled();
+  await expect(ribbon.getByRole("button", { name: "Import" })).toHaveCount(0);
   await expect(page.locator(".artifact-table-title")).toContainText("Projects");
 
   await ribbon.getByRole("button", { name: "Settings" }).click();
   const settingsSurface = page.locator(".settings-surface");
   await expect(page.getByRole("heading", { name: "Settings" })).toBeVisible();
   await expect(settingsSurface.getByRole("button", { name: "General" })).toHaveClass(/is-active/);
-  await expect(settingsSurface).toContainText("No general settings yet.");
+  await expect(settingsSurface).toContainText("Workspace");
+  await expect(settingsSurface).toContainText("About NEExT");
+  await expect(settingsSurface).toContainText("NEExT Workbench");
+  await expect(settingsSurface).toContainText("MIT License");
   await settingsSurface.getByRole("button", { name: "Docs" }).click();
   await expect(settingsSurface.getByRole("button", { name: "Docs" })).toHaveClass(/is-active/);
   await expect(settingsSurface.locator(".settings-docs-panel")).toContainText("Workbench Flow");
@@ -933,7 +934,7 @@ test("Left Panel and Center Views scope artifacts by dataset and mark selected l
   await expect(page.locator(".document table tbody tr", { hasText: "Beta Page Embedding" })).toHaveCount(0);
 
   await page.getByRole("button", { name: "MODELS" }).click();
-  await expect(page.locator(".artifact-table-title")).toContainText("Models - 1 model");
+  await expect(page.locator(".artifact-table-title")).toContainText("Models · 1 model");
   await expect(page.locator(".document table tbody tr", { hasText: "Alpha Classifier" })).toBeVisible();
   await expect(page.locator(".document table tbody tr", { hasText: "Beta Classifier" })).toHaveCount(0);
   await ribbon.getByRole("button", { name: "Explore" }).click();
@@ -1006,7 +1007,7 @@ test("Left Panel and Center Views scope artifacts by dataset and mark selected l
   await expect(page.locator(".artifact-table-title")).toContainText("Embeddings · 0 embeddings");
   await expect(page.locator(".artifact-table-empty")).toContainText("No embeddings.");
   await page.getByRole("button", { name: "MODELS" }).click();
-  await expect(page.locator(".artifact-table-title")).toContainText("Models - 0 models");
+  await expect(page.locator(".artifact-table-title")).toContainText("Models · 0 models");
   await expect(page.locator(".artifact-table-empty")).toContainText("No models.");
 });
 
@@ -1086,7 +1087,10 @@ test("Home Settings enables, regenerates, and disables local MCP setup", async (
 
   await expect(page.getByRole("heading", { name: "Settings" })).toBeVisible();
   await expect(settingsSurface.getByRole("button", { name: "General" })).toHaveClass(/is-active/);
-  await expect(settingsSurface).toContainText("No general settings yet.");
+  await expect(settingsSurface).toContainText("Workspace");
+  await expect(settingsSurface).toContainText("About NEExT");
+  await expect(settingsSurface).toContainText("NEExT Workbench");
+  await expect(settingsSurface).toContainText("MIT License");
 
   await settingsSurface.getByRole("button", { name: "Docs" }).click();
   await expect(settingsSurface.getByRole("button", { name: "Docs" })).toHaveClass(/is-active/);
@@ -1162,19 +1166,18 @@ test("Home Settings enables, regenerates, and disables local MCP setup", async (
   await expect(page.locator(".settings-snippet")).toHaveCount(0);
 });
 
-test("Models Import remains title-only and Create is hidden", async ({ page }) => {
+test("Models ribbon hides Import and Create", async ({ page }) => {
   await page.goto("/");
 
   await page.getByRole("button", { name: "MODELS" }).click();
   const ribbon = page.locator(".ribbon");
   await expect(page.locator(".artifact-table-title")).toContainText("Models");
 
-  await ribbon.getByRole("button", { name: "Import" }).click();
-  await expect(page.locator(".document .title-only")).toHaveText("Import");
+  await expect(ribbon.getByRole("button", { name: "Import" })).toHaveCount(0);
   await expect(ribbon.getByRole("button", { name: "Create" })).toHaveCount(0);
 });
 
-test("Feature Create saves, runs, and previews custom Python features", async ({ page }) => {
+test("Feature Create creates, computes, and previews custom Python features", async ({ page }) => {
   const projectName = `Custom Feature Project ${Date.now()}`;
   seedTinyEmbeddingProject(projectName);
 
@@ -1219,15 +1222,15 @@ def compute_feature(graph):
   await expect(page.getByLabel("Normalize Features")).not.toBeChecked();
   await page.locator(".card-foot").getByRole("button", { name: "Validate" }).click();
   await expect(page.getByText("Valid feature output: custom_degree")).toBeVisible();
-  await page.locator(".card-foot").getByRole("button", { name: "Save" }).click();
+  await page.locator(".card-foot").getByRole("button", { name: "Create Feature" }).click();
 
   const customRow = page.locator("table tbody tr", { hasText: "Custom UI Degree" }).first();
   await expect(customRow).toBeVisible();
   await expect(customRow).toContainText("Tiny Embedding");
   await expect(customRow).toContainText("Custom Python");
-  await expect(customRow).toContainText("planned");
-  await customRow.getByRole("button", { name: "Run" }).click();
-  await expect(customRow.locator(".status-pill")).toHaveText("completed", { timeout: 30_000 });
+  await expect(customRow).toContainText("Draft");
+  await customRow.getByRole("button", { name: "Compute" }).click();
+  await expect(customRow.locator(".status-pill")).toHaveText("Ready", { timeout: 30_000 });
   await customRow.getByRole("button", { name: "Preview" }).click();
 
   await expect(page.locator(".artifact-table-title")).toContainText("Custom UI Degree Explore");
@@ -1498,8 +1501,8 @@ test("Dataset Library configures single graph egonet datasets", async ({ page })
   await expect(inspector).toContainText("Single Graph");
   await expect(inspector).toContainText("club");
 
-  await karateCatalogRow.getByRole("button", { name: "Configure" }).click();
-  await expect(page.getByRole("heading", { name: "Configure Zachary Karate Club" })).toBeVisible();
+  await karateCatalogRow.getByRole("button", { name: "Add to Project" }).click();
+  await expect(page.getByRole("heading", { name: "Add Zachary Karate Club to Project" })).toBeVisible();
   await expect(page.getByLabel("K-Hop")).toHaveValue("1");
   await expect(page.getByLabel("Node Selection")).toHaveValue("all_nodes");
   await expect(page.getByLabel("Target Attribute")).toContainText("club");
@@ -1507,17 +1510,17 @@ test("Dataset Library configures single graph egonet datasets", async ({ page })
   await expect(page.locator(".artifact-table-title")).toContainText("Dataset Library");
   await expect(karateCatalogRow).toBeVisible();
 
-  await karateCatalogRow.getByRole("button", { name: "Configure" }).click();
+  await karateCatalogRow.getByRole("button", { name: "Add to Project" }).click();
   await page.getByLabel("Target Attribute").selectOption("club");
-  await page.locator(".card-foot").getByRole("button", { name: "Save" }).click();
+  await page.locator(".card-foot").getByRole("button", { name: "Create Dataset" }).click();
   await expect(page.locator(".sel-section", { hasText: "Datasets" }).locator(".sel-count")).toHaveText("1");
 
   const datasetRow = page.locator("table tbody tr", { hasText: "Zachary Karate Club" }).first();
   await expect(datasetRow).toBeVisible();
-  await expect(datasetRow).toContainText("planned");
-  await datasetRow.getByRole("button", { name: "Run" }).click();
+  await expect(datasetRow).toContainText("Draft");
+  await datasetRow.getByRole("button", { name: "Prepare" }).click();
   await expect(page.locator(".cmd")).toContainText("Computing 1-hop egonets for Zachary Karate Club", { timeout: 20_000 });
-  await expect(datasetRow.locator(".status-pill")).toHaveText("completed", { timeout: 30_000 });
+  await expect(datasetRow.locator(".status-pill")).toHaveText("Ready", { timeout: 30_000 });
   await datasetRow.getByRole("button", { name: "Preview" }).click();
 
   const exploreView = page.locator(".dataset-explore");
@@ -1544,7 +1547,7 @@ test("Dataset Library configures single graph egonet datasets", async ({ page })
   await expect(page.locator(".artifact-table .tbl thead")).toContainText("source_node_id");
 });
 
-test("Datasets and Features run through planned artifacts and jobs", async ({ page }) => {
+test("Datasets and Features prepare and compute through Draft artifacts and jobs", async ({ page }) => {
   test.setTimeout(120_000);
   await page.goto("/");
 
@@ -1562,7 +1565,7 @@ test("Datasets and Features run through planned artifacts and jobs", async ({ pa
   const inspector = page.locator(".inspector-panel");
   await expect(mutagCatalogRow).toBeVisible();
   await expect(mutagCatalogRow).toContainText("188 graphs, 3,371 nodes, 7,442 edges");
-  await expect(mutagCatalogRow.getByRole("button", { name: "Configure" })).toBeDisabled();
+  await expect(mutagCatalogRow.getByRole("button", { name: "Add to Project" })).toBeDisabled();
   await expect(page.locator(".sel-section", { hasText: "Datasets" }).locator(".sel-count")).toHaveText("0");
   await mutagCatalogRow.click();
   await expect(mutagCatalogRow).toHaveClass(/is-selected/);
@@ -1583,20 +1586,21 @@ test("Datasets and Features run through planned artifacts and jobs", async ({ pa
 
   await page.getByRole("button", { name: "DATASETS" }).click();
   await ribbon.getByRole("button", { name: "Import" }).click();
-  await expect(page.locator(".document .title-only")).toHaveText("Import");
+  await expect(page.getByRole("heading", { name: "Import Dataset" })).toBeVisible();
+  await expect(page.getByText("Create a Draft Dataset from NEExT table CSV files.")).toBeVisible();
   await expect(ribbon.getByRole("button", { name: "Create" })).toHaveCount(0);
 
   await ribbon.getByRole("button", { name: "Library" }).click();
   await mutagCatalogRow.click();
   await expect(mutagCatalogRow).toHaveClass(/is-selected/);
   await expect(inspector).toContainText("Catalog Dataset Details");
-  await expect(inspector).toContainText("Not configured");
-  await mutagCatalogRow.getByRole("button", { name: "Configure" }).click();
-  await expect(page.getByRole("heading", { name: "Configure MUTAG" })).toBeVisible();
+  await expect(inspector).toContainText("Not added");
+  await mutagCatalogRow.getByRole("button", { name: "Add to Project" }).click();
+  await expect(page.getByRole("heading", { name: "Add MUTAG to Project" })).toBeVisible();
   await expect(page.getByLabel("Graph Backend")).toHaveValue("networkx");
   await expect(page.getByLabel("Filter Largest Component")).toBeChecked();
   await expect(page.getByLabel("Reindex Nodes")).toBeChecked();
-  await page.locator(".card-foot").getByRole("button", { name: "Save" }).click();
+  await page.locator(".card-foot").getByRole("button", { name: "Create Dataset" }).click();
   await expect(page.locator(".sel-section", { hasText: "Datasets" }).locator(".sel-count")).toHaveText("1");
 
   const leftPanelDatasetItem = page.locator(".selection-panel .sel-section", { hasText: "Datasets" }).locator(".sel-item", { hasText: "MUTAG" });
@@ -1608,7 +1612,7 @@ test("Datasets and Features run through planned artifacts and jobs", async ({ pa
   await ribbon.getByRole("button", { name: "Explore" }).click();
   await expect(page.locator(".artifact-table-title")).toContainText("Dataset Explore");
   await expect(page.locator("table tbody tr", { hasText: "MUTAG" })).toBeVisible();
-  await expect(page.locator("table tbody tr", { hasText: "MUTAG" }).locator(".status-pill")).toHaveText("planned");
+  await expect(page.locator("table tbody tr", { hasText: "MUTAG" }).locator(".status-pill")).toHaveText("Draft");
 
   await leftPanelDatasetItem.click();
   await expect(leftPanelDatasetItem).toHaveClass(/is-active/);
@@ -1620,7 +1624,7 @@ test("Datasets and Features run through planned artifacts and jobs", async ({ pa
   const datasetRow = page.locator("table tbody tr", { hasText: "MUTAG" }).first();
   await expect(datasetRow).toBeVisible();
   await expect(datasetRow).toContainText("MUTAG");
-  await expect(datasetRow).toContainText("planned");
+  await expect(datasetRow).toContainText("Draft");
   await datasetRow.click();
   await expect(datasetRow).toHaveClass(/is-selected/);
   await expect(inspector).toContainText("Dataset Details");
@@ -1631,10 +1635,10 @@ test("Datasets and Features run through planned artifacts and jobs", async ({ pa
   await expect(inspector).toContainText("Graphs");
   await expect(inspector).toContainText("Nodes");
   await expect(inspector).toContainText("Edges");
-  await datasetRow.getByRole("button", { name: "Run" }).click();
+  await datasetRow.getByRole("button", { name: "Prepare" }).click();
   await expect(page.locator(".jobs-panel")).toContainText(/queued|running|completed/i);
   await expect(page.locator(".cmd")).toContainText("Preparing dataset MUTAG", { timeout: 20_000 });
-  await expect(datasetRow.locator(".status-pill")).toHaveText("completed", { timeout: 90_000 });
+  await expect(datasetRow.locator(".status-pill")).toHaveText("Ready", { timeout: 90_000 });
   await expect(datasetRow.getByRole("button", { name: "Preview" })).toBeVisible();
   await datasetRow.getByRole("button", { name: "Preview" }).click();
   await expect(page.locator(".artifact-table-title")).toContainText("MUTAG Explore");
@@ -1678,8 +1682,8 @@ test("Datasets and Features run through planned artifacts and jobs", async ({ pa
   await expect(inspector).toContainText("PageRank scores with neighborhood aggregation.");
   await expect(inspector).toContainText("neext.compute_node_features");
 
-  await pageRankRow.getByRole("button", { name: "Configure" }).click();
-  await expect(page.getByRole("heading", { name: "Configure PageRank" })).toBeVisible();
+  await pageRankRow.getByRole("button", { name: "Add to Project" }).click();
+  await expect(page.getByRole("heading", { name: "Add PageRank to Project" })).toBeVisible();
   await expect(page.getByText("Dataset: MUTAG")).toBeVisible();
   await expect(page.getByLabel("Dataset")).toHaveCount(0);
   await expect(page.getByLabel("Feature Vector Length")).toHaveValue("3");
@@ -1687,12 +1691,12 @@ test("Datasets and Features run through planned artifacts and jobs", async ({ pa
   await expect(page.getByLabel("Parallel Jobs")).toHaveValue("1");
   await expect(page.getByLabel("Parallel Backend")).toHaveValue("loky");
 
-  await page.locator(".card-foot").getByRole("button", { name: "Save" }).click();
+  await page.locator(".card-foot").getByRole("button", { name: "Create Feature" }).click();
   const featureRow = page.locator("table tbody tr", { hasText: "MUTAG - PageRank" }).first();
   await expect(featureRow).toBeVisible();
   await expect(featureRow).toContainText("MUTAG");
   await expect(featureRow).toContainText("PageRank");
-  await expect(featureRow).toContainText("planned");
+  await expect(featureRow).toContainText("Draft");
   await expect(featureRow).toHaveClass(/is-selected/);
 
   const leftPanelFeatureItem = page.locator(".selection-panel .sel-section", { hasText: "Features" }).locator(".sel-item", { hasText: "MUTAG - PageRank" });
@@ -1707,9 +1711,9 @@ test("Datasets and Features run through planned artifacts and jobs", async ({ pa
   await expect(inspector).toContainText("page_rank_0, page_rank_1, page_rank_2");
   await expect(inspector).toContainText("neext.compute_node_features");
   await expect(inspector).toContainText("Feature ID");
-  await featureRow.getByRole("button", { name: "Run" }).click();
+  await featureRow.getByRole("button", { name: "Compute" }).click();
   await expect(page.locator(".cmd")).toContainText("Computing features: page_rank", { timeout: 20_000 });
-  await expect(featureRow.locator(".status-pill")).toHaveText("completed", { timeout: 90_000 });
+  await expect(featureRow.locator(".status-pill")).toHaveText("Ready", { timeout: 90_000 });
   await featureRow.getByRole("button", { name: "Preview" }).click();
   await expect(page.locator(".artifact-table-title")).toContainText("MUTAG - PageRank Explore");
   await expect(ribbon.getByRole("button", { name: "Explore" })).toHaveClass(/is-active/);
@@ -1758,9 +1762,9 @@ test("Embeddings library configures, batches, runs, and previews persisted artif
   await expect(inspector).toContainText("approx_wasserstein");
   await expect(inspector).toContainText("neext.compute_graph_embeddings");
 
-  await approxRow.getByRole("button", { name: "Configure" }).click();
-  await expect(page.getByRole("heading", { name: "Configure Approx Wasserstein" })).toBeVisible();
-  await expect(page.locator(".card-foot").getByRole("button", { name: "Save" })).toBeDisabled();
+  await approxRow.getByRole("button", { name: "Add to Project" }).click();
+  await expect(page.getByRole("heading", { name: "Add Approx Wasserstein to Project" })).toBeVisible();
+  await expect(page.locator(".card-foot").getByRole("button", { name: "Create Embedding" })).toBeDisabled();
   await expect(page.getByLabel("Embedding Dimension")).toHaveValue("3");
   await page.getByLabel("Embedding Dimension").fill("2");
   const pageRankFeaturePickerRow = page.locator(".feature-picker table tbody tr", { hasText: "Tiny Embedding - PageRank" });
@@ -1768,8 +1772,8 @@ test("Embeddings library configures, batches, runs, and previews persisted artif
   await pageRankFeaturePickerRow.click();
   await degreeFeaturePickerRow.click();
   await expect(page.getByText("Dataset: Tiny Embedding")).toBeVisible();
-  await expect(page.locator(".card-foot").getByRole("button", { name: "Save" })).toBeEnabled();
-  await page.locator(".card-foot").getByRole("button", { name: "Save" }).click();
+  await expect(page.locator(".card-foot").getByRole("button", { name: "Create Embedding" })).toBeEnabled();
+  await page.locator(".card-foot").getByRole("button", { name: "Create Embedding" }).click();
 
   const approxEmbeddingRow = page.locator("table tbody tr", { hasText: "Tiny Embedding - Approx Wasserstein Embedding" }).first();
   await expect(approxEmbeddingRow).toBeVisible();
@@ -1777,7 +1781,7 @@ test("Embeddings library configures, batches, runs, and previews persisted artif
   await expect(approxEmbeddingRow).toContainText("Approx Wasserstein");
   await expect(approxEmbeddingRow).toContainText("Tiny Embedding - PageRank");
   await expect(approxEmbeddingRow).toContainText("Tiny Embedding - Degree Centrality");
-  await expect(approxEmbeddingRow).toContainText("planned");
+  await expect(approxEmbeddingRow).toContainText("Draft");
   await expect(page.locator(".selection-panel .sel-section", { hasText: "Embeddings" }).locator(".sel-count")).toHaveText("1");
   await approxEmbeddingRow.click();
   await expect(inspector).toContainText("Embedding Details");
@@ -1796,13 +1800,13 @@ test("Embeddings library configures, batches, runs, and previews persisted artif
   await ribbon.getByRole("button", { name: "Library" }).click();
   const secondApproxRow = page.locator("table tbody tr", { hasText: "Approx Wasserstein" }).first();
   await expect(secondApproxRow).toBeVisible();
-  await secondApproxRow.getByRole("button", { name: "Configure" }).click();
+  await secondApproxRow.getByRole("button", { name: "Add to Project" }).click();
   await page.getByLabel("Embedding Dimension").fill("1");
   const preselectedPageRankRow = page.locator(".feature-picker table tbody tr", { hasText: "Tiny Embedding - PageRank" });
   const unselectedDegreeRow = page.locator(".feature-picker table tbody tr", { hasText: "Tiny Embedding - Degree Centrality" });
   await expect(preselectedPageRankRow.locator("input[type='checkbox']")).toBeChecked();
   await expect(unselectedDegreeRow.locator("input[type='checkbox']")).not.toBeChecked();
-  await page.locator(".card-foot").getByRole("button", { name: "Save" }).click();
+  await page.locator(".card-foot").getByRole("button", { name: "Create Embedding" }).click();
 
   const approxEmbeddingRows = page.locator("table tbody tr", { hasText: "Tiny Embedding - Approx Wasserstein Embedding" });
   await expect(approxEmbeddingRows).toHaveCount(2);
@@ -1810,12 +1814,12 @@ test("Embeddings library configures, batches, runs, and previews persisted artif
   await expect(page.locator(".selection-panel .sel-section", { hasText: "Embeddings" }).locator(".sel-count")).toHaveText("2");
   await approxEmbeddingRows.nth(0).locator("input[type='checkbox']").check();
   await approxEmbeddingRows.nth(1).locator("input[type='checkbox']").check();
-  await page.getByRole("button", { name: "Run Selected" }).click();
+  await page.getByRole("button", { name: "Compute Selected" }).click();
   await expect(page.locator(".jobs-panel")).toContainText("neext.compute_graph_embeddings", { timeout: 20_000 });
   await expect(page.locator(".cmd")).toContainText("Computing features:", { timeout: 20_000 });
   await expect(page.locator(".cmd")).toContainText("Computing embedding", { timeout: 30_000 });
-  await expect(approxEmbeddingRows.nth(0).locator(".status-pill")).toHaveText("completed", { timeout: 60_000 });
-  await expect(approxEmbeddingRows.nth(1).locator(".status-pill")).toHaveText("completed", { timeout: 60_000 });
+  await expect(approxEmbeddingRows.nth(0).locator(".status-pill")).toHaveText("Ready", { timeout: 60_000 });
+  await expect(approxEmbeddingRows.nth(1).locator(".status-pill")).toHaveText("Ready", { timeout: 60_000 });
   await approxEmbeddingRows.nth(0).getByRole("button", { name: "Preview" }).click();
   await expect(page.locator(".artifact-table-title")).toContainText("Tiny Embedding - Approx Wasserstein Embedding Explore");
   await expect(ribbon.getByRole("button", { name: "Explore" })).toHaveClass(/is-active/);
@@ -1874,9 +1878,9 @@ test("Models library configures, runs, batches, and previews persisted artifacts
   await expect(inspector).toContainText("random_forest");
   await expect(inspector).toContainText("neext.train_graph_model");
 
-  await randomForestRow.getByRole("button", { name: "Configure" }).click();
-  await expect(page.getByRole("heading", { name: "Configure Random Forest" })).toBeVisible();
-  await expect(page.locator(".card-foot").getByRole("button", { name: "Save" })).toBeEnabled();
+  await randomForestRow.getByRole("button", { name: "Add to Project" }).click();
+  await expect(page.getByRole("heading", { name: "Add Random Forest to Project" })).toBeVisible();
+  await expect(page.locator(".card-foot").getByRole("button", { name: "Create Model" })).toBeEnabled();
   await expect(page.getByLabel("Task Type")).toHaveValue("classifier");
   await expect(page.getByLabel("Sample Size")).toHaveValue("5");
   await expect(page.getByLabel("Test Size")).toHaveValue("0.3");
@@ -1889,15 +1893,15 @@ test("Models library configures, runs, batches, and previews persisted artifacts
   await expect(secondEmbeddingPickerRow.locator("input[type='checkbox']")).not.toBeChecked();
   await secondEmbeddingPickerRow.click();
   await expect(page.getByText("Dataset: Tiny Model")).toBeVisible();
-  await expect(page.locator(".card-foot").getByRole("button", { name: "Save" })).toBeEnabled();
-  await page.locator(".card-foot").getByRole("button", { name: "Save" }).click();
+  await expect(page.locator(".card-foot").getByRole("button", { name: "Create Model" })).toBeEnabled();
+  await page.locator(".card-foot").getByRole("button", { name: "Create Model" }).click();
 
   const modelRow = page.locator("table tbody tr", { hasText: "Tiny Model - Random Forest Classifier" }).first();
   await expect(modelRow).toBeVisible();
   await expect(modelRow).toContainText("Tiny Model");
   await expect(modelRow).toContainText("Random Forest");
   await expect(modelRow).toContainText("Classifier");
-  await expect(modelRow).toContainText("planned");
+  await expect(modelRow).toContainText("Draft");
   await expect(page.locator(".selection-panel .sel-section", { hasText: "Models" }).locator(".sel-count")).toHaveText("1");
   await modelRow.click();
   await expect(inspector).toContainText("Model Details");
@@ -1908,15 +1912,15 @@ test("Models library configures, runs, batches, and previews persisted artifacts
 
   await modelAnalysisGroup.getByRole("button", { name: "Explore" }).click();
   await expect(page.locator(".artifact-table-title")).toContainText("Tiny Model - Random Forest Classifier Explore");
-  await expect(page.locator(".artifact-table-empty")).toContainText("Run model training before exploring this model.");
+  await expect(page.locator(".artifact-table-empty")).toContainText("Train this model before exploring it.");
   await ribbon.getByRole("button", { name: "Models" }).click();
 
-  await modelRow.getByRole("button", { name: "Run" }).click();
+  await modelRow.getByRole("button", { name: "Train" }).click();
   await expect(page.locator(".jobs-panel")).toContainText("neext.train_graph_model", { timeout: 20_000 });
   await expect(page.locator(".cmd")).toContainText("Computing upstream embeddings for model", { timeout: 20_000 });
   await expect(page.locator(".cmd")).toContainText("Computing embedding", { timeout: 45_000 });
   await expect(page.locator(".cmd")).toContainText("Training model", { timeout: 90_000 });
-  await expect(modelRow.locator(".status-pill")).toHaveText("completed", { timeout: 120_000 });
+  await expect(modelRow.locator(".status-pill")).toHaveText("Ready", { timeout: 120_000 });
   await expect(modelRow.getByRole("button", { name: "Preview" })).toBeVisible();
   await modelRow.getByRole("button", { name: "Preview" }).click();
   const exploreView = page.locator(".model-explore");
@@ -2001,10 +2005,10 @@ test("Models library configures, runs, batches, and previews persisted artifacts
   await expect(page.locator(".selection-panel .sel-section", { hasText: "Models" }).locator(".sel-count")).toHaveText("3");
   await modelRows.nth(0).locator("input[type='checkbox']").check();
   await modelRows.nth(1).locator("input[type='checkbox']").check();
-  await page.getByRole("button", { name: "Run Selected" }).click();
+  await page.getByRole("button", { name: "Train Selected" }).click();
   await expect(page.locator(".jobs-panel")).toContainText("neext.train_graph_model", { timeout: 20_000 });
-  await expect(modelRows.nth(0).locator(".status-pill")).toHaveText("completed", { timeout: 90_000 });
-  await expect(modelRows.nth(1).locator(".status-pill")).toHaveText("completed", { timeout: 90_000 });
+  await expect(modelRows.nth(0).locator(".status-pill")).toHaveText("Ready", { timeout: 90_000 });
+  await expect(modelRows.nth(1).locator(".status-pill")).toHaveText("Ready", { timeout: 90_000 });
 });
 
 test("removed workflow controls are absent", async ({ page }) => {
