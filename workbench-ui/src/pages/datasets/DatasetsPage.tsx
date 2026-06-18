@@ -110,8 +110,10 @@ function artifactStatusLabel(status: string): string {
 }
 
 function artifactStatusClass(status: string): string {
-  if (status === "completed") return "is-ready";
+  if (status === "completed") return "is-completed";
+  if (status === "running") return "is-running";
   if (status === "failed") return "is-failed";
+  if (status === "planned" || status === "queued") return "is-queued";
   return "is-idle";
 }
 

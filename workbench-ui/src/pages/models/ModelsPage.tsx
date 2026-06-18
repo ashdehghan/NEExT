@@ -1,8 +1,8 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { type MutableRefObject, useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import * as echarts from "echarts";
 import type { EChartsOption } from "echarts";
-import { ArrowLeft, BarChart3, Eye, Play, Plus, RotateCcw, Trash2 } from "lucide-react";
+import { ArrowLeft, BarChart3, Download, Eye, Play, Plus, RotateCcw, Trash2 } from "lucide-react";
 import {
   api,
   type DatasetManifest,
@@ -11,11 +11,14 @@ import {
   type ModelAnalysis,
   type ModelCatalogEntry,
   type ModelCreatePayload,
+  type ModelFeatureImportanceItem,
   type ModelManifest,
   type ModelMetricSeries
 } from "../../api";
 import { EmptyState } from "../../components/primitives/EmptyState";
 import { FcIcon } from "../../components/primitives/FcIcon";
+import { RunningState } from "../../components/primitives/RunningState";
+import { ChartCard } from "../../components/viz/ChartCard";
 
 interface ModelLibraryViewProps {
   activeProjectId: string;
@@ -116,8 +119,10 @@ function artifactStatusLabel(status: string): string {
 }
 
 function artifactStatusClass(status: string): string {
-  if (status === "completed") return "is-ready";
+  if (status === "completed") return "is-completed";
+  if (status === "running") return "is-running";
   if (status === "failed") return "is-failed";
+  if (status === "planned" || status === "queued") return "is-queued";
   return "is-idle";
 }
 
@@ -685,6 +690,7 @@ export function ProjectModelsView({
 
 function metricLabel(metric: string): string {
   if (metric === "f1_score") return "F1 Score";
+  if (metric === "auc") return "AUC";
   if (metric === "rmse") return "RMSE";
   if (metric === "mae") return "MAE";
   return metric.replace(/_/g, " ").replace(/\b\w/g, (char) => char.toUpperCase());
@@ -738,14 +744,15 @@ type ModelMetricsChartElement = HTMLDivElement & {
 function ModelMetricsChart({
   analysis,
   selectedIteration,
-  onSelectIteration
+  onSelectIteration,
+  chartRef
 }: {
   analysis: ModelAnalysis;
   selectedIteration: number | null;
   onSelectIteration: (iteration: number | null) => void;
+  chartRef: MutableRefObject<ReturnType<typeof echarts.init> | null>;
 }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
-  const chartRef = useRef<ReturnType<typeof echarts.init> | null>(null);
   const onSelectIterationRef = useRef(onSelectIteration);
 
   useEffect(() => {
@@ -838,11 +845,185 @@ function ModelMetricsChart({
   return (
     <div
       ref={containerRef}
-      className="feature-pca-chart model-metrics-chart"
+      className="feature-pca-chart chart-card-canvas model-metrics-chart"
       role="img"
       aria-label={`${analysis.model_name} metric results`}
       tabIndex={0}
     />
+  );
+}
+
+function ModelFeatureImportanceChart({
+  ranking,
+  scoreLabel,
+  chartRef
+}: {
+  ranking: ModelFeatureImportanceItem[];
+  scoreLabel: string;
+  chartRef: MutableRefObject<ReturnType<typeof echarts.init> | null>;
+}) {
+  const containerRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!containerRef.current) return;
+    const chart = echarts.init(containerRef.current);
+    chartRef.current = chart;
+    const resizeObserver = new ResizeObserver(() => chart.resize());
+    resizeObserver.observe(containerRef.current);
+    return () => {
+      resizeObserver.disconnect();
+      chart.dispose();
+      chartRef.current = null;
+    };
+  }, []);
+
+  useEffect(() => {
+    const chart = chartRef.current;
+    if (!chart) return;
+    const ordered = [...ranking].sort((a, b) => a.rank - b.rank);
+    // echarts category axis plots bottom-up, so reverse to show rank 1 at the top
+    const categories = ordered.map((item) => item.feature_name).reverse();
+    const values = ordered.map((item) => item.score).reverse();
+    const option: EChartsOption = {
+      animation: false,
+      grid: { left: 160, right: 28, top: 12, bottom: 40 },
+      xAxis: {
+        type: "value",
+        name: scoreLabel,
+        nameLocation: "middle",
+        nameGap: 26,
+        splitLine: { lineStyle: { color: "#dfe5e9" } }
+      },
+      yAxis: { type: "category", data: categories, axisLabel: { fontSize: 11 } },
+      tooltip: {
+        trigger: "item",
+        formatter: (params: unknown) => {
+          const item = Array.isArray(params) ? params[0] : params;
+          const point = item as { name?: string; value?: number };
+          return `${point.name}<br/>${scoreLabel} ${typeof point.value === "number" ? point.value.toFixed(4) : point.value}`;
+        }
+      },
+      series: [{ type: "bar", data: values, itemStyle: { color: "#176ea9" }, barMaxWidth: 18 }]
+    };
+    chart.setOption(option, { notMerge: true });
+  }, [ranking, scoreLabel]);
+
+  return (
+    <div
+      ref={containerRef}
+      className="feature-pca-chart chart-card-canvas model-metrics-chart"
+      role="img"
+      aria-label="Feature importance ranking"
+      tabIndex={0}
+    />
+  );
+}
+
+function ModelFeatureImportanceTab({
+  activeProjectId,
+  model,
+  analysis
+}: {
+  activeProjectId: string;
+  model: ModelManifest;
+  analysis: ModelAnalysis;
+}) {
+  const queryClient = useQueryClient();
+  const chartRef = useRef<ReturnType<typeof echarts.init> | null>(null);
+  const fi = analysis.feature_importance ?? null;
+  const compute = useMutation({
+    mutationFn: () => api.runModelFeatureImportance(activeProjectId, model.id, { algorithm: "supervised_fast", n_iterations: 3 }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["projects", activeProjectId, "models", model.id, "analysis"] });
+    }
+  });
+
+  const running = fi?.status === "running" || compute.isPending;
+
+  if (!fi && !running) {
+    return (
+      <div className="dataset-tab-panel">
+        <div className="model-importance-intro">
+          <p className="muted">
+            Rank which input features drive this model&apos;s predictions. NEExT trains models over feature subsets, so this
+            runs as a background job and can take a little while.
+          </p>
+          <button type="button" className="btn btn-primary" onClick={() => compute.mutate()} disabled={compute.isPending}>
+            <BarChart3 />
+            {compute.isPending ? "Starting." : "Compute Feature Importance"}
+          </button>
+          {compute.error ? <p className="table-error">{(compute.error as Error).message}</p> : null}
+        </div>
+      </div>
+    );
+  }
+
+  if (running) {
+    return (
+      <div className="dataset-tab-panel model-importance-running">
+        <RunningState
+          label="Computing feature importance…"
+          detail="Training models over feature subsets (background job)"
+        />
+      </div>
+    );
+  }
+
+  if (fi?.status === "failed") {
+    return (
+      <div className="dataset-tab-panel">
+        <p className="table-error">{fi.error || "Feature importance failed."}</p>
+        <button type="button" className="btn" onClick={() => compute.mutate()} disabled={compute.isPending}>
+          <RotateCcw />
+          Retry
+        </button>
+      </div>
+    );
+  }
+
+  const ranking = fi?.ranking ?? [];
+  const scoreLabel = fi?.score_label || "score";
+  const orderedRanking = [...ranking].sort((a, b) => a.rank - b.rank);
+  return (
+    <div className="dataset-tab-panel">
+      <ChartCard
+        className="is-fill"
+        title="Feature importance"
+        chartRef={chartRef}
+        exportName={`${model.name} feature importance`}
+        subtitle={`${fi?.algorithm} · embedding ${fi?.embedding_algorithm} · ${ranking.length} features ranked`}
+        controls={
+          <button type="button" className="btn" onClick={() => compute.mutate()} disabled={compute.isPending}>
+            <RotateCcw />
+            {compute.isPending ? "Starting…" : "Recompute"}
+          </button>
+        }
+      >
+        <ModelFeatureImportanceChart ranking={ranking} scoreLabel={scoreLabel} chartRef={chartRef} />
+      </ChartCard>
+      <div className="artifact-table-scroll model-fi-table">
+        <table className="tbl">
+          <thead>
+            <tr>
+              <th>Rank</th>
+              <th>Feature</th>
+              <th>{scoreLabel}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {orderedRanking.map((item) => (
+              <tr key={item.feature_name}>
+                <td>{item.rank + 1}</td>
+                <td>
+                  <strong>{item.feature_name}</strong>
+                </td>
+                <td>{item.score.toFixed(4)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
   );
 }
 
@@ -964,75 +1145,128 @@ function ModelMetricsTab({
     );
   }
 
+  const chartRef = useRef<ReturnType<typeof echarts.init> | null>(null);
   return (
     <div className="dataset-tab-panel graph-tab-panel">
-      <div className="feature-pca-control-band">
-        <div className="feature-pca-status-group">
-          {analysis.expected_metrics.map((metricName) => (
-            <span className="status-pill is-ready" key={metricName}>
-              {metricLabel(metricName)} {formatMetric(analysis.summary[`${metricName}_mean`])} +/-{" "}
-              {formatMetric(analysis.summary[`${metricName}_std`])}
-            </span>
-          ))}
-        </div>
-        <div className="feature-pca-meta-group">
-          <span className="muted dataset-page-count">{formatCount(analysis.metrics.length)} iterations</span>
-          {selectedIteration == null ? (
-            <span className="muted dataset-page-count">No iteration selected</span>
-          ) : (
-            <span className="muted dataset-page-count">Iteration {selectedIteration} selected</span>
-          )}
-        </div>
-      </div>
-      <ModelMetricsChart analysis={analysis} selectedIteration={selectedIteration} onSelectIteration={onSelectIteration} />
+      <ChartCard
+        className="is-fill"
+        title="Metric results across iterations"
+        chartRef={chartRef}
+        exportName={`${analysis.model_name} metrics`}
+        subtitle={
+          <div className="chart-card-chips">
+            {analysis.expected_metrics.map((metricName) => (
+              <span className="metric-chip" key={metricName}>
+                {metricLabel(metricName)} {formatMetric(analysis.summary[`${metricName}_mean`])} ±{" "}
+                {formatMetric(analysis.summary[`${metricName}_std`])}
+              </span>
+            ))}
+          </div>
+        }
+        controls={
+          <span className="muted dataset-page-count">
+            {formatCount(analysis.metrics.length)} iterations
+            {selectedIteration == null ? "" : ` · iteration ${selectedIteration} selected`}
+          </span>
+        }
+      >
+        <ModelMetricsChart
+          analysis={analysis}
+          selectedIteration={selectedIteration}
+          onSelectIteration={onSelectIteration}
+          chartRef={chartRef}
+        />
+      </ChartCard>
     </div>
   );
 }
 
 function ModelDataTab({
+  activeProjectId,
+  model,
   analysis,
   selectedIteration,
   onSelectIteration
 }: {
+  activeProjectId: string;
+  model: ModelManifest;
   analysis: ModelAnalysis;
   selectedIteration: number | null;
   onSelectIteration: (iteration: number | null) => void;
 }) {
+  const [exporting, setExporting] = useState(false);
+  const [exportError, setExportError] = useState("");
+
+  const downloadMetrics = async () => {
+    setExportError("");
+    setExporting(true);
+    try {
+      const download = await api.modelMetricsExport(activeProjectId, model.id);
+      const objectUrl = URL.createObjectURL(download.blob);
+      const anchor = document.createElement("a");
+      anchor.href = objectUrl;
+      anchor.download = download.filename;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      URL.revokeObjectURL(objectUrl);
+    } catch (error) {
+      setExportError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setExporting(false);
+    }
+  };
+
   return (
-    <div className="dataset-tab-panel">
-      <div className="artifact-table-scroll dataset-data-scroll">
-        <table className="tbl">
-          <thead>
-            <tr>
-              <th>Iteration</th>
-              {analysis.expected_metrics.map((metricName) => (
-                <th key={metricName}>{metricLabel(metricName)}</th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {analysis.metrics.map((row, rowIndex) => {
-              const iteration = Number(row.iteration ?? rowIndex);
-              return (
-                <tr
-                  key={rowIndex}
-                  className={selectedIteration === iteration ? "is-selected" : ""}
-                  onClick={() => onSelectIteration(iteration)}
-                >
-                  <td>{String(row.iteration ?? rowIndex)}</td>
-                  {analysis.expected_metrics.map((metricName) => (
-                    <td key={metricName}>{formatMetric(row[metricName])}</td>
-                  ))}
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
+    <div className="dataset-tab-panel model-data-panel">
+      <div className="model-data-toolbar">
+        <span className="muted dataset-page-count">
+          {formatCount(analysis.metrics.length)} iterations · {formatCount(analysis.expected_metrics.length)} metrics
+        </span>
+        <button type="button" className="btn" onClick={downloadMetrics} disabled={exporting}>
+          <Download />
+          {exporting ? "Exporting…" : "Download CSV"}
+        </button>
       </div>
-      <div className="dataset-detail-grid">
-        <section>
-          <h3>Feature Columns</h3>
-          {analysis.feature_columns.length ? (
+      {exportError ? <p className="table-error">{exportError}</p> : null}
+
+      <section className="model-data-section">
+        <h3>Metrics by iteration</h3>
+        <div className="model-data-table-wrap">
+          <table className="tbl">
+            <thead>
+              <tr>
+                <th>Iteration</th>
+                {analysis.expected_metrics.map((metricName) => (
+                  <th key={metricName}>{metricLabel(metricName)}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {analysis.metrics.map((row, rowIndex) => {
+                const iteration = Number(row.iteration ?? rowIndex);
+                return (
+                  <tr
+                    key={rowIndex}
+                    className={selectedIteration === iteration ? "is-selected" : ""}
+                    onClick={() => onSelectIteration(iteration)}
+                  >
+                    <td>{String(row.iteration ?? rowIndex)}</td>
+                    {analysis.expected_metrics.map((metricName) => (
+                      <td key={metricName}>{formatMetric(row[metricName])}</td>
+                    ))}
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section className="model-data-section">
+        <h3>Feature columns</h3>
+        {analysis.feature_columns.length ? (
+          <div className="model-data-table-wrap">
             <table className="tbl compact-tbl">
               <thead>
                 <tr>
@@ -1047,15 +1281,16 @@ function ModelDataTab({
                 ))}
               </tbody>
             </table>
-          ) : (
-            <p className="muted">No feature columns.</p>
-          )}
-        </section>
-        <section>
-          <h3>Classes</h3>
-          {analysis.classes?.length ? <p>{analysis.classes.join(", ")}</p> : <p className="muted">No classes for this task.</p>}
-        </section>
-      </div>
+          </div>
+        ) : (
+          <p className="muted">No feature columns.</p>
+        )}
+      </section>
+
+      <section className="model-data-section">
+        <h3>Classes</h3>
+        {analysis.classes?.length ? <p>{analysis.classes.join(", ")}</p> : <p className="muted">No classes for this task.</p>}
+      </section>
     </div>
   );
 }
@@ -1075,7 +1310,7 @@ export function ModelExploreView({
   onClearExploreModel,
   onSelectIteration
 }: ModelExploreViewProps) {
-  const [tab, setTab] = useState<"overview" | "metrics" | "data">("overview");
+  const [tab, setTab] = useState<"overview" | "metrics" | "importance" | "data">("overview");
   const embeddingsById = useMemo(() => new Map(embeddings.map((embedding) => [embedding.id, embedding])), [embeddings]);
   const featuresById = useMemo(() => new Map(features.map((feature) => [feature.id, feature])), [features]);
   const datasetsById = useMemo(() => new Map(datasets.map((dataset) => [dataset.id, dataset])), [datasets]);
@@ -1093,7 +1328,8 @@ export function ModelExploreView({
   const analysis = useQuery({
     queryKey: ["projects", activeProjectId, "models", model?.id, "analysis"],
     queryFn: () => api.modelAnalysis(activeProjectId, model!.id),
-    enabled: Boolean(activeProjectId && model?.id && model.status === "completed")
+    enabled: Boolean(activeProjectId && model?.id && model.status === "completed"),
+    refetchInterval: (query) => (query.state.data?.feature_importance?.status === "running" ? 1500 : false)
   });
 
   if (!activeProjectId) {
@@ -1222,14 +1458,20 @@ export function ModelExploreView({
           <span className="explore-title">{model.name}</span>
         </header>
         <div className="tab-strip">
-          {(["overview", "metrics", "data"] as const).map((item) => (
+          {(["overview", "metrics", "importance", "data"] as const).map((item) => (
             <button
               key={item}
               type="button"
               className={`tab-btn ${tab === item ? "is-active" : ""}`}
               onClick={() => setTab(item)}
             >
-              {item === "overview" ? "Overview" : item === "metrics" ? "Metrics" : "Data"}
+              {item === "overview"
+                ? "Overview"
+                : item === "metrics"
+                  ? "Metrics"
+                  : item === "importance"
+                    ? "Feature Importance"
+                    : "Data"}
             </button>
           ))}
         </div>
@@ -1243,8 +1485,17 @@ export function ModelExploreView({
         {tab === "metrics" && analysis.data ? (
           <ModelMetricsTab analysis={analysis.data} selectedIteration={selectedIteration} onSelectIteration={onSelectIteration} />
         ) : null}
+        {tab === "importance" && analysis.data ? (
+          <ModelFeatureImportanceTab activeProjectId={activeProjectId} model={model} analysis={analysis.data} />
+        ) : null}
         {tab === "data" && analysis.data ? (
-          <ModelDataTab analysis={analysis.data} selectedIteration={selectedIteration} onSelectIteration={onSelectIteration} />
+          <ModelDataTab
+            activeProjectId={activeProjectId}
+            model={model}
+            analysis={analysis.data}
+            selectedIteration={selectedIteration}
+            onSelectIteration={onSelectIteration}
+          />
         ) : null}
       </section>
     </div>

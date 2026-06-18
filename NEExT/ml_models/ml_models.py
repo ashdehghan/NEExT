@@ -6,7 +6,7 @@ from typing import Any, Dict, List, Literal, Optional, Union
 import numpy as np
 import pandas as pd
 from pydantic import BaseModel, Field, validator
-from sklearn.metrics import accuracy_score, f1_score, mean_absolute_error, mean_squared_error, precision_score, recall_score
+from sklearn.metrics import accuracy_score, f1_score, mean_absolute_error, mean_squared_error, precision_score, recall_score, roc_auc_score
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import LabelEncoder
 
@@ -248,19 +248,27 @@ class MLModels:
         # Make predictions
         y_pred = model.predict(X_test)
         
-        # Get feature importance if requested
+        # Get feature importance if requested (raw weight per feature, not a rank)
         feature_importance = None
         if self.config.compute_feature_importance:
-            if self.config.model_name == "xgboost" and XGBOOST_AVAILABLE:
-                importance = model.feature_importances_
-            else:
-                importance = model.feature_importances_
-            
-            # Create feature importance ranking
-            importance_dict = dict(zip(feature_cols, importance))
-            sorted_features = sorted(importance_dict.items(), key=lambda x: x[1], reverse=True)
-            feature_importance = {feat: rank for rank, (feat, _) in enumerate(sorted_features, 1)}
-        
+            importance = model.feature_importances_
+            feature_importance = {feat: float(weight) for feat, weight in zip(feature_cols, importance)}
+
+        # ROC AUC (robust to label dtype; binary and multiclass)
+        auc = None
+        try:
+            if hasattr(model, "predict_proba"):
+                proba = model.predict_proba(X_test)
+                classes = list(model.classes_)
+                if len(classes) == 2:
+                    positive = classes[1]
+                    y_binary = np.array([1 if value == positive else 0 for value in y_test])
+                    auc = float(roc_auc_score(y_binary, proba[:, 1]))
+                elif len(classes) > 2:
+                    auc = float(roc_auc_score(y_test, proba, multi_class="ovr", average="macro", labels=classes))
+        except Exception:
+            auc = None
+
         # Return results
         return {
             'model': model,
@@ -268,6 +276,7 @@ class MLModels:
             'recall': recall_score(y_test, y_pred, average='macro'),
             'precision': precision_score(y_test, y_pred, average='macro'),
             'f1_score': f1_score(y_test, y_pred, average='macro'),
+            'auc': auc,
             'feature_importance': feature_importance
         }
     
@@ -318,26 +327,20 @@ class MLModels:
         recall_scores = [r['recall'] for r in results]
         precision_scores = [r['precision'] for r in results]
         f1_scores = [r['f1_score'] for r in results]
+        auc_scores = [r.get('auc') for r in results]
+        auc_present = [value for value in auc_scores if value is not None]
         
-        # Process feature importance if computed
+        # Process feature importance if computed (mean raw weight per feature, sorted desc)
         feature_importance_df = None
         if self.config.compute_feature_importance:
-            # Collect all rankings
-            all_rankings = []
-            for r in results:
-                all_rankings.append(r['feature_importance'])
-            
-            # Calculate average rank for each feature
-            feature_ranks = {}
+            feature_weights = {}
             for feature in feature_cols:
-                ranks = [r[feature] for r in all_rankings]
-                feature_ranks[feature] = np.mean(ranks)
-            
-            # Create sorted DataFrame
+                weights = [r['feature_importance'][feature] for r in results]
+                feature_weights[feature] = float(np.mean(weights))
             feature_importance_df = pd.DataFrame(
-                {'average_rank': feature_ranks}
-            ).sort_values('average_rank')
-        
+                {'importance': feature_weights}
+            ).sort_values('importance', ascending=False)
+
         # Return results with means and standard deviations
         return {
             "model_type": "classifier",
@@ -353,6 +356,9 @@ class MLModels:
             "f1_score": f1_scores,
             "f1_score_mean": np.mean(f1_scores),
             "f1_score_std": np.std(f1_scores),
+            "auc": auc_scores,
+            "auc_mean": float(np.mean(auc_present)) if auc_present else None,
+            "auc_std": float(np.std(auc_present)) if auc_present else None,
             "model": models[-1],
             "classes": self.label_encoder.classes_,
             "feature_columns": feature_cols,
@@ -397,19 +403,12 @@ class MLModels:
         rmse = np.sqrt(mean_squared_error(y_test, y_pred))
         mae = mean_absolute_error(y_test, y_pred)
         
-        # Get feature importance if requested
+        # Get feature importance if requested (raw weight per feature, not a rank)
         feature_importance = None
         if self.config.compute_feature_importance:
-            if self.config.model_name == "xgboost" and XGBOOST_AVAILABLE:
-                importance = model.feature_importances_
-            else:
-                importance = model.feature_importances_
-            
-            # Create feature importance ranking
-            importance_dict = dict(zip(feature_cols, importance))
-            sorted_features = sorted(importance_dict.items(), key=lambda x: x[1], reverse=True)
-            feature_importance = {feat: rank for rank, (feat, _) in enumerate(sorted_features, 1)}
-        
+            importance = model.feature_importances_
+            feature_importance = {feat: float(weight) for feat, weight in zip(feature_cols, importance)}
+
         # Return results
         return {
             'model': model,
@@ -458,25 +457,17 @@ class MLModels:
         rmse_scores = [r['rmse'] for r in results]
         mae_scores = [r['mae'] for r in results]
         
-        # Process feature importance if computed
+        # Process feature importance if computed (mean raw weight per feature, sorted desc)
         feature_importance_df = None
         if self.config.compute_feature_importance:
-            # Collect all rankings
-            all_rankings = []
-            for r in results:
-                all_rankings.append(r['feature_importance'])
-            
-            # Calculate average rank for each feature
-            feature_ranks = {}
+            feature_weights = {}
             for feature in feature_cols:
-                ranks = [r[feature] for r in all_rankings]
-                feature_ranks[feature] = np.mean(ranks)
-            
-            # Create sorted DataFrame
+                weights = [r['feature_importance'][feature] for r in results]
+                feature_weights[feature] = float(np.mean(weights))
             feature_importance_df = pd.DataFrame(
-                {'average_rank': feature_ranks}
-            ).sort_values('average_rank')
-        
+                {'importance': feature_weights}
+            ).sort_values('importance', ascending=False)
+
         # Return results
         return {
             "model_type": "regressor",

@@ -1,7 +1,15 @@
 import { useMemo, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Copy, Power, RefreshCw, ShieldCheck, ShieldOff } from "lucide-react";
-import { api, type McpClientConfigSnippet, type McpSettingsResponse, type ProjectManifest, type WorkspaceInfo } from "../../api";
+import { Archive, Copy, Power, RefreshCw, ShieldCheck, ShieldOff } from "lucide-react";
+import {
+  api,
+  type McpClientConfigSnippet,
+  type McpSettingsResponse,
+  type ProjectManifest,
+  type WorkspaceInfo,
+  type WorkspaceResetSummary
+} from "../../api";
+import { ConfirmDialog } from "../../components/primitives/ConfirmDialog";
 import { EmptyState } from "../../components/primitives/EmptyState";
 import { FcIcon } from "../../components/primitives/FcIcon";
 import { useDocs, useMcpActivity, useMcpApprovals, useMcpSettings } from "../../hooks/useWorkspace";
@@ -115,6 +123,20 @@ export function SettingsView({ workspace, projects, activeProject }: SettingsVie
   const [latestSetup, setLatestSetup] = useState<McpSettingsResponse | null>(null);
   const [activeSettingsTab, setActiveSettingsTab] = useState<SettingsTab>("general");
   const [activeClient, setActiveClient] = useState("claude_desktop");
+  const [showResetDialog, setShowResetDialog] = useState(false);
+  const [resetConfirmText, setResetConfirmText] = useState("");
+  const [resetResult, setResetResult] = useState<WorkspaceResetSummary | null>(null);
+
+  const resetWorkspace = useMutation({
+    mutationFn: api.resetWorkspace,
+    onSuccess: (summary) => {
+      setResetResult(summary);
+      setShowResetDialog(false);
+      setResetConfirmText("");
+      // Everything was archived and the workspace is empty — refresh all cached data.
+      queryClient.invalidateQueries();
+    }
+  });
 
   const enableMcp = useMutation({
     mutationFn: api.enableMcpSettings,
@@ -250,6 +272,39 @@ export function SettingsView({ workspace, projects, activeProject }: SettingsVie
                   <strong>No bundled release notes file</strong>
                 </div>
               </div>
+            </section>
+            <section className="settings-panel settings-danger-panel">
+              <header className="settings-panel-head">
+                <h4>Reset Workbench</h4>
+              </header>
+              <p className="settings-note">
+                Archive every project and the Trash into a timestamped folder inside the workspace, leaving a clean,
+                empty environment. Nothing is deleted — the archive stays on disk under{" "}
+                <code>_archives/</code> and can be moved back. This only ever touches the Workbench workspace folder.
+              </p>
+              <div className="settings-actions">
+                <button
+                  type="button"
+                  className="btn btn-danger"
+                  onClick={() => {
+                    setResetResult(null);
+                    setResetConfirmText("");
+                    setShowResetDialog(true);
+                  }}
+                  disabled={resetWorkspace.isPending}
+                >
+                  <Archive /> Reset Workbench…
+                </button>
+              </div>
+              {resetWorkspace.error ? <p className="error-text">{(resetWorkspace.error as Error).message}</p> : null}
+              {resetResult ? (
+                <p className="settings-note settings-reset-result">
+                  Archived {resetResult.projects_archived}{" "}
+                  {resetResult.projects_archived === 1 ? "project" : "projects"}
+                  {resetResult.trash_archived ? " and the Trash" : ""} to <code>{resetResult.archived_path}</code>. The
+                  Workbench is now empty.
+                </p>
+              ) : null}
             </section>
           </div>
         ) : activeSettingsTab === "docs" ? (
@@ -458,6 +513,35 @@ export function SettingsView({ workspace, projects, activeProject }: SettingsVie
           </div>
         )}
       </section>
+      {showResetDialog ? (
+        <ConfirmDialog
+          title="Reset Workbench"
+          message="This archives every project and the Trash into a timestamped folder inside the workspace, then leaves a clean, empty environment. Nothing is deleted and only the Workbench workspace folder is touched."
+          confirmLabel="Reset Workbench"
+          busyLabel="Archiving…"
+          busy={resetWorkspace.isPending}
+          confirmDisabled={resetConfirmText.trim().toUpperCase() !== "RESET"}
+          error={resetWorkspace.error ? (resetWorkspace.error as Error).message : undefined}
+          onCancel={() => {
+            setShowResetDialog(false);
+            setResetConfirmText("");
+          }}
+          onConfirm={() => resetWorkspace.mutate()}
+        >
+          <label className="field confirm-type-field">
+            <span>
+              Type <strong>RESET</strong> to confirm
+            </span>
+            <input
+              autoFocus
+              value={resetConfirmText}
+              placeholder="RESET"
+              aria-label="Type RESET to confirm workspace reset"
+              onChange={(event) => setResetConfirmText(event.target.value)}
+            />
+          </label>
+        </ConfirmDialog>
+      ) : null}
     </div>
   );
 }

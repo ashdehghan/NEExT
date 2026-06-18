@@ -237,4 +237,7 @@ sandbox/*
 
 # Personal experiments and research notes (kept locally)
 ash_experiments/
+
+# Demo / presentation material (kept locally)
+/demo/
 notes/

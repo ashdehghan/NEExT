@@ -196,6 +196,51 @@ def test_workbench_health_and_workspace_load():
         assert workspace_manifest["updated_at"]
 
 
+def test_workspace_reset_archives_projects_and_recreates_empty():
+    pytest.importorskip("fastapi")
+
+    from fastapi.testclient import TestClient
+
+    from NEExT.workbench.app import create_app
+
+    with TemporaryDirectory() as tmpdir:
+        client = TestClient(create_app(tmpdir))
+
+        first = client.post("/api/projects", json={"name": "Keep-me Project"}).json()
+        second = client.post("/api/projects", json={"name": "Second Project"}).json()
+        assert client.get("/api/workspace").json()["projects"] == 2
+
+        # Trash one project so the reset must archive the Trash too.
+        client.delete(f"/api/projects/{second['id']}")
+        assert (Path(tmpdir) / "trash").exists()
+
+        # Preserve a sentinel MCP settings file to prove reset does not touch it.
+        mcp_file = Path(tmpdir) / "mcp.json"
+        mcp_file.write_text('{"sentinel": true}', encoding="utf-8")
+
+        reset = client.post("/api/workspace/reset")
+        assert reset.status_code == 200
+        summary = reset.json()
+        assert summary["projects_archived"] == 1  # only the live (non-trashed) project
+        assert summary["trash_archived"] is True
+        assert summary["archived_path"].startswith("_archives/reset-")
+
+        # Workspace is empty again and still functional.
+        assert client.get("/api/workspace").json()["projects"] == 0
+        assert client.get("/api/projects").json() == []
+        assert (Path(tmpdir) / "workspace.json").exists()
+        assert not (Path(tmpdir) / "trash").exists()
+
+        # The archive lives inside the workspace and holds the moved project + trash.
+        archive_dir = Path(tmpdir) / summary["archived_path"]
+        assert archive_dir.resolve().is_relative_to(Path(tmpdir).resolve())
+        assert (archive_dir / "projects" / first["id"] / "project.json").exists()
+        assert (archive_dir / "trash").exists()
+
+        # MCP settings untouched.
+        assert mcp_file.read_text(encoding="utf-8") == '{"sentinel": true}'
+
+
 def test_workbench_docs_endpoint_serves_shared_topics():
     pytest.importorskip("fastapi")
 
@@ -3083,7 +3128,7 @@ def test_create_model_artifacts_validate_source_embeddings_and_dataset_lineage(m
         assert model["expected_output"] == {
             "artifact_kind": "model",
             "storage_format": "neext-model-results-v1",
-            "metrics": ["accuracy", "recall", "precision", "f1_score"],
+            "metrics": ["accuracy", "recall", "precision", "f1_score", "auc"],
         }
         assert model["output_files"] is None
         assert model["output_stats"] is None
@@ -3258,7 +3303,7 @@ def test_run_model_auto_runs_planned_upstream_artifacts_and_writes_preview(monke
         assert completed["status"] == "completed"
         assert completed["output_files"] == {"metrics": "output/metrics.json", "model": "output/model.joblib"}
         assert completed["output_stats"] == {
-            "metric_count": 4,
+            "metric_count": 5,
             "sample_size": 1,
             "feature_count": 2,
             "graph_count": 8,
@@ -3280,10 +3325,12 @@ def test_run_model_auto_runs_planned_upstream_artifacts_and_writes_preview(monke
             "recall_mean",
             "precision_mean",
             "f1_score_mean",
+            "auc_mean",
             "accuracy_std",
             "recall_std",
             "precision_std",
             "f1_score_std",
+            "auc_std",
         }
         assert len(metrics["metrics"]) == 1
         assert metrics["metrics"][0]["iteration"] == 0
@@ -3486,8 +3533,8 @@ def test_model_analysis_exposes_metrics_and_lineage_without_paths(monkeypatch):
         assert payload["source_features"][0]["method"] == {"id": "page_rank", "name": "PageRank"}
         assert payload["algorithm"] == {"id": "random_forest", "name": "Random Forest"}
         assert payload["task_type"] == "classifier"
-        assert payload["expected_metrics"] == ["accuracy", "recall", "precision", "f1_score"]
-        assert payload["output_stats"] == {"metric_count": 4, "sample_size": 2, "feature_count": 2, "graph_count": 8}
+        assert payload["expected_metrics"] == ["accuracy", "recall", "precision", "f1_score", "auc"]
+        assert payload["output_stats"] == {"metric_count": 5, "sample_size": 2, "feature_count": 2, "graph_count": 8}
         assert payload["sample_size"] == 2
         assert payload["test_size"] == 0.25
         assert payload["random_state"] == 42

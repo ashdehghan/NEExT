@@ -384,6 +384,20 @@ class WorkbenchMcpService:
         )
         return payload
 
+    def compute_model_feature_importance(
+        self, project_id: str, model_id: str, algorithm: str = "supervised_fast", n_iterations: int = 3
+    ) -> dict[str, Any]:
+        job = self.store.run_model_feature_importance(
+            project_id, model_id, {"algorithm": algorithm, "n_iterations": n_iterations}
+        )
+        self.store.record_mcp_activity(
+            "tool_call",
+            "Started feature importance for model",
+            tool_name="neext_compute_feature_importance",
+            details={"project_id": project_id, "model_id": model_id, "job_id": job.id},
+        )
+        return self._dump(job)
+
     def list_jobs(self, project_id: str) -> list[dict[str, Any]]:
         return self._dump(self.store.list_jobs(project_id))
 
@@ -418,6 +432,16 @@ class WorkbenchMcpService:
         )
         return {"filename": filename, "content_type": "text/csv", "content": content}
 
+    def export_model_metrics(self, project_id: str, model_id: str) -> dict[str, Any]:
+        filename, content = self.store.export_model_metrics_csv(project_id, model_id)
+        self.store.record_mcp_activity(
+            "tool_call",
+            "Exported model metrics",
+            tool_name="neext_export_model_metrics",
+            details={"project_id": project_id, "model_id": model_id, "filename": filename},
+        )
+        return {"filename": filename, "content_type": "text/csv", "content": content}
+
     def analyze_artifact(
         self,
         project_id: str,
@@ -447,15 +471,44 @@ class WorkbenchMcpService:
                 )
             )
         if artifact_kind == "embeddings":
+            cluster_k = opts.get("cluster_k")
+            perplexity = opts.get("perplexity")
+            n_neighbors = opts.get("n_neighbors")
+            min_dist = opts.get("min_dist")
             return self._dump(
                 self.store.analyze_embedding(
                     project_id,
                     artifact_id,
                     max_fit_rows=int(opts.get("max_fit_rows", EMBEDDING_ANALYSIS_DEFAULT_MAX_FIT_ROWS)),
                     max_points=int(opts.get("max_points", EMBEDDING_ANALYSIS_DEFAULT_MAX_POINTS)),
+                    cluster_k=int(cluster_k) if cluster_k is not None else None,
+                    projection_method=str(opts.get("projection_method", "pca")),
+                    perplexity=float(perplexity) if perplexity is not None else None,
+                    n_neighbors=int(n_neighbors) if n_neighbors is not None else None,
+                    min_dist=float(min_dist) if min_dist is not None else None,
                 )
             )
         return self._dump(self.store.analyze_model(project_id, artifact_id))
+
+    def cluster_embedding(self, project_id: str, embedding_id: str, k: int) -> dict[str, Any]:
+        """KMeans-cluster a completed embedding; return assignments + label overlap."""
+        analysis = self.store.analyze_embedding(project_id, embedding_id, cluster_k=int(k))
+        pca = analysis.pca
+        assignments = [
+            {"graph_id": point.graph_id, "cluster": point.cluster, "graph_label": point.graph_label}
+            for point in pca.points
+        ]
+        return {
+            "embedding_id": embedding_id,
+            "available": pca.available,
+            "cluster_k": pca.cluster_k,
+            "cluster_algorithm": pca.cluster_algorithm,
+            "cluster_silhouette": pca.cluster_silhouette,
+            "cluster_label_ari": pca.cluster_label_ari,
+            "cluster_purity": pca.cluster_purity,
+            "clusters": [self._dump(summary) for summary in pca.clusters],
+            "assignments": assignments,
+        }
 
     def search_graphs(self, project_id: str, kind: str, artifact_id: str, query: str, limit: int = 25) -> dict[str, Any]:
         artifact_kind = self._artifact_kind(kind)

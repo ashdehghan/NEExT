@@ -1,21 +1,22 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { type MutableRefObject, useEffect, useMemo, useRef, useState } from "react";
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import * as echarts from "echarts";
 import type { EChartsOption } from "echarts";
-import { ArrowLeft, Box, ChevronLeft, ChevronRight, Eye, Play, Plus, RotateCcw, Search, Trash2 } from "lucide-react";
+import { ArrowLeft, Box, Eye, Play, Plus, RotateCcw, Trash2 } from "lucide-react";
 import {
   api,
   type DatasetManifest,
   type EmbeddingAnalysis,
   type EmbeddingCatalogEntry,
   type EmbeddingCreatePayload,
-  type EmbeddingGraphSearchResult,
   type EmbeddingManifest,
+  type EmbeddingPcaPayload,
   type EmbeddingPcaPoint,
   type FeatureManifest
 } from "../../api";
 import { EmptyState } from "../../components/primitives/EmptyState";
 import { FcIcon } from "../../components/primitives/FcIcon";
+import { ChartCard } from "../../components/viz/ChartCard";
 
 interface EmbeddingLibraryViewProps {
   activeProjectId: string;
@@ -101,8 +102,10 @@ function artifactStatusLabel(status: string): string {
 }
 
 function artifactStatusClass(status: string): string {
-  if (status === "completed") return "is-ready";
+  if (status === "completed") return "is-completed";
+  if (status === "running") return "is-running";
   if (status === "failed") return "is-failed";
+  if (status === "planned" || status === "queued") return "is-queued";
   return "is-idle";
 }
 
@@ -666,141 +669,122 @@ function EmbeddingDataTab({ activeProjectId, embedding }: { activeProjectId: str
   );
 }
 
-type EmbeddingPcaChartDatum = EmbeddingPcaPoint & {
-  value: [number, number];
-  itemStyle: { color: string };
-};
-type EmbeddingPcaChartElement = HTMLDivElement & {
-  __embeddingPcaChart?: ReturnType<typeof echarts.init>;
-};
+const ANALYSIS_PALETTE = [
+  "#176ea9", "#d86c1f", "#2d8754", "#8d5db8", "#a4513d", "#4f758b", "#6b7f2a", "#9a5b91", "#b0883a", "#3f7d7a"
+];
 
-function EmbeddingPcaChart({
-  analysis,
-  selectedGraphId,
-  onSelectGraph
+type EmbeddingScatterDatum = { value: [number, number]; graph_id: string; graph_label: unknown; cluster: number | null };
+
+function clampInt(raw: string, min: number, max: number, fallback: number): number {
+  const value = Math.round(Number(raw));
+  if (!Number.isFinite(value)) return fallback;
+  return Math.max(min, Math.min(max, value));
+}
+
+function clampFloat(raw: string, min: number, max: number, fallback: number): number {
+  const value = Number(raw);
+  if (!Number.isFinite(value)) return fallback;
+  return Math.max(min, Math.min(max, value));
+}
+
+/** Publication-quality scatter: one series per category (label / cluster) for a clean legend. */
+function EmbeddingScatter({
+  payload,
+  colorMode,
+  chartRef
 }: {
-  analysis: EmbeddingAnalysis;
-  selectedGraphId: string;
-  onSelectGraph: (graphId: string, visible: boolean | null) => void;
+  payload: EmbeddingPcaPayload;
+  colorMode: "label" | "cluster" | "none";
+  chartRef: MutableRefObject<ReturnType<typeof echarts.init> | null>;
 }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
-  const chartRef = useRef<ReturnType<typeof echarts.init> | null>(null);
-  const onSelectGraphRef = useRef(onSelectGraph);
-  const previousSelectedIndexRef = useRef<number | null>(null);
-
-  useEffect(() => {
-    onSelectGraphRef.current = onSelectGraph;
-  }, [onSelectGraph]);
 
   useEffect(() => {
     if (!containerRef.current) return;
     const chart = echarts.init(containerRef.current);
     chartRef.current = chart;
-    (containerRef.current as EmbeddingPcaChartElement).__embeddingPcaChart = chart;
-    const handleClick = (params: { data?: unknown }) => {
-      const data = params.data as EmbeddingPcaChartDatum | undefined;
-      if (!data?.graph_id) return;
-      onSelectGraphRef.current(String(data.graph_id), true);
-    };
-    chart.on("click", handleClick);
     const resizeObserver = new ResizeObserver(() => chart.resize());
     resizeObserver.observe(containerRef.current);
     return () => {
-      chart.off("click", handleClick);
       resizeObserver.disconnect();
       chart.dispose();
-      if (containerRef.current) delete (containerRef.current as EmbeddingPcaChartElement).__embeddingPcaChart;
       chartRef.current = null;
     };
-  }, []);
+  }, [chartRef]);
 
   useEffect(() => {
     const chart = chartRef.current;
     if (!chart) return;
+    const points = payload.points;
 
-    const palette = ["#176ea9", "#d86c1f", "#2d8754", "#8d5db8", "#a4513d", "#4f758b", "#6b7f2a", "#9a5b91"];
-    const colorValues = Array.from(new Set(analysis.pca.points.map((point) => point.color_value)));
-    const colorByValue = new Map(colorValues.map((value, index) => [value, palette[index % palette.length]]));
-    const data: EmbeddingPcaChartDatum[] = analysis.pca.points.map((point) => ({
-      ...point,
-      value: [point.x, point.y],
-      itemStyle: { color: colorByValue.get(point.color_value) || palette[0] }
+    const categoryOf = (point: EmbeddingPcaPoint): string => {
+      if (colorMode === "cluster") return point.cluster != null ? `Cluster ${point.cluster}` : "Unclustered";
+      if (colorMode === "label") return point.graph_label != null ? String(point.graph_label) : "Unlabeled";
+      return "Graphs";
+    };
+
+    const categories = Array.from(new Set(points.map(categoryOf)));
+    const showLegend = colorMode !== "none" && categories.length > 1;
+
+    const series = categories.map((category, index) => ({
+      name: category,
+      type: "scatter" as const,
+      symbolSize: 11,
+      itemStyle: {
+        color: colorMode === "none" ? "#176ea9" : ANALYSIS_PALETTE[index % ANALYSIS_PALETTE.length],
+        opacity: 0.82,
+        borderColor: "rgba(255,255,255,.7)",
+        borderWidth: 0.5
+      },
+      data: points
+        .filter((point) => categoryOf(point) === category)
+        .map((point) => ({ value: [point.x, point.y], graph_id: point.graph_id, graph_label: point.graph_label, cluster: point.cluster }))
     }));
 
     const option: EChartsOption = {
       animation: false,
-      grid: { left: 44, right: 18, top: 22, bottom: 38 },
+      legend: showLegend ? { type: "scroll", top: 2, textStyle: { fontSize: 11 } } : undefined,
+      grid: { left: 54, right: 18, top: showLegend ? 28 : 14, bottom: 46 },
       xAxis: {
         type: "value",
-        name: analysis.pca.x_axis_label,
+        name: payload.x_axis_label,
         nameLocation: "middle",
-        nameGap: 24,
-        splitLine: { lineStyle: { color: "#dfe5e9" } }
+        nameGap: 26,
+        splitLine: { lineStyle: { color: "#eceff2" } },
+        axisLine: { lineStyle: { color: "#cfd6dc" } }
       },
       yAxis: {
         type: "value",
-        name: analysis.pca.y_axis_label,
+        name: payload.y_axis_label,
         nameLocation: "middle",
-        nameGap: 30,
-        splitLine: { lineStyle: { color: "#dfe5e9" } }
+        nameGap: 40,
+        splitLine: { lineStyle: { color: "#eceff2" } },
+        axisLine: { lineStyle: { color: "#cfd6dc" } }
       },
       tooltip: {
         trigger: "item",
         formatter: (params: unknown) => {
           const item = Array.isArray(params) ? params[0] : params;
-          const dataPoint = (item as { data?: EmbeddingPcaChartDatum }).data;
+          const dataPoint = (item as { data?: EmbeddingScatterDatum }).data;
           if (!dataPoint) return "";
           return [
             `Graph ${dataPoint.graph_id}`,
-            `Label ${formatValue(dataPoint.graph_label)}`,
-            `${analysis.pca.x_axis_label} ${dataPoint.x.toFixed(4)}`,
-            `${analysis.pca.y_axis_label} ${dataPoint.y.toFixed(4)}`
-          ].join("<br/>");
+            dataPoint.graph_label != null ? `Label ${formatValue(dataPoint.graph_label)}` : null,
+            dataPoint.cluster != null ? `Cluster ${dataPoint.cluster}` : null,
+            `${payload.x_axis_label} ${dataPoint.value[0].toFixed(4)}`,
+            `${payload.y_axis_label} ${dataPoint.value[1].toFixed(4)}`
+          ]
+            .filter(Boolean)
+            .join("<br/>");
         }
       },
-      series: [
-        {
-          type: "scatter",
-          data,
-          symbolSize: 16,
-          emphasis: {
-            itemStyle: {
-              borderColor: "#111820",
-              borderWidth: 2
-            }
-          }
-        }
-      ]
+      series
     };
 
     chart.setOption(option, { notMerge: true });
-    previousSelectedIndexRef.current = null;
-  }, [analysis]);
+  }, [payload, colorMode, chartRef]);
 
-  useEffect(() => {
-    const chart = chartRef.current;
-    if (!chart) return;
-
-    if (previousSelectedIndexRef.current != null) {
-      chart.dispatchAction({ type: "downplay", seriesIndex: 0, dataIndex: previousSelectedIndexRef.current });
-      previousSelectedIndexRef.current = null;
-    }
-    if (!selectedGraphId) return;
-    const selectedIndex = analysis.pca.points.findIndex((point) => point.graph_id === selectedGraphId);
-    if (selectedIndex < 0) return;
-    chart.dispatchAction({ type: "highlight", seriesIndex: 0, dataIndex: selectedIndex });
-    previousSelectedIndexRef.current = selectedIndex;
-  }, [analysis, selectedGraphId]);
-
-  return (
-    <div
-      ref={containerRef}
-      className="feature-pca-chart embedding-pca-chart"
-      role="img"
-      aria-label={`${analysis.embedding_name} ${analysis.pca.projection_method === "raw" ? "2D embedding plot" : "PCA"}`}
-      tabIndex={0}
-    />
-  );
+  return <div ref={containerRef} className="chart-card-canvas embedding-scatter" role="img" aria-label="Embedding projection scatter" />;
 }
 
 function EmbeddingStatisticsTab({ analysis }: { analysis: EmbeddingAnalysis }) {
@@ -894,153 +878,247 @@ function EmbeddingStatisticsTab({ analysis }: { analysis: EmbeddingAnalysis }) {
   );
 }
 
-function EmbeddingPcaTab({
+const PROJECTION_META: Record<"pca" | "tsne" | "umap", { title: string; description: string }> = {
+  pca: { title: "PCA", description: "Linear projection onto the top two principal components." },
+  tsne: { title: "t-SNE", description: "Nonlinear neighborhood embedding (stochastic)." },
+  umap: { title: "UMAP", description: "Uniform Manifold Approximation and Projection." }
+};
+
+function ProjectionCard({
+  activeProjectId,
+  embeddingId,
+  embeddingName,
+  method,
+  hasLabels
+}: {
+  activeProjectId: string;
+  embeddingId: string;
+  embeddingName: string;
+  method: "pca" | "tsne" | "umap";
+  hasLabels: boolean;
+}) {
+  const chartRef = useRef<ReturnType<typeof echarts.init> | null>(null);
+  const [colorByLabel, setColorByLabel] = useState(hasLabels);
+  const [perplexity, setPerplexity] = useState(20);
+  const [nNeighbors, setNNeighbors] = useState(15);
+  const [minDist, setMinDist] = useState(0.1);
+
+  const params = useMemo(() => {
+    const next: { projection_method: "pca" | "tsne" | "umap"; perplexity?: number; n_neighbors?: number; min_dist?: number } = {
+      projection_method: method
+    };
+    if (method === "tsne") next.perplexity = perplexity;
+    if (method === "umap") {
+      next.n_neighbors = nNeighbors;
+      next.min_dist = minDist;
+    }
+    return next;
+  }, [method, perplexity, nNeighbors, minDist]);
+
+  const query = useQuery({
+    queryKey: ["projects", activeProjectId, "embeddings", embeddingId, "analysis", "projection", params],
+    queryFn: () => api.embeddingAnalysis(activeProjectId, embeddingId, params),
+    enabled: Boolean(activeProjectId && embeddingId),
+    placeholderData: keepPreviousData
+  });
+
+  const payload = query.data?.pca;
+  const meta = PROJECTION_META[method];
+
+  let subtitle = meta.description;
+  if (method === "pca" && payload?.explained_variance_ratio?.length) {
+    const [pc1, pc2] = payload.explained_variance_ratio;
+    subtitle = `Explained variance — PC1 ${((pc1 ?? 0) * 100).toFixed(1)}%, PC2 ${((pc2 ?? 0) * 100).toFixed(1)}%`;
+  } else if (method === "tsne") {
+    subtitle = `Perplexity ${perplexity}`;
+  } else if (method === "umap") {
+    subtitle = `n_neighbors ${nNeighbors} · min_dist ${minDist}`;
+  }
+
+  const controls = (
+    <>
+      {method === "tsne" ? (
+        <label className="card-knob">
+          <span>Perplexity</span>
+          <input
+            type="number"
+            min={2}
+            max={100}
+            value={perplexity}
+            aria-label="t-SNE perplexity"
+            onChange={(event) => setPerplexity(clampInt(event.target.value, 2, 100, 20))}
+          />
+        </label>
+      ) : null}
+      {method === "umap" ? (
+        <>
+          <label className="card-knob">
+            <span>Neighbors</span>
+            <input
+              type="number"
+              min={2}
+              max={200}
+              value={nNeighbors}
+              aria-label="UMAP neighbors"
+              onChange={(event) => setNNeighbors(clampInt(event.target.value, 2, 200, 15))}
+            />
+          </label>
+          <label className="card-knob">
+            <span>Min dist</span>
+            <input
+              type="number"
+              min={0}
+              max={1}
+              step={0.05}
+              value={minDist}
+              aria-label="UMAP min dist"
+              onChange={(event) => setMinDist(clampFloat(event.target.value, 0, 1, 0.1))}
+            />
+          </label>
+        </>
+      ) : null}
+      {hasLabels ? (
+        <label className="card-toggle">
+          <input type="checkbox" checked={colorByLabel} onChange={(event) => setColorByLabel(event.target.checked)} />
+          <span>Color by label</span>
+        </label>
+      ) : null}
+      <button
+        type="button"
+        className="icon-btn"
+        aria-label={`Re-run ${meta.title}`}
+        title="Re-run"
+        onClick={() => query.refetch()}
+        disabled={query.isFetching}
+      >
+        <RotateCcw />
+      </button>
+    </>
+  );
+
+  const error = query.error
+    ? (query.error as Error).message
+    : payload && !payload.available
+      ? payload.reason || "Projection unavailable for this embedding."
+      : undefined;
+
+  return (
+    <ChartCard
+      title={meta.title}
+      subtitle={subtitle}
+      controls={controls}
+      chartRef={chartRef}
+      exportName={`${embeddingName} ${method}`}
+      running={query.isFetching}
+      runningLabel={`Computing ${meta.title}…`}
+      error={error}
+    >
+      {payload && payload.available ? (
+        <EmbeddingScatter payload={payload} colorMode={hasLabels && colorByLabel ? "label" : "none"} chartRef={chartRef} />
+      ) : (
+        <div className="chart-card-canvas" />
+      )}
+    </ChartCard>
+  );
+}
+
+function ClusteringCard({
+  activeProjectId,
+  embeddingId,
+  embeddingName,
+  hasLabels
+}: {
+  activeProjectId: string;
+  embeddingId: string;
+  embeddingName: string;
+  hasLabels: boolean;
+}) {
+  const chartRef = useRef<ReturnType<typeof echarts.init> | null>(null);
+  const [clusterK, setClusterK] = useState(2);
+
+  const query = useQuery({
+    queryKey: ["projects", activeProjectId, "embeddings", embeddingId, "analysis", "clustering", clusterK],
+    queryFn: () => api.embeddingAnalysis(activeProjectId, embeddingId, { projection_method: "pca", cluster_k: clusterK }),
+    enabled: Boolean(activeProjectId && embeddingId),
+    placeholderData: keepPreviousData
+  });
+
+  const payload = query.data?.pca;
+  const metrics: string[] = [];
+  if (payload?.cluster_silhouette != null) metrics.push(`silhouette ${payload.cluster_silhouette.toFixed(3)}`);
+  if (hasLabels && payload?.cluster_label_ari != null) metrics.push(`ARI ${payload.cluster_label_ari.toFixed(3)}`);
+  if (hasLabels && payload?.cluster_purity != null) metrics.push(`purity ${(payload.cluster_purity * 100).toFixed(0)}%`);
+  const subtitle = metrics.length ? metrics.join(" · ") : "KMeans clustering shown on the PCA projection.";
+
+  const controls = (
+    <>
+      <label className="card-knob">
+        <span>Clusters (k)</span>
+        <input
+          type="number"
+          min={2}
+          max={20}
+          value={clusterK}
+          aria-label="Number of KMeans clusters"
+          onChange={(event) => setClusterK(clampInt(event.target.value, 2, 20, 2))}
+        />
+      </label>
+      <button
+        type="button"
+        className="icon-btn"
+        aria-label="Re-run clustering"
+        title="Re-run"
+        onClick={() => query.refetch()}
+        disabled={query.isFetching}
+      >
+        <RotateCcw />
+      </button>
+    </>
+  );
+
+  const error = query.error
+    ? (query.error as Error).message
+    : payload && !payload.available
+      ? payload.reason || "Clustering unavailable for this embedding."
+      : undefined;
+
+  return (
+    <ChartCard
+      title="Clustering (KMeans)"
+      subtitle={subtitle}
+      controls={controls}
+      chartRef={chartRef}
+      exportName={`${embeddingName} clusters k${clusterK}`}
+      running={query.isFetching}
+      runningLabel="Clustering…"
+      error={error}
+    >
+      {payload && payload.available ? (
+        <EmbeddingScatter payload={payload} colorMode="cluster" chartRef={chartRef} />
+      ) : (
+        <div className="chart-card-canvas" />
+      )}
+    </ChartCard>
+  );
+}
+
+function EmbeddingAnalysisTab({
   activeProjectId,
   embedding,
-  analysis,
-  selectedGraphId,
-  onSelectGraph
+  hasLabels
 }: {
   activeProjectId: string;
   embedding: EmbeddingManifest;
-  analysis: EmbeddingAnalysis;
-  selectedGraphId: string;
-  onSelectGraph: (graphId: string, visible: boolean | null) => void;
+  hasLabels: boolean;
 }) {
-  const [searchQuery, setSearchQuery] = useState("");
-  const trimmedSearch = searchQuery.trim();
-  const graphSearch = useQuery({
-    queryKey: ["projects", activeProjectId, "embeddings", embedding.id, "analysis", "search", trimmedSearch],
-    queryFn: () => api.embeddingGraphSearch(activeProjectId, embedding.id, trimmedSearch, 25),
-    enabled: Boolean(activeProjectId && embedding.id && trimmedSearch)
-  });
-
-  const selectSearchResult = (result: EmbeddingGraphSearchResult) => {
-    onSelectGraph(result.graph_id, result.in_pca_sample);
-  };
-
-  const selectedResultIndex = graphSearch.data?.results.findIndex((result) => result.graph_id === selectedGraphId) ?? -1;
-  const searchResultCount = graphSearch.data?.results.length || 0;
-
-  const selectResultByIndex = (index: number) => {
-    const result = graphSearch.data?.results[index];
-    if (result) selectSearchResult(result);
-  };
-
-  if (!analysis.pca.available) {
-    return (
-      <div className="dataset-tab-panel">
-        <div className="artifact-table-empty">
-          <EmptyState compact>{analysis.pca.reason || "PCA is unavailable for this embedding."}</EmptyState>
-        </div>
-      </div>
-    );
-  }
-
-  const selectedGraphOutsideSample = Boolean(selectedGraphId && !analysis.pca.points.some((point) => point.graph_id === selectedGraphId));
-  const projectionLabel = analysis.pca.projection_method === "raw" ? "Direct 2D" : "PCA";
-  const colorLabel = analysis.pca.color_by === "graph_label" ? "graph label" : "graph ID";
-  const searchStatus = trimmedSearch
-    ? graphSearch.data
-      ? `${formatCount(graphSearch.data.total_matches)} ${graphSearch.data.total_matches === 1 ? "match" : "matches"}`
-      : graphSearch.isLoading
-        ? "Searching"
-        : "Search results"
-    : "Graph ID or label";
-
   return (
-    <div className="dataset-tab-panel graph-tab-panel">
-      <div className="feature-pca-control-band">
-        <div className="feature-pca-nav-group" aria-label="Embedding search navigation">
-          <button
-            type="button"
-            className="icon-btn graph-nav-btn"
-            aria-label="Previous result"
-            title="Previous result"
-            onClick={() => selectResultByIndex(selectedResultIndex - 1)}
-            disabled={searchResultCount === 0 || selectedResultIndex <= 0}
-          >
-            <ChevronLeft />
-          </button>
-          <button
-            type="button"
-            className="icon-btn graph-nav-btn"
-            aria-label="Next result"
-            title="Next result"
-            onClick={() => selectResultByIndex(selectedResultIndex + 1)}
-            disabled={searchResultCount === 0 || selectedResultIndex < 0 || selectedResultIndex >= searchResultCount - 1}
-          >
-            <ChevronRight />
-          </button>
-        </div>
-        <label className="field graph-search-field feature-pca-search-field">
-          <span>Search</span>
-          <div className="graph-search-input">
-            <Search />
-            <input
-              aria-label="Search embedding graph IDs and labels"
-              value={searchQuery}
-              placeholder="Graph ID or label"
-              onChange={(event) => setSearchQuery(event.target.value)}
-            />
-          </div>
-        </label>
-        <div className="feature-pca-status-group">
-          <span className="status-pill is-ready">{projectionLabel}</span>
-          {analysis.pca.sampled ? <span className="status-pill is-idle">sampled</span> : null}
-          <span className="muted dataset-page-count">{searchStatus}</span>
-        </div>
-        <div className="feature-pca-meta-group">
-          <span className="muted dataset-page-count">
-            {formatCount(analysis.pca.point_count)} plotted of {formatCount(analysis.pca.total_graphs)} graphs
-          </span>
-          <span className="muted dataset-page-count">color by {colorLabel}</span>
-        </div>
+    <div className="dataset-tab-panel embedding-analysis-panel">
+      <div className="embedding-analysis-grid">
+        <ProjectionCard activeProjectId={activeProjectId} embeddingId={embedding.id} embeddingName={embedding.name} method="pca" hasLabels={hasLabels} />
+        <ProjectionCard activeProjectId={activeProjectId} embeddingId={embedding.id} embeddingName={embedding.name} method="tsne" hasLabels={hasLabels} />
+        <ProjectionCard activeProjectId={activeProjectId} embeddingId={embedding.id} embeddingName={embedding.name} method="umap" hasLabels={hasLabels} />
+        <ClusteringCard activeProjectId={activeProjectId} embeddingId={embedding.id} embeddingName={embedding.name} hasLabels={hasLabels} />
       </div>
-      {trimmedSearch ? (
-        <div className="graph-search-results" role="listbox" aria-label="Embedding graph search results">
-          {graphSearch.isLoading ? <span className="muted">Searching.</span> : null}
-          {graphSearch.error ? <span className="table-error inline-error">{graphSearch.error.message}</span> : null}
-          {graphSearch.data ? (
-            <>
-              <span className="muted">
-                {formatCount(graphSearch.data.total_matches)} {graphSearch.data.total_matches === 1 ? "match" : "matches"}
-              </span>
-              {graphSearch.data.results.length ? (
-                graphSearch.data.results.map((result) => (
-                  <button
-                    type="button"
-                    key={`${result.kind}-${result.graph_id}`}
-                    className={`graph-search-result ${result.graph_id === selectedGraphId ? "is-selected" : ""}`}
-                    onClick={() => selectSearchResult(result)}
-                  >
-                    <span className="status-pill is-idle">{result.kind}</span>
-                    <strong>{result.graph_id}</strong>
-                    <span className="muted">
-                      label {formatValue(result.graph_label)} · {result.in_pca_sample ? "plotted" : "not plotted"}
-                    </span>
-                  </button>
-                ))
-              ) : (
-                <span className="muted">No graph matches.</span>
-              )}
-            </>
-          ) : null}
-        </div>
-      ) : null}
-      {analysis.pca.sampled ? (
-        <p className="table-note">
-          Showing {formatCount(analysis.pca.point_count)} plotted graphs
-          {analysis.pca.projection_method === "pca" ? ` and fitting on ${formatCount(analysis.pca.fit_row_count)} graphs` : ""} (
-          {analysis.pca.sample_reason}).
-        </p>
-      ) : null}
-      {selectedGraphOutsideSample ? (
-        <p className="table-note">
-          Selected graph {selectedGraphId} is outside the plotted sample. Inspector details are shown in the Right Panel.
-        </p>
-      ) : null}
-      <EmbeddingPcaChart analysis={analysis} selectedGraphId={selectedGraphId} onSelectGraph={onSelectGraph} />
     </div>
   );
 }
@@ -1060,7 +1138,7 @@ export function EmbeddingExploreView({
   onSelectGraph,
   onSelectedGraphVisibilityChange
 }: EmbeddingExploreViewProps) {
-  const [tab, setTab] = useState<"statistics" | "pca" | "data">("statistics");
+  const [tab, setTab] = useState<"statistics" | "analysis" | "data">("statistics");
   const datasetsById = useMemo(() => new Map(datasets.map((dataset) => [dataset.id, dataset])), [datasets]);
   const featuresById = useMemo(() => new Map(features.map((feature) => [feature.id, feature])), [features]);
   const catalogById = useMemo(() => new Map(catalog.map((entry) => [entry.id, entry])), [catalog]);
@@ -1075,22 +1153,18 @@ export function EmbeddingExploreView({
     onSelectedGraphVisibilityChange(null);
   }, [embedding?.id, onSelectGraph, onSelectedGraphVisibilityChange]);
 
+  // Base analysis (default PCA, no clustering) feeds Statistics/Data and tells us whether labels
+  // exist; the Analysis tab's cards each fetch their own projection/clustering.
   const analysis = useQuery({
-    queryKey: ["projects", activeProjectId, "embeddings", embedding?.id, "analysis"],
+    queryKey: ["projects", activeProjectId, "embeddings", embedding?.id, "analysis", "base"],
     queryFn: () => api.embeddingAnalysis(activeProjectId, embedding!.id),
     enabled: Boolean(activeProjectId && embedding?.id && embedding.status === "completed")
   });
 
-  useEffect(() => {
-    if (!selectedGraphId || !analysis.data) {
-      onSelectedGraphVisibilityChange(null);
-      return;
-    }
-    onSelectedGraphVisibilityChange(analysis.data.pca.points.some((point) => point.graph_id === selectedGraphId));
-  }, [analysis.data, onSelectedGraphVisibilityChange, selectedGraphId]);
+  const hasLabels = Object.keys(analysis.data?.graph_label_distribution ?? {}).length > 0;
 
   useEffect(() => {
-    if (tab === "pca" && analysis.data && !analysis.data.pca.available) {
+    if (tab === "analysis" && analysis.data && !analysis.data.pca.available) {
       setTab("statistics");
     }
   }, [analysis.data, tab]);
@@ -1220,18 +1294,18 @@ export function EmbeddingExploreView({
           <span className="explore-title">{embedding.name}</span>
         </header>
         <div className="tab-strip">
-          {(["statistics", "pca", "data"] as const).map((item) => {
-            const pcaDisabled = item === "pca" && Boolean(analysis.data && !analysis.data.pca.available);
+          {(["statistics", "analysis", "data"] as const).map((item) => {
+            const analysisDisabled = item === "analysis" && Boolean(analysis.data && !analysis.data.pca.available);
             return (
               <button
                 key={item}
                 type="button"
                 className={`tab-btn ${tab === item ? "is-active" : ""}`}
                 onClick={() => setTab(item)}
-                disabled={pcaDisabled}
-                title={pcaDisabled ? analysis.data?.pca.reason || "PCA is unavailable for this embedding." : undefined}
+                disabled={analysisDisabled}
+                title={analysisDisabled ? analysis.data?.pca.reason || "Analysis is unavailable for this embedding." : undefined}
               >
-                {item === "statistics" ? "Statistics" : item === "pca" ? "PCA" : "Data"}
+                {item === "statistics" ? "Statistics" : item === "analysis" ? "Analysis" : "Data"}
               </button>
             );
           })}
@@ -1243,14 +1317,8 @@ export function EmbeddingExploreView({
           </div>
         ) : null}
         {tab === "statistics" && analysis.data ? <EmbeddingStatisticsTab analysis={analysis.data} /> : null}
-        {tab === "pca" && analysis.data ? (
-          <EmbeddingPcaTab
-            activeProjectId={activeProjectId}
-            embedding={embedding}
-            analysis={analysis.data}
-            selectedGraphId={selectedGraphId}
-            onSelectGraph={onSelectGraph}
-          />
+        {tab === "analysis" && analysis.data ? (
+          <EmbeddingAnalysisTab activeProjectId={activeProjectId} embedding={embedding} hasLabels={hasLabels} />
         ) : null}
         {tab === "data" ? <EmbeddingDataTab activeProjectId={activeProjectId} embedding={embedding} /> : null}
       </section>

@@ -1733,11 +1733,51 @@ input:focus, textarea:focus, select:focus {
   padding: var(--space-2);
   border-bottom: 1px solid var(--chrome-200);
 }
+.job-item.is-active {
+  background: #fffaf0;
+}
+.job-item-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
 .job-op {
   overflow: hidden;
   text-overflow: ellipsis;
+  white-space: nowrap;
   font-size: var(--text-11);
   font-weight: 600;
+}
+.job-progress {
+  position: relative;
+  height: 3px;
+  border-radius: 999px;
+  background: var(--chrome-200);
+  overflow: hidden;
+}
+.job-progress > span {
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: 100%;
+  width: 40%;
+  border-radius: 999px;
+  background: var(--warn);
+  animation: running-sweep 1.3s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .job-progress > span { animation: none; left: 0; width: 100%; opacity: .5; }
+}
+.job-log-line {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--text-10);
+  color: var(--chrome-600);
+}
+.job-time {
+  font-size: var(--text-10);
 }
 
 .cmd {
@@ -1967,4 +2007,336 @@ input:focus, textarea:focus, select:focus {
   .feature-pca-meta-group {
     justify-content: flex-start;
   }
+}
+
+/* ============================================================
+ * Shared foundation primitives (§0): status pills, running state,
+ * and the publication-quality chart card with export menu.
+ * ============================================================ */
+
+/* ---- Status pill: full state set ---- */
+.status-pill.is-completed { background: var(--tile-emb-bg); color: var(--tile-emb-fg); }
+.status-pill.is-queued { background: var(--chrome-200); color: var(--chrome-700); }
+.status-pill.is-running {
+  background: #fdeccd;
+  color: #8a5400;
+  position: relative;
+  overflow: hidden;
+}
+.status-pill.is-running::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent, rgba(178, 112, 0, .28), transparent);
+  transform: translateX(-100%);
+  animation: pill-sheen 1.25s ease-in-out infinite;
+}
+@keyframes pill-sheen {
+  to { transform: translateX(100%); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .status-pill.is-running::after { animation: none; }
+}
+
+/* ---- RunningState: indeterminate bar + label + log line ---- */
+.running-state {
+  display: grid;
+  gap: var(--space-2);
+  align-content: center;
+  width: 100%;
+  max-width: 360px;
+  padding: var(--space-4);
+}
+.running-state.is-compact {
+  padding: var(--space-3);
+  gap: var(--space-1);
+}
+.running-bar {
+  position: relative;
+  height: 4px;
+  border-radius: 999px;
+  background: var(--chrome-200);
+  overflow: hidden;
+}
+.running-bar > span {
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: 100%;
+  width: 40%;
+  border-radius: 999px;
+  background: var(--neext-blue);
+  animation: running-sweep 1.3s ease-in-out infinite;
+}
+@keyframes running-sweep {
+  0% { left: -40%; width: 40%; }
+  50% { width: 55%; }
+  100% { left: 100%; width: 40%; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .running-bar > span { animation: none; left: 0; width: 100%; opacity: .5; }
+}
+.running-text {
+  display: grid;
+  gap: 2px;
+}
+.running-label {
+  font-size: var(--text-12);
+  font-weight: 600;
+  color: var(--chrome-700);
+}
+.running-detail {
+  font-size: var(--text-11);
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ---- ChartCard: publication-quality plot wrapper ---- */
+.chart-card {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-3);
+  box-shadow: var(--shadow-rest);
+  overflow: hidden;
+}
+.chart-card-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--chrome-200);
+}
+.chart-card-titles {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+.chart-card-title {
+  margin: 0;
+  font-size: var(--text-13);
+  font-weight: 700;
+  color: var(--text);
+}
+.chart-card-subtitle {
+  font-size: var(--text-11);
+  color: var(--muted);
+}
+.chart-card-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-shrink: 0;
+}
+.chart-card-controls {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+.chart-card-menu {
+  position: relative;
+}
+.chart-card-menu-btn[disabled] {
+  opacity: .4;
+  cursor: default;
+}
+.chart-card-menu-list {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 20;
+  min-width: 184px;
+  padding: var(--space-1);
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-2);
+  box-shadow: var(--shadow-raised);
+}
+.chart-card-menu-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  padding: 6px 8px;
+  border-radius: var(--radius-1);
+  font-size: var(--text-12);
+  color: var(--chrome-700);
+  text-align: left;
+}
+.chart-card-menu-item:hover { background: var(--chrome-100); color: var(--text); }
+.chart-card-menu-item svg { color: var(--chrome-500); }
+.chart-card-body {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+}
+.chart-card-overlay {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: var(--space-4);
+  background: rgba(255, 255, 255, .82);
+}
+.chart-card-overlay-empty {
+  background: var(--panel);
+  color: var(--muted);
+}
+/* Card that grows to fill its flex parent (single-card-per-panel use). */
+.chart-card.is-fill {
+  flex: 1;
+  min-height: 0;
+}
+/* Chart container that fills the card body. */
+.chart-card-canvas {
+  position: absolute;
+  inset: 0;
+  min-height: 0;
+  width: auto;
+  height: auto;
+}
+.chart-card-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+}
+.metric-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--chrome-100);
+  border: 1px solid var(--chrome-200);
+  color: var(--chrome-700);
+  font-size: var(--text-10);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+/* ---- Model Explore: §2 layout ---- */
+.model-importance-running {
+  align-items: center;
+  justify-content: center;
+}
+.model-fi-table {
+  flex: 0 0 auto;
+  max-height: 240px;
+  overflow: auto;
+}
+.model-data-panel {
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+}
+.model-data-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  flex: 0 0 auto;
+}
+.model-data-section {
+  display: grid;
+  gap: var(--space-2);
+  flex: 0 0 auto;
+}
+.model-data-section h3 {
+  margin: 0;
+  font-size: var(--text-12);
+  font-weight: 700;
+  color: var(--chrome-700);
+}
+.model-data-table-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--chrome-200);
+  border-radius: var(--radius-2);
+}
+
+/* ---- Embedding Explore: §1 analysis command center ---- */
+.embedding-analysis-panel {
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+}
+.embedding-analysis-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-3);
+}
+.embedding-analysis-grid > .chart-card {
+  min-height: 340px;
+}
+@media (max-width: 1180px) {
+  .embedding-analysis-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+.card-knob {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: var(--text-11);
+  color: var(--chrome-700);
+}
+.card-knob span {
+  font-weight: 600;
+}
+.card-knob input {
+  width: 62px;
+  height: 24px;
+  padding: 0 6px;
+  border: 1px solid var(--chrome-300);
+  border-radius: var(--radius-2);
+  background: var(--panel);
+  font: inherit;
+  font-size: var(--text-11);
+}
+.card-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: var(--text-11);
+  font-weight: 600;
+  color: var(--chrome-700);
+  white-space: nowrap;
+}
+.card-toggle input {
+  width: 13px;
+  height: 13px;
+}
+.embedding-scatter {
+  background: var(--panel);
+}
+
+/* ---- Settings: Reset Workbench (danger) ---- */
+.settings-danger-panel {
+  border: 1px solid #e6c0bb;
+  border-radius: var(--radius-2);
+  padding: var(--space-3);
+  background: #fdf6f5;
+}
+.settings-reset-result {
+  color: var(--ok);
+}
+.confirm-type-field {
+  display: grid;
+  gap: 4px;
+  margin-top: var(--space-2);
+}
+.confirm-type-field span {
+  font-size: var(--text-11);
+  color: var(--chrome-700);
+}
+.confirm-type-field input {
+  height: 28px;
+  padding: 0 8px;
+  border: 1px solid var(--chrome-300);
+  border-radius: var(--radius-2);
+  font: inherit;
+  letter-spacing: .08em;
 }

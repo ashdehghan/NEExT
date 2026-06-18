@@ -13,6 +13,12 @@ class WorkspaceInfo(BaseModel):
     projects: int
 
 
+class WorkspaceResetSummary(BaseModel):
+    archived_path: str
+    projects_archived: int
+    trash_archived: bool
+
+
 class ProjectCreate(BaseModel):
     name: str = Field(min_length=1, max_length=120)
     description: str = ""
@@ -551,13 +557,21 @@ class EmbeddingPcaPoint(BaseModel):
     y: float
     graph_label: Optional[Any] = None
     color_value: str
+    cluster: Optional[int] = None
+
+
+class EmbeddingClusterSummary(BaseModel):
+    cluster: int
+    size: int
+    dominant_label: Optional[Any] = None
+    dominant_label_fraction: Optional[float] = None
 
 
 class EmbeddingPcaPayload(BaseModel):
     available: bool
     reason: Optional[str] = None
     plot_level: Literal["graph"] = "graph"
-    projection_method: Literal["pca", "raw"] = "pca"
+    projection_method: Literal["pca", "raw", "tsne", "umap"] = "pca"
     x_axis_label: str = "PC1"
     y_axis_label: str = "PC2"
     color_by: Literal["graph_label", "graph_id"]
@@ -575,6 +589,13 @@ class EmbeddingPcaPayload(BaseModel):
     sample_reason: Optional[str] = None
     explained_variance_ratio: list[float] = Field(default_factory=list)
     points: list[EmbeddingPcaPoint] = Field(default_factory=list)
+    # Clustering (populated only when an embedding clustering request is made)
+    cluster_k: Optional[int] = None
+    cluster_algorithm: Optional[Literal["kmeans"]] = None
+    cluster_silhouette: Optional[float] = None
+    cluster_label_ari: Optional[float] = None
+    cluster_purity: Optional[float] = None
+    clusters: list[EmbeddingClusterSummary] = Field(default_factory=list)
 
 
 class EmbeddingAnalysis(BaseModel):
@@ -733,6 +754,30 @@ class ModelManifest(BaseModel):
     output_files: Optional[ModelOutputFiles] = None
     output_stats: Optional[ModelOutputStats] = None
     error: Optional[ArtifactError] = None
+    feature_importance_status: Optional[Literal["running", "completed", "failed"]] = None
+    feature_importance_file: Optional[str] = None
+    feature_importance_error: Optional[ArtifactError] = None
+
+
+class ModelFeatureImportanceRunRequest(BaseModel):
+    algorithm: Literal["supervised_fast", "supervised_greedy"] = "supervised_fast"
+    n_iterations: int = Field(default=3, ge=1, le=25)
+
+
+class ModelFeatureImportanceItem(BaseModel):
+    rank: int
+    feature_name: str
+    score: float
+
+
+class ModelFeatureImportancePayload(BaseModel):
+    status: Literal["running", "completed", "failed"]
+    algorithm: str
+    embedding_algorithm: str
+    score_label: str = "importance"
+    ranking: list[ModelFeatureImportanceItem] = Field(default_factory=list)
+    computed_at: Optional[str] = None
+    error: Optional[str] = None
 
 
 class ModelPreview(BaseModel):
@@ -761,6 +806,7 @@ class ModelAnalysis(BaseModel):
     summary: dict[str, Union[float, int, str, list[str], None]]
     metrics: list[dict[str, Any]]
     metric_series: list[ModelMetricSeries]
+    feature_importance: Optional[ModelFeatureImportancePayload] = None
 
 
 class JobArtifactRef(BaseModel):

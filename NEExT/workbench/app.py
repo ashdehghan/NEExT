@@ -55,11 +55,13 @@ from .schemas import (
     McpUiState,
     ModelAnalysis,
     ModelCreateRequest,
+    ModelFeatureImportanceRunRequest,
     ModelRunBatchRequest,
     ProjectCreate,
     RestoreSummary,
     TrashListing,
     WorkspaceInfo,
+    WorkspaceResetSummary,
 )
 from .storage import (
     EMBEDDING_ANALYSIS_DEFAULT_MAX_FIT_ROWS,
@@ -229,6 +231,13 @@ def create_app(workspace_path: Optional[Union[str, Path]] = None):
             version=str(meta.get("schema_version", meta.get("version", "1"))),
             projects=len(store.list_projects()),
         )
+
+    @app.post("/api/workspace/reset", response_model=WorkspaceResetSummary)
+    def reset_workspace() -> WorkspaceResetSummary:
+        try:
+            return store.reset_workspace()
+        except Exception as exc:
+            raise api_exception(exc) from exc
 
     @app.get("/api/docs")
     def docs() -> list[dict]:
@@ -657,9 +666,24 @@ def create_app(workspace_path: Optional[Union[str, Path]] = None):
         embedding_id: str,
         max_fit_rows: int = EMBEDDING_ANALYSIS_DEFAULT_MAX_FIT_ROWS,
         max_points: int = EMBEDDING_ANALYSIS_DEFAULT_MAX_POINTS,
+        cluster_k: Optional[int] = None,
+        projection_method: str = "pca",
+        perplexity: Optional[float] = None,
+        n_neighbors: Optional[int] = None,
+        min_dist: Optional[float] = None,
     ) -> EmbeddingAnalysis:
         try:
-            return store.analyze_embedding(project_id, embedding_id, max_fit_rows=max_fit_rows, max_points=max_points)
+            return store.analyze_embedding(
+                project_id,
+                embedding_id,
+                max_fit_rows=max_fit_rows,
+                max_points=max_points,
+                cluster_k=cluster_k,
+                projection_method=projection_method,
+                perplexity=perplexity,
+                n_neighbors=n_neighbors,
+                min_dist=min_dist,
+            )
         except Exception as exc:
             raise api_exception(exc) from exc
 
@@ -726,6 +750,18 @@ def create_app(workspace_path: Optional[Union[str, Path]] = None):
         except Exception as exc:
             raise api_exception(exc) from exc
 
+    @app.post("/api/projects/{project_id}/models/{model_id}/feature-importance/run")
+    def run_project_model_feature_importance(
+        project_id: str,
+        model_id: str,
+        request: Optional[ModelFeatureImportanceRunRequest] = None,
+    ):
+        try:
+            params = (request or ModelFeatureImportanceRunRequest()).model_dump()
+            return store.run_model_feature_importance(project_id, model_id, params)
+        except Exception as exc:
+            raise api_exception(exc) from exc
+
     @app.get("/api/projects/{project_id}/models/{model_id}/preview")
     def preview_project_model(project_id: str, model_id: str):
         try:
@@ -737,6 +773,18 @@ def create_app(workspace_path: Optional[Union[str, Path]] = None):
     def analyze_project_model(project_id: str, model_id: str) -> ModelAnalysis:
         try:
             return store.analyze_model(project_id, model_id)
+        except Exception as exc:
+            raise api_exception(exc) from exc
+
+    @app.get("/api/projects/{project_id}/models/{model_id}/export/metrics")
+    def export_project_model_metrics(project_id: str, model_id: str):
+        try:
+            filename, content = store.export_model_metrics_csv(project_id, model_id)
+            return Response(
+                content=content,
+                media_type="text/csv",
+                headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+            )
         except Exception as exc:
             raise api_exception(exc) from exc
 

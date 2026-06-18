@@ -122,8 +122,10 @@ function artifactStatusLabel(status: string): string {
 }
 
 function artifactStatusClass(status: string): string {
-  if (status === "completed") return "is-ready";
+  if (status === "completed") return "is-completed";
+  if (status === "running") return "is-running";
   if (status === "failed") return "is-failed";
+  if (status === "planned" || status === "queued") return "is-queued";
   return "is-idle";
 }
 
@@ -513,6 +515,12 @@ export function CreateFeatureView({ activeProjectId, dataset, draft, onCreated }
   }, [activeProjectId, code, dataset?.id, normalizeFeatures]);
 
   const datasetComplete = dataset?.status === "completed";
+  const nodeAttributeQuery = useQuery({
+    queryKey: ["projects", activeProjectId, "datasets", dataset?.id, "analysis", "node-attributes"],
+    queryFn: () => api.datasetAnalysis(activeProjectId, dataset!.id, { max_nodes: 1, max_edges: 1 }),
+    enabled: Boolean(activeProjectId && dataset?.id && datasetComplete)
+  });
+  const nodeAttributeColumns = nodeAttributeQuery.data?.node_feature_columns ?? [];
   const canValidate = Boolean(activeProjectId && dataset?.id && datasetComplete && code.trim() && !validateCustomFeature.isPending);
   const canSave = Boolean(activeProjectId && dataset?.id && datasetComplete && name.trim() && code.trim() && !createCustomFeature.isPending);
   const saveMessage = !activeProjectId
@@ -565,6 +573,7 @@ export function CreateFeatureView({ activeProjectId, dataset, draft, onCreated }
             <ul>
               <li>Define one callable named <span className="mono">compute_feature(graph)</span>.</li>
               <li>Use <span className="mono">graph.nodes</span>, <span className="mono">graph.sampled_nodes</span>, <span className="mono">graph.graph_id</span>, and <span className="mono">graph.G</span> to read the prepared graph.</li>
+              <li>Read imported node attributes via <span className="mono">graph.node_attributes[node_id]</span> (a dict per node) to build features from uploaded <span className="mono">node_features</span> columns.</li>
               <li>Return a <span className="mono">pandas.DataFrame</span> with columns in this order: <span className="mono">node_id</span>, <span className="mono">graph_id</span>, then one or more numeric feature columns.</li>
               <li>Return exactly one row for every node in the validation graph. Node IDs and graph IDs must match the graph being evaluated.</li>
             </ul>
@@ -611,6 +620,17 @@ export function CreateFeatureView({ activeProjectId, dataset, draft, onCreated }
         {createCustomFeature.error ? <p className="error-text">{createCustomFeature.error.message}</p> : null}
         {saveMessage ? <p className="muted form-note">{saveMessage}</p> : null}
         {dataset ? <p className="muted form-note">Dataset: {dataset.name}</p> : null}
+        {datasetComplete && nodeAttributeColumns.length > 0 ? (
+          <p className="muted form-note">
+            Available node attributes (read via <span className="mono">graph.node_attributes[node_id]</span>):{" "}
+            {nodeAttributeColumns.map((column, index) => (
+              <span key={column} className="mono">
+                {index > 0 ? ", " : ""}
+                {column}
+              </span>
+            ))}
+          </p>
+        ) : null}
         <div className="field-grid">
           <label className="field">
             <span>Name</span>

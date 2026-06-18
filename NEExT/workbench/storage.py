@@ -6,6 +6,7 @@ import hashlib
 import hmac
 import io
 import json
+import logging
 import queue
 import re
 import secrets
@@ -75,6 +76,7 @@ from .schemas import (
     EmbeddingManifest,
     EmbeddingOutputFiles,
     EmbeddingOutputStats,
+    EmbeddingClusterSummary,
     EmbeddingPcaPayload,
     EmbeddingPcaPoint,
     EmbeddingRunBatchRequest,
@@ -116,6 +118,8 @@ from .schemas import (
     ModelExpectedOutput,
     ModelManifest,
     ModelMetricPoint,
+    ModelFeatureImportanceItem,
+    ModelFeatureImportancePayload,
     ModelMetricSeries,
     ModelOutputFiles,
     ModelOutputStats,
@@ -130,7 +134,10 @@ from .schemas import (
     TrashArtifactRef,
     TrashedProjectEntry,
     TrashListing,
+    WorkspaceResetSummary,
 )
+
+logger = logging.getLogger(__name__)
 
 SCHEMA_VERSION = "1"
 WORKSPACE_MANIFEST_TYPE = "workspace"
@@ -220,6 +227,52 @@ class WorkbenchStore:
         }
         if existing != workspace_manifest:
             self._write_json(self.workspace_file, workspace_manifest)
+
+    def reset_workspace(self) -> "WorkspaceResetSummary":
+        """Archive all projects and the in-app Trash into a timestamped folder inside the workspace,
+        then recreate an empty workspace. Nothing is deleted, and the operation is strictly confined
+        to the workspace root — MCP settings are preserved so the environment stays usable."""
+        import shutil
+
+        workspace_root = self.workspace_path.resolve()
+        timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+        archives_root = workspace_root / "_archives"
+        archive_dir = archives_root / f"reset-{timestamp}"
+        suffix = 1
+        while archive_dir.exists():
+            archive_dir = archives_root / f"reset-{timestamp}-{suffix}"
+            suffix += 1
+
+        # Safety: the archive target must resolve to a path inside the workspace root.
+        if workspace_root not in archive_dir.resolve().parents:
+            raise ValueError("Workspace reset archive path escaped the workspace root")
+
+        projects_to_archive = self.projects_path.exists() and any(self.projects_path.iterdir())
+        trash_root = self.workspace_path / "trash"
+        trash_to_archive = trash_root.exists() and any(trash_root.iterdir())
+
+        archive_dir.mkdir(parents=True, exist_ok=True)
+
+        projects_archived = 0
+        if projects_to_archive:
+            projects_archived = sum(1 for _ in self.projects_path.glob("*/project.json"))
+            shutil.move(str(self.projects_path), str(archive_dir / "projects"))
+
+        trash_archived = False
+        if trash_to_archive:
+            shutil.move(str(trash_root), str(archive_dir / "trash"))
+            trash_archived = True
+
+        # Recreate a clean, empty workspace (projects dir + workspace.json); MCP settings untouched.
+        self.ensure_workspace()
+
+        archive_relative = archive_dir.relative_to(workspace_root).as_posix()
+        logger.info("Workspace reset: archived %d project(s) to %s", projects_archived, archive_relative)
+        return WorkspaceResetSummary(
+            archived_path=archive_relative,
+            projects_archived=projects_archived,
+            trash_archived=trash_archived,
+        )
 
     def _write_json(self, path: Path, payload: dict[str, Any]) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -1193,7 +1246,8 @@ class WorkbenchStore:
         for artifact_file in sorted(datasets_path.glob("*/artifact.json")):
             try:
                 datasets.append(self._read_dataset_manifest(artifact_file, project.id))
-            except (ValueError, json.JSONDecodeError, ValidationError):
+            except (ValueError, json.JSONDecodeError, ValidationError) as exc:
+                logger.warning("Skipping unreadable dataset artifact %s: %s", artifact_file, exc)
                 continue
         return sorted(datasets, key=lambda item: item.updated_at, reverse=True)
 
@@ -1217,7 +1271,8 @@ class WorkbenchStore:
         for artifact_file in sorted(features_path.glob("*/artifact.json")):
             try:
                 features.append(self._read_feature_manifest(artifact_file, project.id))
-            except (ValueError, json.JSONDecodeError, ValidationError):
+            except (ValueError, json.JSONDecodeError, ValidationError) as exc:
+                logger.warning("Skipping unreadable feature artifact %s: %s", artifact_file, exc)
                 continue
         return sorted(features, key=lambda item: item.updated_at, reverse=True)
 
@@ -1241,7 +1296,8 @@ class WorkbenchStore:
         for artifact_file in sorted(embeddings_path.glob("*/artifact.json")):
             try:
                 embeddings.append(self._read_embedding_manifest(artifact_file, project.id))
-            except (ValueError, json.JSONDecodeError, ValidationError):
+            except (ValueError, json.JSONDecodeError, ValidationError) as exc:
+                logger.warning("Skipping unreadable embedding artifact %s: %s", artifact_file, exc)
                 continue
         return sorted(embeddings, key=lambda item: item.updated_at, reverse=True)
 
@@ -1265,7 +1321,8 @@ class WorkbenchStore:
         for artifact_file in sorted(models_path.glob("*/artifact.json")):
             try:
                 models.append(self._read_model_manifest(artifact_file, project.id))
-            except (ValueError, json.JSONDecodeError, ValidationError):
+            except (ValueError, json.JSONDecodeError, ValidationError) as exc:
+                logger.warning("Skipping unreadable model artifact %s: %s", artifact_file, exc)
                 continue
         return sorted(models, key=lambda item: item.updated_at, reverse=True)
 
@@ -2578,6 +2635,138 @@ class WorkbenchStore:
                 self._log_job(project_id, job_id, f"Model {model.name} failed: {exc}")
                 raise
 
+    def run_model_feature_importance(self, project_id: str, model_id: str, params: Optional[dict[str, Any]] = None) -> JobManifest:
+        project = self.read_project(project_id)
+        model_id = self._normalize_artifact_id(model_id)
+        model = self.read_model(project.id, model_id)
+        if model.status != "completed":
+            raise ValueError("Feature importance requires a completed model")
+        opts = params or {}
+        algorithm = str(opts.get("algorithm", "supervised_fast"))
+        if algorithm not in {"supervised_fast", "supervised_greedy"}:
+            raise ValueError("Feature importance algorithm must be 'supervised_fast' or 'supervised_greedy'")
+        n_iterations = int(opts.get("n_iterations", 3))
+        if n_iterations < 1 or n_iterations > 25:
+            raise ValueError("Feature importance n_iterations must be between 1 and 25")
+        job = self._create_job(
+            project.id,
+            operation=OperationSpec(
+                operation_id="neext.compute_feature_importance",
+                operation_version="1",
+                params={"model_id": model_id, "algorithm": algorithm, "n_iterations": n_iterations},
+            ),
+            target_artifacts=[JobArtifactRef(artifact_kind="model", artifact_id=model_id)],
+        )
+        self._update_model_feature_importance_status(project.id, model_id, status="running", error=None)
+        self._enqueue_job(
+            project.id,
+            job.id,
+            lambda: self._compute_model_feature_importance(project.id, model_id, job.id, algorithm, n_iterations),
+        )
+        return job
+
+    def _compute_model_feature_importance(self, project_id: str, model_id: str, job_id: str, algorithm: str, n_iterations: int) -> None:
+        from NEExT.ml_models.feature_importance import FeatureImportance
+
+        model = self.read_model(project_id, model_id)
+        try:
+            embedding_ids = self._model_embedding_ids(model)
+            embeddings = [self.read_embedding(project_id, embedding_id) for embedding_id in embedding_ids]
+            if any(embedding.status != "completed" for embedding in embeddings):
+                raise ValueError("Source embeddings must be completed before feature importance")
+            dataset_ids = {self._embedding_dataset_id(project_id, embedding) for embedding in embeddings}
+            if len(dataset_ids) != 1:
+                raise ValueError("Selected embeddings must reference the same dataset")
+            collection = self._load_prepared_collection(project_id, next(iter(dataset_ids)))
+            self._validate_model_labels(collection, str(model.operation.params["task_type"]))
+
+            feature_ids: list[str] = []
+            for embedding in embeddings:
+                for feature_id in self._embedding_feature_ids(embedding):
+                    if feature_id not in feature_ids:
+                        feature_ids.append(feature_id)
+            features = [self.read_feature(project_id, feature_id) for feature_id in feature_ids]
+            if any(feature.status != "completed" for feature in features):
+                raise ValueError("Source features must be completed before feature importance")
+            merged_features = self._load_embedding_features(project_id, features)
+            embedding_algorithm = embeddings[0].source_embedding_id
+
+            self._log_job(project_id, job_id, f"Computing feature importance for model {model.name} ({algorithm})")
+            fi_df = FeatureImportance(
+                graph_collection=collection,
+                features=merged_features,
+                algorithm=algorithm,
+                embedding_algorithm=embedding_algorithm,
+                n_iterations=n_iterations,
+                n_jobs=1,
+                parallel_backend="thread",
+            ).compute()
+            # supervised_fast reports real per-feature importance weights; supervised_greedy reports
+            # its greedy selection performance. Surface whichever column the algorithm produced.
+            score_col = "importance" if "importance" in fi_df.columns else "avg_performance"
+            ranking = [
+                {"rank": index, "feature_name": str(row["feature_name"]), "score": float(row[score_col])}
+                for index, row in enumerate(fi_df.to_dict(orient="records"))
+            ]
+            payload = {
+                "status": "completed",
+                "algorithm": algorithm,
+                "embedding_algorithm": embedding_algorithm,
+                "score_label": score_col,
+                "ranking": ranking,
+                "computed_at": utc_now(),
+            }
+            output_dir = self.model_path(project_id, model_id) / "output"
+            output_dir.mkdir(parents=True, exist_ok=True)
+            self._write_json(output_dir / "feature_importance.json", payload)
+            self._update_model_feature_importance_status(
+                project_id, model_id, status="completed", file="output/feature_importance.json", error=None
+            )
+            self._log_job(project_id, job_id, f"Feature importance for model {model.name} completed ({len(ranking)} features)")
+        except Exception as exc:
+            self._update_model_feature_importance_status(
+                project_id, model_id, status="failed", error=ArtifactError(message=str(exc), job_id=job_id)
+            )
+            self._log_job(project_id, job_id, f"Feature importance for model {model.name} failed: {exc}")
+            raise
+
+    def _update_model_feature_importance_status(
+        self, project_id: str, model_id: str, *, status: str, file: Optional[str] = None, error: Optional[ArtifactError] = None
+    ) -> None:
+        model = self.read_model(project_id, model_id)
+        model.feature_importance_status = status
+        if file is not None:
+            model.feature_importance_file = file
+        model.feature_importance_error = error
+        model.updated_at = utc_now()
+        self._write_json(self.model_path(project_id, model.id) / "artifact.json", model.model_dump())
+
+    def _model_feature_importance_payload(self, project_id: str, model: ModelManifest) -> Optional[ModelFeatureImportancePayload]:
+        status = model.feature_importance_status
+        if status is None:
+            return None
+        if status == "failed":
+            return ModelFeatureImportancePayload(
+                status="failed",
+                algorithm="",
+                embedding_algorithm="",
+                error=model.feature_importance_error.message if model.feature_importance_error else "Feature importance failed",
+            )
+        if status == "running" or model.feature_importance_file is None:
+            return ModelFeatureImportancePayload(status="running", algorithm="", embedding_algorithm="")
+        path = self.model_path(project_id, model.id) / model.feature_importance_file
+        if not path.exists():
+            return ModelFeatureImportancePayload(status="running", algorithm="", embedding_algorithm="")
+        data = self._read_json(path)
+        return ModelFeatureImportancePayload(
+            status="completed",
+            algorithm=str(data.get("algorithm", "")),
+            embedding_algorithm=str(data.get("embedding_algorithm", "")),
+            score_label=str(data.get("score_label", "importance")),
+            ranking=[ModelFeatureImportanceItem(**item) for item in data.get("ranking", [])],
+            computed_at=data.get("computed_at"),
+        )
+
     def _validate_model_labels(self, collection, task_type: str) -> None:
         labels = [graph.graph_label for graph in collection.graphs]
         if any(label is None for label in labels):
@@ -2642,13 +2831,17 @@ class WorkbenchStore:
     ) -> tuple[dict[str, Any], Any]:
         task_type = str(model.operation.params["task_type"])
         metric_names = self._model_metric_names(task_type)
-        summary = {f"{metric_name}_mean": self._json_safe(results[f"{metric_name}_mean"]) for metric_name in metric_names}
-        summary.update({f"{metric_name}_std": self._json_safe(results[f"{metric_name}_std"]) for metric_name in metric_names})
+        summary = {f"{metric_name}_mean": self._json_safe(results.get(f"{metric_name}_mean")) for metric_name in metric_names}
+        summary.update({f"{metric_name}_std": self._json_safe(results.get(f"{metric_name}_std")) for metric_name in metric_names})
         metric_rows = []
         for iteration in range(int(model.operation.params["sample_size"])):
             row = {"iteration": iteration}
             for metric_name in metric_names:
-                row[metric_name] = self._json_safe(results[metric_name][iteration])
+                series = results.get(metric_name)
+                if isinstance(series, (list, tuple)) and iteration < len(series):
+                    row[metric_name] = self._json_safe(series[iteration])
+                else:
+                    row[metric_name] = None
             metric_rows.append(row)
 
         payload = {
@@ -2693,6 +2886,13 @@ class WorkbenchStore:
     def _compute_graph_embeddings(self, collection, features, params: dict[str, Any]):
         from NEExT.embeddings import GraphEmbeddings
 
+        available_columns = len(features.feature_columns)
+        if int(params["embedding_dimension"]) > available_columns:
+            raise ValueError(
+                f"Embedding dimension ({params['embedding_dimension']}) cannot exceed the number of "
+                f"available feature columns ({available_columns}). Reduce the dimension or add more "
+                f"features (each built-in feature contributes feature_vector_length columns)."
+            )
         return GraphEmbeddings(
             graph_collection=collection,
             features=features,
@@ -2832,7 +3032,7 @@ class WorkbenchStore:
 
     def _model_metric_names(self, task_type: str) -> list[str]:
         if task_type == "classifier":
-            return ["accuracy", "recall", "precision", "f1_score"]
+            return ["accuracy", "recall", "precision", "f1_score", "auc"]
         if task_type == "regressor":
             return ["rmse", "mae"]
         raise ValueError(f"Unsupported model task type: {task_type}")
@@ -3386,6 +3586,11 @@ class WorkbenchStore:
         *,
         max_fit_rows: int = EMBEDDING_ANALYSIS_DEFAULT_MAX_FIT_ROWS,
         max_points: int = EMBEDDING_ANALYSIS_DEFAULT_MAX_POINTS,
+        cluster_k: Optional[int] = None,
+        projection_method: str = "pca",
+        perplexity: Optional[float] = None,
+        n_neighbors: Optional[int] = None,
+        min_dist: Optional[float] = None,
     ) -> EmbeddingAnalysis:
         import pandas as pd
 
@@ -3393,6 +3598,16 @@ class WorkbenchStore:
             raise ValueError("Embedding PCA max_fit_rows must be between 2 and 100000")
         if max_points < 1 or max_points > 100000:
             raise ValueError("Embedding PCA max_points must be between 1 and 100000")
+        if cluster_k is not None and (cluster_k < 2 or cluster_k > 50):
+            raise ValueError("Embedding cluster_k must be between 2 and 50")
+        if projection_method not in ("pca", "tsne", "umap"):
+            raise ValueError("Embedding projection_method must be 'pca', 'tsne', or 'umap'")
+        if perplexity is not None and (perplexity < 2 or perplexity > 100):
+            raise ValueError("t-SNE perplexity must be between 2 and 100")
+        if n_neighbors is not None and (n_neighbors < 2 or n_neighbors > 200):
+            raise ValueError("UMAP n_neighbors must be between 2 and 200")
+        if min_dist is not None and (min_dist < 0.0 or min_dist > 1.0):
+            raise ValueError("UMAP min_dist must be between 0.0 and 1.0")
 
         embedding = self.read_embedding(project_id, embedding_id)
         if embedding.status != "completed" or embedding.output_files is None:
@@ -3455,6 +3670,11 @@ class WorkbenchStore:
                 label_by_graph,
                 max_fit_rows=max_fit_rows,
                 max_points=max_points,
+                cluster_k=cluster_k,
+                projection_method=projection_method,
+                perplexity=perplexity,
+                n_neighbors=n_neighbors,
+                min_dist=min_dist,
             ),
         )
 
@@ -3747,6 +3967,87 @@ class WorkbenchStore:
         )
         return graph_vectors.sort_values("graph_id", kind="mergesort").reset_index(drop=True)
 
+    def _compute_embedding_clusters(self, point_rows, numeric_columns: list[str], cluster_k: int):
+        """KMeans over the embedding graph vectors (standardized). Returns
+        (per-point cluster labels, payload cluster fields incl. label overlap)."""
+        import numpy as np
+        import pandas as pd
+        from sklearn.cluster import KMeans
+        from sklearn.preprocessing import StandardScaler
+
+        n_points = int(len(point_rows))
+        k = max(2, min(int(cluster_k), n_points))
+        matrix = point_rows.loc[:, numeric_columns].apply(pd.to_numeric, errors="coerce").astype(float)
+        matrix = np.nan_to_num(matrix.to_numpy(dtype=float), nan=0.0, posinf=0.0, neginf=0.0)
+        scaled = StandardScaler().fit_transform(matrix)
+        labels = KMeans(n_clusters=k, random_state=0, n_init=10).fit_predict(scaled)
+
+        # Silhouette score measures cluster cohesion/separation (no labels needed).
+        silhouette = None
+        if n_points > k and len(set(labels.tolist())) > 1:
+            from sklearn.metrics import silhouette_score
+
+            try:
+                silhouette = round(float(silhouette_score(scaled, labels)), 4)
+            except Exception:
+                silhouette = None
+
+        graph_labels = list(point_rows.get("graph_label", pd.Series([None] * n_points)))
+
+        def _present(value) -> bool:
+            return value is not None and not (isinstance(value, float) and np.isnan(value))
+
+        has_labels = any(_present(value) for value in graph_labels)
+        summaries: list[EmbeddingClusterSummary] = []
+        for cluster_id in range(k):
+            idx = [i for i in range(n_points) if int(labels[i]) == cluster_id]
+            dominant_label = None
+            dominant_fraction = None
+            if has_labels and idx:
+                counts: dict[str, int] = {}
+                for i in idx:
+                    if _present(graph_labels[i]):
+                        key = str(graph_labels[i])
+                        counts[key] = counts.get(key, 0) + 1
+                if counts:
+                    dominant_label, dominant_count = max(counts.items(), key=lambda item: item[1])
+                    dominant_fraction = round(dominant_count / len(idx), 4)
+            summaries.append(
+                EmbeddingClusterSummary(
+                    cluster=cluster_id,
+                    size=len(idx),
+                    dominant_label=dominant_label,
+                    dominant_label_fraction=dominant_fraction,
+                )
+            )
+
+        ari = None
+        purity = None
+        if has_labels:
+            from sklearn.metrics import adjusted_rand_score
+
+            pairs = [(str(graph_labels[i]), int(labels[i])) for i in range(n_points) if _present(graph_labels[i])]
+            if pairs:
+                truth = [pair[0] for pair in pairs]
+                pred = [pair[1] for pair in pairs]
+                ari = round(float(adjusted_rand_score(truth, pred)), 4)
+                correct = 0
+                for cluster_id in set(pred):
+                    cluster_truth = [truth[j] for j in range(len(pred)) if pred[j] == cluster_id]
+                    if cluster_truth:
+                        correct += max(cluster_truth.count(value) for value in set(cluster_truth))
+                purity = round(correct / len(pairs), 4)
+
+        fields = {
+            "cluster_k": k,
+            "cluster_algorithm": "kmeans",
+            "cluster_silhouette": silhouette,
+            "cluster_label_ari": ari,
+            "cluster_purity": purity,
+            "clusters": summaries,
+        }
+        return labels, fields
+
     def _embedding_pca_payload(
         self,
         embeddings,
@@ -3755,6 +4056,11 @@ class WorkbenchStore:
         *,
         max_fit_rows: int,
         max_points: int,
+        cluster_k: Optional[int] = None,
+        projection_method: str = "pca",
+        perplexity: Optional[float] = None,
+        n_neighbors: Optional[int] = None,
+        min_dist: Optional[float] = None,
     ) -> EmbeddingPcaPayload:
         import numpy as np
         import pandas as pd
@@ -3795,6 +4101,11 @@ class WorkbenchStore:
         fit_rows = graph_vectors.head(max_fit_rows)
         point_rows = graph_vectors.head(max_points)
 
+        cluster_labels = None
+        if cluster_k is not None and point_count >= 2:
+            cluster_labels, cluster_fields = self._compute_embedding_clusters(point_rows, numeric_columns, int(cluster_k))
+            base_payload = {**base_payload, **cluster_fields}
+
         def graph_points(coordinates) -> list[EmbeddingPcaPoint]:
             points = []
             for index, row in enumerate(point_rows.to_dict(orient="records")):
@@ -3806,11 +4117,12 @@ class WorkbenchStore:
                         y=float(coordinates[index, 1]),
                         graph_label=row.get("graph_label"),
                         color_value=str(row["color_value"]),
+                        cluster=(int(cluster_labels[index]) if cluster_labels is not None else None),
                     )
                 )
             return points
 
-        if len(numeric_columns) == 2:
+        if len(numeric_columns) == 2 and projection_method in ("pca", "raw"):
             point_frame = point_rows.loc[:, numeric_columns].apply(pd.to_numeric, errors="coerce").astype(float)
             coordinates = np.nan_to_num(point_frame.to_numpy(dtype=float), nan=0.0, posinf=0.0, neginf=0.0)
             raw_payload = {
@@ -3847,6 +4159,52 @@ class WorkbenchStore:
 
         if min(fit_matrix.shape[0], fit_matrix.shape[1]) < 2:
             return EmbeddingPcaPayload(available=False, reason="PCA requires at least two fit graphs and columns", **base_payload)
+
+        if projection_method == "tsne":
+            if point_count > 2000:
+                return EmbeddingPcaPayload(
+                    available=False,
+                    reason="t-SNE projection is limited to 2000 points; lower max_points to use it",
+                    **base_payload,
+                )
+            from sklearn.manifold import TSNE
+
+            # t-SNE perplexity must be < n_points; honor the knob when given, else auto-scale.
+            max_perplexity = max(2.0, (point_matrix.shape[0] - 1) / 3.0)
+            chosen_perplexity = float(perplexity) if perplexity is not None else min(30.0, max_perplexity)
+            chosen_perplexity = max(2.0, min(chosen_perplexity, float(point_matrix.shape[0] - 1)))
+            coordinates = np.nan_to_num(
+                TSNE(n_components=2, perplexity=chosen_perplexity, random_state=0, init="pca").fit_transform(point_matrix),
+                nan=0.0, posinf=0.0, neginf=0.0,
+            )
+            return EmbeddingPcaPayload(
+                available=True, projection_method="tsne", x_axis_label="t-SNE 1", y_axis_label="t-SNE 2",
+                explained_variance_ratio=[], points=graph_points(coordinates), **base_payload,
+            )
+
+        if projection_method == "umap":
+            try:
+                import umap  # type: ignore
+            except ImportError:
+                return EmbeddingPcaPayload(
+                    available=False,
+                    reason="UMAP projection requires the 'umap-learn' package (install the Workbench extra)",
+                    **base_payload,
+                )
+            chosen_neighbors = int(n_neighbors) if n_neighbors is not None else 15
+            chosen_neighbors = max(2, min(chosen_neighbors, point_matrix.shape[0] - 1))
+            chosen_min_dist = float(min_dist) if min_dist is not None else 0.1
+            reducer = umap.UMAP(
+                n_components=2,
+                n_neighbors=chosen_neighbors,
+                min_dist=chosen_min_dist,
+                random_state=0,
+            )
+            coordinates = np.nan_to_num(reducer.fit_transform(point_matrix), nan=0.0, posinf=0.0, neginf=0.0)
+            return EmbeddingPcaPayload(
+                available=True, projection_method="umap", x_axis_label="UMAP 1", y_axis_label="UMAP 2",
+                explained_variance_ratio=[], points=graph_points(coordinates), **base_payload,
+            )
 
         pca = PCA(n_components=2, svd_solver="full")
         coordinates = np.nan_to_num(pca.fit(fit_matrix).transform(point_matrix), nan=0.0, posinf=0.0, neginf=0.0)
@@ -3927,6 +4285,38 @@ class WorkbenchStore:
         safe_dataset_name = re.sub(r"[^A-Za-z0-9._-]+", "_", dataset.name).strip("._-") or "dataset"
         safe_table_name = re.sub(r"[^A-Za-z0-9._-]+", "_", table).strip("._-") or "table"
         return f"{safe_dataset_name}_{safe_table_name}.csv", frame.to_csv(index=False)
+
+    def export_model_metrics_csv(self, project_id: str, model_id: str) -> tuple[str, str]:
+        """Export a completed model's per-iteration metrics plus a mean/std summary as one CSV."""
+        import pandas as pd
+
+        model = self.read_model(project_id, model_id)
+        if model.status != "completed" or model.output_files is None:
+            raise ValueError("Model metrics export is available only after training completes")
+        metrics_path = self.model_path(project_id, model.id) / model.output_files.metrics
+        if not metrics_path.exists():
+            raise ValueError("Model metrics output is missing")
+        payload = self._read_json(metrics_path)
+        expected_metrics = list(model.expected_output.metrics)
+        summary = payload.get("summary", {})
+
+        rows: list[dict[str, Any]] = []
+        for row_index, row in enumerate(payload.get("metrics", [])):
+            record: dict[str, Any] = {"iteration": row.get("iteration", row_index)}
+            for metric in expected_metrics:
+                record[metric] = row.get(metric)
+            rows.append(record)
+        # Append summary rows so the file is self-contained.
+        mean_row: dict[str, Any] = {"iteration": "mean"}
+        std_row: dict[str, Any] = {"iteration": "std"}
+        for metric in expected_metrics:
+            mean_row[metric] = summary.get(f"{metric}_mean")
+            std_row[metric] = summary.get(f"{metric}_std")
+        rows.extend([mean_row, std_row])
+
+        frame = pd.DataFrame(rows, columns=["iteration", *expected_metrics])
+        safe_model_name = re.sub(r"[^A-Za-z0-9._-]+", "_", model.name).strip("._-") or "model"
+        return f"{safe_model_name}_metrics.csv", frame.to_csv(index=False)
 
     def preview_feature(self, project_id: str, feature_id: str, *, limit: int = 20, offset: int = 0) -> TabularPreview:
         feature = self.read_feature(project_id, feature_id)
@@ -4044,6 +4434,7 @@ class WorkbenchStore:
             summary=payload.get("summary", {}),
             metrics=metric_rows,
             metric_series=metric_series,
+            feature_importance=self._model_feature_importance_payload(project_id, model),
         )
 
     def preview_model(self, project_id: str, model_id: str) -> ModelPreview:
@@ -4311,9 +4702,14 @@ class WorkbenchStore:
             raise ValueError("Model manifest operation embedding IDs must match source embedding inputs")
         if manifest.operation.params.get("embedding_columns") != "all":
             raise ValueError("Model manifest operation must use all source embedding columns")
-        expected_metrics = self._model_metric_names(str(manifest.operation.params["task_type"]))
-        if manifest.expected_output.metrics != expected_metrics:
-            raise ValueError("Model manifest expected metrics must match the task type")
+        # Metrics are output data, not an input contract: accept any non-empty list of metrics known
+        # for the task type (tolerates manifests written by an earlier metric set).
+        known_metrics = self._model_metric_names(str(manifest.operation.params["task_type"]))
+        if not manifest.expected_output.metrics:
+            raise ValueError("Model manifest must declare at least one expected metric")
+        unknown_metrics = [m for m in manifest.expected_output.metrics if m not in known_metrics]
+        if unknown_metrics:
+            raise ValueError(f"Model manifest declares unknown metrics: {', '.join(unknown_metrics)}")
         if manifest.output_files is not None:
             for data_file in manifest.output_files.model_dump(exclude_none=True).values():
                 self._validate_relative_file_ref(data_file)

@@ -190,6 +190,13 @@ TOOL_SCHEMAS: dict[str, dict[str, Any]] = {
         },
         ["project_id", "dataset_id", "table"],
     ),
+    "neext_export_model_metrics": _object_schema(
+        {
+            "project_id": {"type": "string"},
+            "model_id": {"type": "string"},
+        },
+        ["project_id", "model_id"],
+    ),
     "neext_analyze_artifact": _object_schema(
         {
             "project_id": {"type": "string"},
@@ -198,6 +205,23 @@ TOOL_SCHEMAS: dict[str, dict[str, Any]] = {
             "options": {"type": "object", "additionalProperties": True, "default": {}},
         },
         ["project_id", "kind", "artifact_id"],
+    ),
+    "neext_cluster_embedding": _object_schema(
+        {
+            "project_id": {"type": "string"},
+            "embedding_id": {"type": "string"},
+            "k": {"type": "integer", "minimum": 2, "maximum": 50, "default": 2},
+        },
+        ["project_id", "embedding_id", "k"],
+    ),
+    "neext_compute_feature_importance": _object_schema(
+        {
+            "project_id": {"type": "string"},
+            "model_id": {"type": "string"},
+            "algorithm": {"type": "string", "enum": ["supervised_fast", "supervised_greedy"], "default": "supervised_fast"},
+            "n_iterations": {"type": "integer", "minimum": 1, "maximum": 25, "default": 3},
+        },
+        ["project_id", "model_id"],
     ),
     "neext_search_graphs": _object_schema(
         {
@@ -307,7 +331,10 @@ TOOL_CAPABILITIES: dict[str, ToolCapability] = {
     "neext_get_job": ToolCapability(MCP_SCOPE_READ, read_only=True, idempotent=True),
     "neext_preview_artifact": ToolCapability(MCP_SCOPE_READ, read_only=True, idempotent=True),
     "neext_export_dataset_table": ToolCapability(MCP_SCOPE_EXPORT, read_only=True, idempotent=True),
+    "neext_export_model_metrics": ToolCapability(MCP_SCOPE_EXPORT, read_only=True, idempotent=True),
     "neext_analyze_artifact": ToolCapability(MCP_SCOPE_READ, read_only=True, idempotent=True),
+    "neext_cluster_embedding": ToolCapability(MCP_SCOPE_READ, read_only=True, idempotent=True),
+    "neext_compute_feature_importance": ToolCapability(MCP_SCOPE_RUN, read_only=False),
     "neext_search_graphs": ToolCapability(MCP_SCOPE_READ, read_only=True, idempotent=True),
     "neext_get_graph_detail": ToolCapability(MCP_SCOPE_READ, read_only=True, idempotent=True),
     "neext_list_trash": ToolCapability(MCP_SCOPE_LIFECYCLE, read_only=True, idempotent=True),
@@ -364,7 +391,10 @@ TOOL_DESCRIPTIONS = {
     "neext_get_job": "Read one local Workbench job manifest.",
     "neext_preview_artifact": "Preview artifact outputs with pagination; never loads full output files by default.",
     "neext_export_dataset_table": "Export one approved Dataset table as CSV content using the existing Workbench export behavior.",
+    "neext_export_model_metrics": "Export a completed Model's per-iteration metrics plus a mean/std summary as CSV content.",
     "neext_analyze_artifact": "Run the existing Workbench analysis view for a completed artifact using bounded sampling options.",
+    "neext_cluster_embedding": "KMeans-cluster a completed Embedding's graph vectors; returns per-graph cluster assignments plus cluster/label overlap (ARI, purity).",
+    "neext_compute_feature_importance": "Start a feature-importance job for a completed Model (ranks which node features drive predictions); poll with neext_get_job, then read the ranking via neext_analyze_artifact(kind='model').",
     "neext_search_graphs": "Search graphs or nodes inside completed Dataset, Feature, or Embedding analysis data.",
     "neext_get_graph_detail": "Inspect one graph or dataset node from completed Dataset, Feature, or Embedding analysis data.",
     "neext_list_trash": "List Workbench trash entries and artifact deletion bundles.",
@@ -714,11 +744,23 @@ def _tool_handlers(service: WorkbenchMcpService) -> dict[str, Callable[[dict[str
             offset=int(args.get("offset", 0)),
         ),
         "neext_export_dataset_table": lambda args: service.export_dataset_table(args["project_id"], args["dataset_id"], args["table"]),
+        "neext_export_model_metrics": lambda args: service.export_model_metrics(args["project_id"], args["model_id"]),
         "neext_analyze_artifact": lambda args: service.analyze_artifact(
             args["project_id"],
             args["kind"],
             args["artifact_id"],
             options=args.get("options"),
+        ),
+        "neext_cluster_embedding": lambda args: service.cluster_embedding(
+            args["project_id"],
+            args["embedding_id"],
+            int(args.get("k", 2)),
+        ),
+        "neext_compute_feature_importance": lambda args: service.compute_model_feature_importance(
+            args["project_id"],
+            args["model_id"],
+            algorithm=args.get("algorithm", "supervised_fast"),
+            n_iterations=int(args.get("n_iterations", 3)),
         ),
         "neext_search_graphs": lambda args: service.search_graphs(
             args["project_id"],

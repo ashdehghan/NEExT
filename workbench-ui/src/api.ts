@@ -4,6 +4,12 @@ export interface WorkspaceInfo {
   projects: number;
 }
 
+export interface WorkspaceResetSummary {
+  archived_path: string;
+  projects_archived: number;
+  trash_archived: boolean;
+}
+
 export interface ProjectManifest {
   schema_version: string;
   manifest_type: "project";
@@ -421,13 +427,21 @@ export interface EmbeddingPcaPoint {
   y: number;
   graph_label?: unknown;
   color_value: string;
+  cluster?: number | null;
+}
+
+export interface EmbeddingClusterSummary {
+  cluster: number;
+  size: number;
+  dominant_label?: unknown;
+  dominant_label_fraction?: number | null;
 }
 
 export interface EmbeddingPcaPayload {
   available: boolean;
   reason?: string | null;
   plot_level: "graph";
-  projection_method: "pca" | "raw";
+  projection_method: "pca" | "raw" | "tsne" | "umap";
   x_axis_label: string;
   y_axis_label: string;
   color_by: "graph_label" | "graph_id";
@@ -445,6 +459,12 @@ export interface EmbeddingPcaPayload {
   sample_reason?: string | null;
   explained_variance_ratio: number[];
   points: EmbeddingPcaPoint[];
+  cluster_k?: number | null;
+  cluster_algorithm?: "kmeans" | null;
+  cluster_silhouette?: number | null;
+  cluster_label_ari?: number | null;
+  cluster_purity?: number | null;
+  clusters: EmbeddingClusterSummary[];
 }
 
 export interface EmbeddingAnalysis {
@@ -818,6 +838,22 @@ export interface ModelPreview {
   classes?: string[] | null;
 }
 
+export interface ModelFeatureImportanceItem {
+  rank: number;
+  feature_name: string;
+  score: number;
+}
+
+export interface ModelFeatureImportancePayload {
+  status: "running" | "completed" | "failed";
+  algorithm: string;
+  embedding_algorithm: string;
+  score_label: string;
+  ranking: ModelFeatureImportanceItem[];
+  computed_at?: string | null;
+  error?: string | null;
+}
+
 export interface ModelAnalysis {
   model_id: string;
   model_name: string;
@@ -837,6 +873,7 @@ export interface ModelAnalysis {
   summary: Record<string, number | string | string[] | null>;
   metrics: Record<string, unknown>[];
   metric_series: ModelMetricSeries[];
+  feature_importance?: ModelFeatureImportancePayload | null;
 }
 
 export interface DownloadPayload {
@@ -905,6 +942,7 @@ export interface DocTopic {
 
 export const api = {
   workspace: () => request<WorkspaceInfo>("/api/workspace"),
+  resetWorkspace: () => request<WorkspaceResetSummary>("/api/workspace/reset", { method: "POST" }),
   docs: () => request<DocTopic[]>("/api/docs"),
   mcpSettings: () => request<McpSettingsResponse>("/api/mcp-settings"),
   enableMcpSettings: () => request<McpSettingsResponse>("/api/mcp-settings/enable", { method: "POST" }),
@@ -1060,10 +1098,27 @@ export const api = {
     }),
   embeddingPreview: (projectId: string, embeddingId: string, limit = 20, offset = 0) =>
     request<TabularPreview>(`/api/projects/${projectId}/embeddings/${embeddingId}/preview?limit=${limit}&offset=${offset}`),
-  embeddingAnalysis: (projectId: string, embeddingId: string, params: { max_fit_rows?: number; max_points?: number } = {}) => {
+  embeddingAnalysis: (
+    projectId: string,
+    embeddingId: string,
+    params: {
+      max_fit_rows?: number;
+      max_points?: number;
+      cluster_k?: number | null;
+      projection_method?: "pca" | "tsne" | "umap";
+      perplexity?: number | null;
+      n_neighbors?: number | null;
+      min_dist?: number | null;
+    } = {}
+  ) => {
     const search = new URLSearchParams();
     if (params.max_fit_rows != null) search.set("max_fit_rows", String(params.max_fit_rows));
     if (params.max_points != null) search.set("max_points", String(params.max_points));
+    if (params.cluster_k != null) search.set("cluster_k", String(params.cluster_k));
+    if (params.projection_method != null) search.set("projection_method", params.projection_method);
+    if (params.perplexity != null) search.set("perplexity", String(params.perplexity));
+    if (params.n_neighbors != null) search.set("n_neighbors", String(params.n_neighbors));
+    if (params.min_dist != null) search.set("min_dist", String(params.min_dist));
     const suffix = search.toString() ? `?${search.toString()}` : "";
     return request<EmbeddingAnalysis>(`/api/projects/${projectId}/embeddings/${embeddingId}/analysis${suffix}`);
   },
@@ -1092,10 +1147,22 @@ export const api = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ model_ids: modelIds })
     }),
+  runModelFeatureImportance: (
+    projectId: string,
+    modelId: string,
+    body: { algorithm?: "supervised_fast" | "supervised_greedy"; n_iterations?: number } = {}
+  ) =>
+    request<JobManifest>(`/api/projects/${projectId}/models/${modelId}/feature-importance/run`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body)
+    }),
   modelPreview: (projectId: string, modelId: string) =>
     request<ModelPreview>(`/api/projects/${projectId}/models/${modelId}/preview`),
   modelAnalysis: (projectId: string, modelId: string) =>
     request<ModelAnalysis>(`/api/projects/${projectId}/models/${modelId}/analysis`),
+  modelMetricsExport: (projectId: string, modelId: string) =>
+    requestDownload(`/api/projects/${projectId}/models/${modelId}/export/metrics`),
   createProject: (payload: { name: string; description: string }) =>
     request<ProjectManifest>("/api/projects", {
       method: "POST",

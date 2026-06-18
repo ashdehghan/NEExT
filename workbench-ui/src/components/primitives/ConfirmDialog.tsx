@@ -6,6 +6,10 @@ interface ConfirmDialogProps {
   confirmLabel: string;
   cancelLabel?: string;
   busy?: boolean;
+  /** Label shown on the confirm button while busy (defaults to "Deleting"). */
+  busyLabel?: string;
+  /** Disable the confirm button (e.g. until a type-to-confirm value matches). */
+  confirmDisabled?: boolean;
   error?: string;
   children?: ReactNode;
   onCancel: () => void;
@@ -18,6 +22,8 @@ export function ConfirmDialog({
   confirmLabel,
   cancelLabel = "Cancel",
   busy = false,
+  busyLabel = "Deleting",
+  confirmDisabled = false,
   error,
   children,
   onCancel,
@@ -38,8 +44,8 @@ export function ConfirmDialog({
           <button type="button" className="btn" onClick={onCancel} disabled={busy}>
             {cancelLabel}
           </button>
-          <button type="button" className="btn btn-danger" onClick={onConfirm} disabled={busy}>
-            {busy ? "Deleting" : confirmLabel}
+          <button type="button" className="btn btn-danger" onClick={onConfirm} disabled={busy || confirmDisabled}>
+            {busy ? busyLabel : confirmLabel}
           </button>
         </footer>
       </section>
