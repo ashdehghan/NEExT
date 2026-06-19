@@ -4376,3 +4376,80 @@ def test_project_restore_and_restore_collision():
         blocked = client.post(f"/api/trash/projects/{project_id}/restore")
         assert blocked.status_code == 409
         assert "live project with the same ID already exists" in blocked.json()["detail"]["message"]
+
+
+def test_non_executor_store_persists_jobs_for_executor_recovery(monkeypatch):
+    """A job created by a non-executor store (the stdio MCP process) must not run in that
+    process, and must be picked up from disk and executed by the server (executor) store.
+
+    This guards the fix for MCP-triggered jobs appearing stuck "queued": the stdio MCP
+    process persists jobs to the shared workspace only; the running Workbench server is the
+    sole durable job executor and recovers queued jobs from disk.
+    """
+    import NEExT.workbench.dataset_library as dataset_library
+    from NEExT.workbench.dataset_library import CatalogDataset
+    from NEExT.workbench.schemas import DatasetCreateRequest, FeatureCreateRequest, FeatureRunBatchRequest, ProjectCreate
+    from NEExT.workbench.storage import WorkbenchStore
+
+    with TemporaryDirectory() as tmpdir:
+        source_files = write_dataset_source_bundle(Path(tmpdir) / "source")
+        monkeypatch.setattr(
+            dataset_library,
+            "DATASET_CATALOG",
+            (
+                CatalogDataset(
+                    id="TINY",
+                    name="Tiny Dataset",
+                    description="local test bundle",
+                    domain="Tests",
+                    files=source_files,
+                    graph_count=2,
+                    node_count=4,
+                    edge_count=2,
+                    source="Test catalog",
+                ),
+            ),
+        )
+
+        # Simulate the stdio MCP client process: persists jobs to disk, never executes.
+        mcp_store = WorkbenchStore(Path(tmpdir), run_worker=False)
+        project = mcp_store.create_project(ProjectCreate(name="Recovery", description=""))
+        dataset = mcp_store.create_dataset_from_library(project.id, DatasetCreateRequest(catalog_id="TINY"))
+        feature = mcp_store.create_feature(
+            project.id,
+            FeatureCreateRequest(
+                source_dataset_id=dataset.id,
+                source_feature_id="page_rank",
+                params={
+                    "feature_vector_length": 2,
+                    "normalize_features": False,
+                    "n_jobs": 1,
+                    "parallel_backend": "threading",
+                },
+            ),
+        )
+        job = mcp_store.run_feature_batch(project.id, FeatureRunBatchRequest(feature_ids=[feature.id]))
+        assert job.status == "queued"
+
+        # The non-executor store must not run the job itself.
+        time.sleep(0.5)
+        still_queued = mcp_store.read_job(project.id, job.id)
+        assert still_queued.status == "queued"
+        assert still_queued.started_at is None
+
+        # The server (executor) store, started over the same workspace, recovers it from disk.
+        WorkbenchStore(Path(tmpdir), run_worker=True)
+        deadline = time.time() + 60.0
+        final = None
+        while time.time() < deadline:
+            current = mcp_store.read_job(project.id, job.id)
+            if current.status in {"completed", "failed"}:
+                final = current
+                break
+            time.sleep(0.1)
+
+        assert final is not None, "queued job was never recovered by the executor store"
+        assert final.status == "completed", f"recovered job failed: {final.error}"
+        assert final.started_at is not None
+        # Exactly-once: the worker started the job a single time (recovery did not double-dispatch).
+        assert [event.message for event in final.events].count("Job started") == 1

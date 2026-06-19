@@ -12,6 +12,7 @@ import re
 import secrets
 import shutil
 import threading
+import time
 import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path, PurePosixPath
@@ -140,6 +141,11 @@ from .schemas import (
 logger = logging.getLogger(__name__)
 
 SCHEMA_VERSION = "1"
+
+# Interval (seconds) for the server's durable job-recovery poller. The poller picks up
+# queued jobs written to the workspace by any process (e.g. the stdio MCP client process)
+# so the single server worker executes them. See WorkbenchStore._job_recovery_loop.
+JOB_RECOVERY_INTERVAL_SECONDS = 1.0
 WORKSPACE_MANIFEST_TYPE = "workspace"
 PROJECT_MANIFEST_TYPE = "project"
 DATASET_MANIFEST_TYPE = "dataset"
@@ -191,7 +197,7 @@ class WorkbenchConflictError(Exception):
 class WorkbenchStore:
     """Small filesystem-backed store for Workbench projects."""
 
-    def __init__(self, workspace_path: Path):
+    def __init__(self, workspace_path: Path, *, run_worker: bool = True):
         self.workspace_path = Path(workspace_path)
         self.projects_path = self.workspace_path / "projects"
         self.trash_projects_path = self.workspace_path / "trash" / "projects"
@@ -200,12 +206,22 @@ class WorkbenchStore:
         self.mcp_activity_file = self.workspace_path / "mcp_activity.json"
         self.mcp_approvals_file = self.workspace_path / "mcp_approvals.json"
         self.mcp_ui_state_file = self.workspace_path / "mcp_ui_state.json"
-        self._job_queue: queue.Queue[tuple[str, str, Callable[[], None]]] = queue.Queue()
+        # The Workbench server process is the sole durable job executor. MCP client
+        # processes (e.g. the stdio launcher) create stores with run_worker=False; they
+        # persist jobs to disk only and never execute them. The server's worker thread
+        # plus _job_recovery_loop pick up queued jobs from disk regardless of which
+        # process created them.
+        self._run_worker = run_worker
+        self._job_queue: queue.Queue[tuple[str, str]] = queue.Queue()
         self._job_lock = threading.Lock()
+        self._enqueued_job_ids: set[str] = set()
         self._dataset_intake_sessions: dict[str, dict[str, Any]] = {}
         self._dataset_intake_lock = threading.Lock()
-        self._job_worker = threading.Thread(target=self._job_worker_loop, daemon=True)
-        self._job_worker.start()
+        if self._run_worker:
+            self._job_worker = threading.Thread(target=self._job_worker_loop, daemon=True)
+            self._job_worker.start()
+            self._job_recovery = threading.Thread(target=self._job_recovery_loop, daemon=True)
+            self._job_recovery.start()
         self.ensure_workspace()
 
     def ensure_workspace(self) -> None:
@@ -1703,7 +1719,7 @@ class WorkbenchStore:
             operation=dataset.operation,
             target_artifacts=[JobArtifactRef(artifact_kind="dataset", artifact_id=dataset.id)],
         )
-        self._enqueue_job(project.id, job.id, lambda: self._prepare_dataset_artifact(project.id, dataset.id, job.id))
+        self._enqueue_job(project.id, job.id)
         return job
 
     def run_feature(self, project_id: str, feature_id: str) -> JobManifest:
@@ -1730,7 +1746,7 @@ class WorkbenchStore:
             ),
             target_artifacts=[JobArtifactRef(artifact_kind="feature", artifact_id=feature.id) for feature in features],
         )
-        self._enqueue_job(project.id, job.id, lambda: self._compute_feature_artifacts(project.id, feature_ids, job.id))
+        self._enqueue_job(project.id, job.id)
         return job
 
     def run_embedding(self, project_id: str, embedding_id: str) -> JobManifest:
@@ -1754,7 +1770,7 @@ class WorkbenchStore:
             ),
             target_artifacts=[JobArtifactRef(artifact_kind="embedding", artifact_id=embedding.id) for embedding in embeddings],
         )
-        self._enqueue_job(project.id, job.id, lambda: self._compute_embedding_artifacts(project.id, embedding_ids, job.id))
+        self._enqueue_job(project.id, job.id)
         return job
 
     def run_model(self, project_id: str, model_id: str) -> JobManifest:
@@ -1778,7 +1794,7 @@ class WorkbenchStore:
             ),
             target_artifacts=[JobArtifactRef(artifact_kind="model", artifact_id=model.id) for model in models],
         )
-        self._enqueue_job(project.id, job.id, lambda: self._compute_model_artifacts(project.id, model_ids, job.id))
+        self._enqueue_job(project.id, job.id)
         return job
 
     def _create_job(self, project_id: str, operation: OperationSpec, target_artifacts: list[JobArtifactRef]) -> JobManifest:
@@ -1800,20 +1816,96 @@ class WorkbenchStore:
         self._write_json(job_path / "job.json", job.model_dump())
         return job
 
-    def _enqueue_job(self, project_id: str, job_id: str, callback: Callable[[], None]) -> None:
-        self._job_queue.put((project_id, job_id, callback))
+    def _enqueue_job(self, project_id: str, job_id: str) -> None:
+        # The job is already persisted to disk (status="queued") by _create_job. On a
+        # non-executor store (e.g. the stdio MCP process) we do nothing further: the
+        # server's _job_recovery_loop picks it up from disk and runs it. On the executor
+        # store we hand the job id to the worker, deduping against jobs already in flight
+        # so the recovery poller never re-enqueues something the create path queued.
+        if not self._run_worker:
+            return
+        with self._job_lock:
+            if job_id in self._enqueued_job_ids:
+                return
+            self._enqueued_job_ids.add(job_id)
+        self._job_queue.put((project_id, job_id))
+
+    def _dispatch_job(self, job: JobManifest) -> None:
+        """Reconstruct and run a job's work purely from its persisted manifest.
+
+        This is the single source of truth for "how to run a job of kind X", shared by
+        the create path and the disk-recovery path. All arguments come from the job's
+        operation params and target artifacts, so a job created by any process (including
+        the stdio MCP client) can be executed by the server worker.
+        """
+        operation_id = job.operation.operation_id
+        params = job.operation.params or {}
+        if operation_id == "neext.compute_node_features":
+            self._compute_feature_artifacts(job.project_id, list(params["feature_ids"]), job.id)
+        elif operation_id == "neext.compute_graph_embeddings":
+            self._compute_embedding_artifacts(job.project_id, list(params["embedding_ids"]), job.id)
+        elif operation_id == "neext.train_graph_model":
+            self._compute_model_artifacts(job.project_id, list(params["model_ids"]), job.id)
+        elif operation_id == "neext.compute_feature_importance":
+            self._compute_model_feature_importance(
+                job.project_id,
+                params["model_id"],
+                job.id,
+                str(params["algorithm"]),
+                int(params["n_iterations"]),
+            )
+        else:
+            # Dataset preparation operations (e.g. neext.prepare_graph_collection) carry
+            # their dataset target as the only artifact; everything else is read from the
+            # dataset manifest by _prepare_dataset_artifact.
+            dataset_refs = [ref for ref in job.target_artifacts if ref.artifact_kind == "dataset"]
+            if len(dataset_refs) == 1:
+                self._prepare_dataset_artifact(job.project_id, dataset_refs[0].artifact_id, job.id)
+            else:
+                raise ValueError(f"Cannot dispatch job {job.id}: unsupported operation '{operation_id}'")
 
     def _job_worker_loop(self) -> None:
         while True:
-            project_id, job_id, callback = self._job_queue.get()
+            project_id, job_id = self._job_queue.get()
             try:
+                job = self.read_job(project_id, job_id)
                 self._mark_job_running(project_id, job_id)
-                callback()
+                self._dispatch_job(job)
                 self._mark_job_completed(project_id, job_id)
             except Exception as exc:
                 self._mark_job_failed(project_id, job_id, str(exc))
             finally:
+                with self._job_lock:
+                    self._enqueued_job_ids.discard(job_id)
                 self._job_queue.task_done()
+
+    def _job_recovery_loop(self) -> None:
+        """Durably pick up queued jobs from disk so the server worker executes them.
+
+        Runs only on the executor (server) store. Catches jobs written to the workspace
+        by other processes (the stdio MCP client) and jobs left queued across a server
+        restart. Runs immediately on startup, then on a fixed interval.
+        """
+        while True:
+            try:
+                self._recover_queued_jobs()
+            except Exception:  # never let the poller thread die
+                logger.exception("Job recovery scan failed")
+            time.sleep(JOB_RECOVERY_INTERVAL_SECONDS)
+
+    def _recover_queued_jobs(self) -> None:
+        # Folder names are IDs: projects/<project_id>/jobs/<job_id>/job.json. Trashed
+        # projects live under trash/projects and are intentionally excluded.
+        for job_file in self.projects_path.glob("*/jobs/*/job.json"):
+            try:
+                data = json.loads(job_file.read_text())
+            except (OSError, json.JSONDecodeError):
+                continue
+            if data.get("status") != "queued":
+                continue
+            project_id = job_file.parent.parent.parent.name
+            job_id = job_file.parent.name
+            self._enqueue_job(project_id, job_id)
 
     def _write_job_manifest(self, job: JobManifest) -> None:
         self._write_json(self.job_path(job.project_id, job.id) / "job.json", job.model_dump())
@@ -2658,11 +2750,7 @@ class WorkbenchStore:
             target_artifacts=[JobArtifactRef(artifact_kind="model", artifact_id=model_id)],
         )
         self._update_model_feature_importance_status(project.id, model_id, status="running", error=None)
-        self._enqueue_job(
-            project.id,
-            job.id,
-            lambda: self._compute_model_feature_importance(project.id, model_id, job.id, algorithm, n_iterations),
-        )
+        self._enqueue_job(project.id, job.id)
         return job
 
     def _compute_model_feature_importance(self, project_id: str, model_id: str, job_id: str, algorithm: str, n_iterations: int) -> None:

@@ -43,7 +43,11 @@ def main(argv: Optional[list[str]] = None) -> None:
         print("NEExT Workbench MCP requires Python 3.10 or newer.", file=sys.stderr)
         raise SystemExit(2)
 
-    store = WorkbenchStore(resolve_workspace_path(args.workspace))
+    # The stdio MCP process is an MCP client, not the job executor. It persists jobs to
+    # the shared workspace; the running Workbench server is the sole durable executor and
+    # picks them up from disk. Running a worker here would create a second, ephemeral
+    # queue the UI never observes (jobs would appear stuck "queued").
+    store = WorkbenchStore(resolve_workspace_path(args.workspace), run_worker=False)
     token = os.environ.get("NEEXT_WORKBENCH_MCP_TOKEN", "")
     if not store.verify_mcp_token(token):
         print("NEExT Workbench MCP is disabled or NEEXT_WORKBENCH_MCP_TOKEN is invalid.", file=sys.stderr)
