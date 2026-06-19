@@ -54,11 +54,11 @@ Input data -> GraphIO -> GraphCollection -> node features -> graph embeddings ->
 
 ## Development Lifecycle Dashboard
 
-The committed lifecycle planning artifact is `development-lifecycle/index.html`. It is a self-contained HTML dashboard for current project state, epics, sprints, tasks, decisions, and agent handoff context.
+The lifecycle planning artifact is `development-lifecycle/index.html`, a self-contained HTML dashboard for current project state, epics, sprints, tasks, decisions, and agent handoff context. It is a local-only working artifact kept on the developer's machine; it is not committed or published to the remote.
 
 - Update this dashboard when a sprint is created, scoped, completed, or materially changed.
 - Use the dashboard to record approved decisions and known deferred areas; do not use it to invent new product scope or bypass the "Never guess. Ask." rule.
-- Local drafts, exports, notes, and scratch lifecycle material inside `development-lifecycle/` are ignored by git unless explicitly unignored.
+- The entire `development-lifecycle/` directory, including `index.html`, is gitignored and must never be committed.
 - If lifecycle guidance changes in `AGENTS.md` or `CLAUDE.md`, keep both files synchronized in the same change.
 
 ## Workbench Shape
