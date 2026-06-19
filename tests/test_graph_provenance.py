@@ -117,3 +117,44 @@ def test_egonet_node_mapping_behavior_is_unchanged():
     for egonet in egonets.graphs:
         assert egonet.node_mapping
         assert egonet.original_graph_id == 1
+
+
+def test_load_from_dfs_scopes_edges_by_graph_id_without_contamination():
+    """Prepared datasets number nodes locally per graph (every graph starts at 0), so node IDs are
+    only unique *within* a graph. ``load_from_dfs`` must scope each graph's edges by the ``graph_id``
+    column, not by node-ID membership — otherwise graphs steal each other's edges."""
+    import pandas as pd
+
+    from NEExT.io import GraphIO
+
+    # Two graphs, BOTH using local node ids {0, 1, 2}, but different edges.
+    node_graph_df = pd.DataFrame({"node_id": [0, 1, 2, 0, 1, 2], "graph_id": [0, 0, 0, 1, 1, 1]})
+    edges_df = pd.DataFrame(
+        {"graph_id": [0, 0, 1], "src_node_id": [0, 1, 0], "dest_node_id": [1, 2, 2]}
+    )
+
+    collection = GraphIO().load_from_dfs(
+        edges_df=edges_df,
+        node_graph_df=node_graph_df,
+        graph_type="networkx",
+        reindex_nodes=False,
+        filter_largest_component=False,
+    )
+    by_id = {graph.graph_id: graph for graph in collection.graphs}
+    as_sets = lambda graph: {frozenset(edge) for edge in graph.edges}
+    # Each graph gets exactly its own edges — no leakage in either direction.
+    assert as_sets(by_id[0]) == {frozenset((0, 1)), frozenset((1, 2))}
+    assert as_sets(by_id[1]) == {frozenset((0, 2))}
+
+    # Contrast: without a graph_id column, the legacy node-ID-membership fallback contaminates —
+    # graph 0 (nodes 0,1,2) wrongly pulls in graph 1's (0,2) edge. This documents the bug the
+    # graph_id-aware path fixes, and guards the backward-compatible fallback.
+    legacy = GraphIO().load_from_dfs(
+        edges_df=edges_df.drop(columns=["graph_id"]),
+        node_graph_df=node_graph_df,
+        graph_type="networkx",
+        reindex_nodes=False,
+        filter_largest_component=False,
+    )
+    legacy_graph0 = {graph.graph_id: graph for graph in legacy.graphs}[0]
+    assert frozenset((0, 2)) in {frozenset(edge) for edge in legacy_graph0.edges}

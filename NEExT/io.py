@@ -184,24 +184,46 @@ class GraphIO:
         Returns:
             List[Dict]: List of dictionaries containing organized graph data
         """
-        # Group nodes by graph_id
-        graph_nodes = defaultdict(list)
-        for _, row in node_graph_df.iterrows():
-            graph_nodes[row['graph_id']].append(row['node_id'])
+        # Group nodes by graph_id (preserves per-graph node order; O(n)).
+        graph_nodes = {
+            graph_id: list(group["node_id"])
+            for graph_id, group in node_graph_df.groupby("graph_id", sort=False)
+        }
 
         # Create graph labels dictionary if available
         graph_labels = {}
         if graph_labels_df is not None:
             graph_labels = dict(zip(graph_labels_df['graph_id'], graph_labels_df['graph_label']))
 
+        # When the inputs carry a 'graph_id' column, scope edges/features per graph by that column
+        # (correct even when node IDs are only unique *within* a graph, and O(n)). When 'graph_id' is
+        # absent, fall back to node-ID membership (preserves behaviour for globally-unique-ID inputs).
+        edges_by_graph = (
+            {gid: group for gid, group in edges_df.groupby("graph_id", sort=False)}
+            if "graph_id" in edges_df.columns else None
+        )
+        node_features_by_graph = (
+            {gid: group for gid, group in node_features_df.groupby("graph_id", sort=False)}
+            if node_features_df is not None and "graph_id" in node_features_df.columns else None
+        )
+        edge_features_by_graph = (
+            {gid: group for gid, group in edge_features_df.groupby("graph_id", sort=False)}
+            if edge_features_df is not None and "graph_id" in edge_features_df.columns else None
+        )
+
         # Create graph data dictionaries
         graphs_data = []
         for graph_id, nodes in graph_nodes.items():
+            node_set = set(nodes)
+
             # Get edges for this graph
-            graph_edges = edges_df[
-                (edges_df['src_node_id'].isin(nodes)) &
-                (edges_df['dest_node_id'].isin(nodes))
-            ]
+            if edges_by_graph is not None:
+                graph_edges = edges_by_graph.get(graph_id, edges_df.iloc[0:0])
+            else:
+                graph_edges = edges_df[
+                    (edges_df['src_node_id'].isin(node_set)) &
+                    (edges_df['dest_node_id'].isin(node_set))
+                ]
             edges = list(zip(graph_edges['src_node_id'], graph_edges['dest_node_id']))
 
             # Initialize graph data
@@ -216,8 +238,11 @@ class GraphIO:
 
             # Add node features if available
             if node_features_df is not None:
-                node_features = node_features_df[node_features_df['node_id'].isin(nodes)]
-                feature_cols = [col for col in node_features.columns if col != 'node_id']
+                if node_features_by_graph is not None:
+                    node_features = node_features_by_graph.get(graph_id, node_features_df.iloc[0:0])
+                else:
+                    node_features = node_features_df[node_features_df['node_id'].isin(node_set)]
+                feature_cols = [col for col in node_features.columns if col not in ('node_id', 'graph_id')]
                 for _, row in node_features.iterrows():
                     graph_data["node_attributes"][row['node_id']] = {
                         col: row[col] for col in feature_cols
@@ -225,12 +250,15 @@ class GraphIO:
 
             # Add edge features if available
             if edge_features_df is not None:
-                edge_features = edge_features_df[
-                    (edge_features_df['src_node_id'].isin(nodes)) &
-                    (edge_features_df['dest_node_id'].isin(nodes))
-                ]
-                feature_cols = [col for col in edge_features.columns 
-                              if col not in ['src_node_id', 'dest_node_id']]
+                if edge_features_by_graph is not None:
+                    edge_features = edge_features_by_graph.get(graph_id, edge_features_df.iloc[0:0])
+                else:
+                    edge_features = edge_features_df[
+                        (edge_features_df['src_node_id'].isin(node_set)) &
+                        (edge_features_df['dest_node_id'].isin(node_set))
+                    ]
+                feature_cols = [col for col in edge_features.columns
+                              if col not in ('src_node_id', 'dest_node_id', 'graph_id')]
                 for _, row in edge_features.iterrows():
                     edge_key = (row['src_node_id'], row['dest_node_id'])
                     graph_data["edge_attributes"][edge_key] = {

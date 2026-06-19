@@ -2258,21 +2258,21 @@ input:focus, textarea:focus, select:focus {
   border-radius: var(--radius-2);
 }
 
-/* ---- Embedding Explore: §1 analysis command center ---- */
-.embedding-analysis-panel {
+/* ---- Analysis command center (shared by Embedding + Feature Explore) ---- */
+.analysis-panel {
   overflow-y: auto;
   scrollbar-gutter: stable;
 }
-.embedding-analysis-grid {
+.analysis-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: var(--space-3);
 }
-.embedding-analysis-grid > .chart-card {
+.analysis-grid > .chart-card {
   min-height: 340px;
 }
 @media (max-width: 1180px) {
-  .embedding-analysis-grid {
+  .analysis-grid {
     grid-template-columns: minmax(0, 1fr);
   }
 }
@@ -2309,7 +2309,7 @@ input:focus, textarea:focus, select:focus {
   width: 13px;
   height: 13px;
 }
-.embedding-scatter {
+.analysis-scatter {
   background: var(--panel);
 }
 

@@ -328,6 +328,7 @@ export interface FeaturePcaPoint {
   graph_label?: unknown;
   color_value: string;
   node_count: number;
+  cluster?: number | null;
 }
 
 export interface FeaturePcaPayload {
@@ -335,7 +336,7 @@ export interface FeaturePcaPayload {
   reason?: string | null;
   plot_level: "graph";
   aggregation_method: "mean";
-  projection_method: "pca" | "raw";
+  projection_method: "pca" | "raw" | "tsne" | "umap";
   x_axis_label: string;
   y_axis_label: string;
   color_by: "graph_label" | "graph_id";
@@ -353,6 +354,49 @@ export interface FeaturePcaPayload {
   sample_reason?: string | null;
   explained_variance_ratio: number[];
   points: FeaturePcaPoint[];
+  cluster_k?: number | null;
+  cluster_algorithm?: "kmeans" | null;
+  cluster_silhouette?: number | null;
+  cluster_label_ari?: number | null;
+  cluster_purity?: number | null;
+  clusters: AnalysisClusterSummary[];
+}
+
+// Shared analysis payload shape consumed by the AnalysisCommandCenter (both embeddings + features).
+export interface AnalysisPcaPoint {
+  graph_id: string;
+  x: number;
+  y: number;
+  graph_label?: unknown;
+  color_value: string;
+  cluster?: number | null;
+  node_count?: number;
+}
+
+export interface AnalysisPcaPayload {
+  available: boolean;
+  reason?: string | null;
+  projection_method: "pca" | "raw" | "tsne" | "umap";
+  x_axis_label: string;
+  y_axis_label: string;
+  explained_variance_ratio: number[];
+  points: AnalysisPcaPoint[];
+  cluster_k?: number | null;
+  cluster_silhouette?: number | null;
+  cluster_label_ari?: number | null;
+  cluster_purity?: number | null;
+}
+
+export interface AnalysisResult {
+  pca: AnalysisPcaPayload;
+}
+
+export interface AnalysisAnalyzeParams {
+  projection_method?: "pca" | "tsne" | "umap";
+  cluster_k?: number | null;
+  perplexity?: number | null;
+  n_neighbors?: number | null;
+  min_dist?: number | null;
 }
 
 export interface FeatureAnalysis {
@@ -430,7 +474,7 @@ export interface EmbeddingPcaPoint {
   cluster?: number | null;
 }
 
-export interface EmbeddingClusterSummary {
+export interface AnalysisClusterSummary {
   cluster: number;
   size: number;
   dominant_label?: unknown;
@@ -464,7 +508,7 @@ export interface EmbeddingPcaPayload {
   cluster_silhouette?: number | null;
   cluster_label_ari?: number | null;
   cluster_purity?: number | null;
-  clusters: EmbeddingClusterSummary[];
+  clusters: AnalysisClusterSummary[];
 }
 
 export interface EmbeddingAnalysis {
@@ -1064,10 +1108,27 @@ export const api = {
     }),
   featurePreview: (projectId: string, featureId: string, limit = 20, offset = 0) =>
     request<TabularPreview>(`/api/projects/${projectId}/features/${featureId}/preview?limit=${limit}&offset=${offset}`),
-  featureAnalysis: (projectId: string, featureId: string, params: { max_fit_rows?: number; max_points?: number } = {}) => {
+  featureAnalysis: (
+    projectId: string,
+    featureId: string,
+    params: {
+      max_fit_rows?: number;
+      max_points?: number;
+      cluster_k?: number | null;
+      projection_method?: "pca" | "tsne" | "umap";
+      perplexity?: number | null;
+      n_neighbors?: number | null;
+      min_dist?: number | null;
+    } = {}
+  ) => {
     const search = new URLSearchParams();
     if (params.max_fit_rows != null) search.set("max_fit_rows", String(params.max_fit_rows));
     if (params.max_points != null) search.set("max_points", String(params.max_points));
+    if (params.cluster_k != null) search.set("cluster_k", String(params.cluster_k));
+    if (params.projection_method != null) search.set("projection_method", params.projection_method);
+    if (params.perplexity != null) search.set("perplexity", String(params.perplexity));
+    if (params.n_neighbors != null) search.set("n_neighbors", String(params.n_neighbors));
+    if (params.min_dist != null) search.set("min_dist", String(params.min_dist));
     const suffix = search.toString() ? `?${search.toString()}` : "";
     return request<FeatureAnalysis>(`/api/projects/${projectId}/features/${featureId}/analysis${suffix}`);
   },

@@ -76,7 +76,7 @@ from .schemas import (
     EmbeddingManifest,
     EmbeddingOutputFiles,
     EmbeddingOutputStats,
-    EmbeddingClusterSummary,
+    AnalysisClusterSummary,
     EmbeddingPcaPayload,
     EmbeddingPcaPoint,
     EmbeddingRunBatchRequest,
@@ -2920,7 +2920,9 @@ class WorkbenchStore:
         edge_features_df = pd.read_parquet(artifact_path / files.edge_features) if files.edge_features else None
 
         return GraphIO().load_from_dfs(
-            edges_df=edges_df.loc[:, ["src_node_id", "dest_node_id"]],
+            # Keep graph_id so the loader scopes edges per graph (prepared node IDs are only unique
+            # within a graph; node_features/edge_features already retain graph_id below).
+            edges_df=edges_df.loc[:, ["graph_id", "src_node_id", "dest_node_id"]],
             node_graph_df=nodes_df.loc[:, ["node_id", "graph_id"]],
             graph_labels_df=graph_labels_df,
             node_features_df=node_features_df,
@@ -3419,6 +3421,11 @@ class WorkbenchStore:
         *,
         max_fit_rows: int = FEATURE_ANALYSIS_DEFAULT_MAX_FIT_ROWS,
         max_points: int = FEATURE_ANALYSIS_DEFAULT_MAX_POINTS,
+        cluster_k: Optional[int] = None,
+        projection_method: str = "pca",
+        perplexity: Optional[float] = None,
+        n_neighbors: Optional[int] = None,
+        min_dist: Optional[float] = None,
     ) -> FeatureAnalysis:
         import pandas as pd
 
@@ -3426,6 +3433,16 @@ class WorkbenchStore:
             raise ValueError("Feature PCA max_fit_rows must be between 2 and 100000")
         if max_points < 1 or max_points > 100000:
             raise ValueError("Feature PCA max_points must be between 1 and 100000")
+        if cluster_k is not None and (cluster_k < 2 or cluster_k > 50):
+            raise ValueError("Feature cluster_k must be between 2 and 50")
+        if projection_method not in ("pca", "tsne", "umap"):
+            raise ValueError("Feature projection_method must be 'pca', 'tsne', or 'umap'")
+        if perplexity is not None and (perplexity < 2 or perplexity > 100):
+            raise ValueError("t-SNE perplexity must be between 2 and 100")
+        if n_neighbors is not None and (n_neighbors < 2 or n_neighbors > 200):
+            raise ValueError("UMAP n_neighbors must be between 2 and 200")
+        if min_dist is not None and (min_dist < 0.0 or min_dist > 1.0):
+            raise ValueError("UMAP min_dist must be between 0.0 and 1.0")
 
         feature = self.read_feature(project_id, feature_id)
         if feature.status != "completed" or feature.output_files is None:
@@ -3482,6 +3499,11 @@ class WorkbenchStore:
                 label_by_graph,
                 max_fit_rows=max_fit_rows,
                 max_points=max_points,
+                cluster_k=cluster_k,
+                projection_method=projection_method,
+                perplexity=perplexity,
+                n_neighbors=n_neighbors,
+                min_dist=min_dist,
             ),
         )
 
@@ -3842,6 +3864,11 @@ class WorkbenchStore:
         *,
         max_fit_rows: int,
         max_points: int,
+        cluster_k: Optional[int] = None,
+        projection_method: str = "pca",
+        perplexity: Optional[float] = None,
+        n_neighbors: Optional[int] = None,
+        min_dist: Optional[float] = None,
     ) -> FeaturePcaPayload:
         import numpy as np
         import pandas as pd
@@ -3882,6 +3909,11 @@ class WorkbenchStore:
         fit_rows = graph_vectors.head(max_fit_rows)
         point_rows = graph_vectors.head(max_points)
 
+        cluster_labels = None
+        if cluster_k is not None and point_count >= 2:
+            cluster_labels, cluster_fields = self._compute_kmeans_clusters(point_rows, numeric_columns, int(cluster_k))
+            base_payload = {**base_payload, **cluster_fields}
+
         def graph_points(coordinates) -> list[FeaturePcaPoint]:
             points = []
             for index, row in enumerate(point_rows.to_dict(orient="records")):
@@ -3894,11 +3926,12 @@ class WorkbenchStore:
                         graph_label=row.get("graph_label"),
                         color_value=str(row["color_value"]),
                         node_count=int(row["node_count"]),
+                        cluster=(int(cluster_labels[index]) if cluster_labels is not None else None),
                     )
                 )
             return points
 
-        if len(numeric_columns) == 2:
+        if len(numeric_columns) == 2 and projection_method in ("pca", "raw"):
             point_frame = point_rows.loc[:, numeric_columns].apply(pd.to_numeric, errors="coerce").astype(float)
             coordinates = np.nan_to_num(point_frame.to_numpy(dtype=float), nan=0.0, posinf=0.0, neginf=0.0)
             raw_payload = {
@@ -3918,8 +3951,6 @@ class WorkbenchStore:
                 **raw_payload,
             )
 
-        from sklearn.decomposition import PCA
-
         if total_graphs < 2:
             return FeaturePcaPayload(available=False, reason="PCA requires at least two graphs", **base_payload)
 
@@ -3933,18 +3964,18 @@ class WorkbenchStore:
             neginf=0.0,
         )
 
-        if min(fit_matrix.shape[0], fit_matrix.shape[1]) < 2:
-            return FeaturePcaPayload(available=False, reason="PCA requires at least two fit graphs and columns", **base_payload)
-
-        pca = PCA(n_components=2, svd_solver="full")
-        coordinates = np.nan_to_num(pca.fit(fit_matrix).transform(point_matrix), nan=0.0, posinf=0.0, neginf=0.0)
-        explained_variance_ratio = [float(value) for value in np.nan_to_num(pca.explained_variance_ratio_, nan=0.0).tolist()]
+        coordinates, x_label, y_label, explained_variance_ratio, error_reason = self._project_points_2d(
+            fit_matrix, point_matrix, projection_method,
+            perplexity=perplexity, n_neighbors=n_neighbors, min_dist=min_dist,
+        )
+        if error_reason is not None:
+            return FeaturePcaPayload(available=False, reason=error_reason, **base_payload)
 
         return FeaturePcaPayload(
             available=True,
-            projection_method="pca",
-            x_axis_label="PC1",
-            y_axis_label="PC2",
+            projection_method=projection_method,
+            x_axis_label=x_label,
+            y_axis_label=y_label,
             explained_variance_ratio=explained_variance_ratio,
             points=graph_points(coordinates),
             **base_payload,
@@ -3967,9 +3998,9 @@ class WorkbenchStore:
         )
         return graph_vectors.sort_values("graph_id", kind="mergesort").reset_index(drop=True)
 
-    def _compute_embedding_clusters(self, point_rows, numeric_columns: list[str], cluster_k: int):
-        """KMeans over the embedding graph vectors (standardized). Returns
-        (per-point cluster labels, payload cluster fields incl. label overlap)."""
+    def _compute_kmeans_clusters(self, point_rows, numeric_columns: list[str], cluster_k: int):
+        """KMeans over standardized graph vectors (shared by embedding + feature analysis). Returns
+        (per-point cluster labels, payload cluster fields incl. silhouette + label overlap)."""
         import numpy as np
         import pandas as pd
         from sklearn.cluster import KMeans
@@ -3998,7 +4029,7 @@ class WorkbenchStore:
             return value is not None and not (isinstance(value, float) and np.isnan(value))
 
         has_labels = any(_present(value) for value in graph_labels)
-        summaries: list[EmbeddingClusterSummary] = []
+        summaries: list[AnalysisClusterSummary] = []
         for cluster_id in range(k):
             idx = [i for i in range(n_points) if int(labels[i]) == cluster_id]
             dominant_label = None
@@ -4013,7 +4044,7 @@ class WorkbenchStore:
                     dominant_label, dominant_count = max(counts.items(), key=lambda item: item[1])
                     dominant_fraction = round(dominant_count / len(idx), 4)
             summaries.append(
-                EmbeddingClusterSummary(
+                AnalysisClusterSummary(
                     cluster=cluster_id,
                     size=len(idx),
                     dominant_label=dominant_label,
@@ -4047,6 +4078,58 @@ class WorkbenchStore:
             "clusters": summaries,
         }
         return labels, fields
+
+    def _project_points_2d(
+        self,
+        fit_matrix,
+        point_matrix,
+        projection_method: str,
+        *,
+        perplexity: Optional[float] = None,
+        n_neighbors: Optional[int] = None,
+        min_dist: Optional[float] = None,
+    ):
+        """Project graph vectors to 2D via PCA / t-SNE / UMAP (shared by embedding + feature
+        analysis). Returns (coordinates, x_label, y_label, explained_variance_ratio, error_reason);
+        on failure coordinates is None and error_reason is set."""
+        import numpy as np
+        from sklearn.decomposition import PCA
+
+        if min(fit_matrix.shape[0], fit_matrix.shape[1]) < 2:
+            return None, "", "", [], "Projection requires at least two fit graphs and columns"
+
+        if projection_method == "tsne":
+            n_points = int(point_matrix.shape[0])
+            if n_points > 2000:
+                return None, "", "", [], "t-SNE projection is limited to 2000 points; lower max_points to use it"
+            from sklearn.manifold import TSNE
+
+            # t-SNE perplexity must be < n_points; honor the knob when given, else auto-scale.
+            max_perplexity = max(2.0, (n_points - 1) / 3.0)
+            chosen_perplexity = float(perplexity) if perplexity is not None else min(30.0, max_perplexity)
+            chosen_perplexity = max(2.0, min(chosen_perplexity, float(n_points - 1)))
+            coordinates = np.nan_to_num(
+                TSNE(n_components=2, perplexity=chosen_perplexity, random_state=0, init="pca").fit_transform(point_matrix),
+                nan=0.0, posinf=0.0, neginf=0.0,
+            )
+            return coordinates, "t-SNE 1", "t-SNE 2", [], None
+
+        if projection_method == "umap":
+            try:
+                import umap  # type: ignore
+            except ImportError:
+                return None, "", "", [], "UMAP projection requires the 'umap-learn' package (install the Workbench extra)"
+            chosen_neighbors = int(n_neighbors) if n_neighbors is not None else 15
+            chosen_neighbors = max(2, min(chosen_neighbors, point_matrix.shape[0] - 1))
+            chosen_min_dist = float(min_dist) if min_dist is not None else 0.1
+            reducer = umap.UMAP(n_components=2, n_neighbors=chosen_neighbors, min_dist=chosen_min_dist, random_state=0)
+            coordinates = np.nan_to_num(reducer.fit_transform(point_matrix), nan=0.0, posinf=0.0, neginf=0.0)
+            return coordinates, "UMAP 1", "UMAP 2", [], None
+
+        pca = PCA(n_components=2, svd_solver="full")
+        coordinates = np.nan_to_num(pca.fit(fit_matrix).transform(point_matrix), nan=0.0, posinf=0.0, neginf=0.0)
+        explained_variance_ratio = [float(value) for value in np.nan_to_num(pca.explained_variance_ratio_, nan=0.0).tolist()]
+        return coordinates, "PC1", "PC2", explained_variance_ratio, None
 
     def _embedding_pca_payload(
         self,
@@ -4103,7 +4186,7 @@ class WorkbenchStore:
 
         cluster_labels = None
         if cluster_k is not None and point_count >= 2:
-            cluster_labels, cluster_fields = self._compute_embedding_clusters(point_rows, numeric_columns, int(cluster_k))
+            cluster_labels, cluster_fields = self._compute_kmeans_clusters(point_rows, numeric_columns, int(cluster_k))
             base_payload = {**base_payload, **cluster_fields}
 
         def graph_points(coordinates) -> list[EmbeddingPcaPoint]:
@@ -4142,8 +4225,6 @@ class WorkbenchStore:
                 **raw_payload,
             )
 
-        from sklearn.decomposition import PCA
-
         if total_graphs < 2:
             return EmbeddingPcaPayload(available=False, reason="PCA requires at least two graphs", **base_payload)
 
@@ -4157,64 +4238,18 @@ class WorkbenchStore:
             neginf=0.0,
         )
 
-        if min(fit_matrix.shape[0], fit_matrix.shape[1]) < 2:
-            return EmbeddingPcaPayload(available=False, reason="PCA requires at least two fit graphs and columns", **base_payload)
-
-        if projection_method == "tsne":
-            if point_count > 2000:
-                return EmbeddingPcaPayload(
-                    available=False,
-                    reason="t-SNE projection is limited to 2000 points; lower max_points to use it",
-                    **base_payload,
-                )
-            from sklearn.manifold import TSNE
-
-            # t-SNE perplexity must be < n_points; honor the knob when given, else auto-scale.
-            max_perplexity = max(2.0, (point_matrix.shape[0] - 1) / 3.0)
-            chosen_perplexity = float(perplexity) if perplexity is not None else min(30.0, max_perplexity)
-            chosen_perplexity = max(2.0, min(chosen_perplexity, float(point_matrix.shape[0] - 1)))
-            coordinates = np.nan_to_num(
-                TSNE(n_components=2, perplexity=chosen_perplexity, random_state=0, init="pca").fit_transform(point_matrix),
-                nan=0.0, posinf=0.0, neginf=0.0,
-            )
-            return EmbeddingPcaPayload(
-                available=True, projection_method="tsne", x_axis_label="t-SNE 1", y_axis_label="t-SNE 2",
-                explained_variance_ratio=[], points=graph_points(coordinates), **base_payload,
-            )
-
-        if projection_method == "umap":
-            try:
-                import umap  # type: ignore
-            except ImportError:
-                return EmbeddingPcaPayload(
-                    available=False,
-                    reason="UMAP projection requires the 'umap-learn' package (install the Workbench extra)",
-                    **base_payload,
-                )
-            chosen_neighbors = int(n_neighbors) if n_neighbors is not None else 15
-            chosen_neighbors = max(2, min(chosen_neighbors, point_matrix.shape[0] - 1))
-            chosen_min_dist = float(min_dist) if min_dist is not None else 0.1
-            reducer = umap.UMAP(
-                n_components=2,
-                n_neighbors=chosen_neighbors,
-                min_dist=chosen_min_dist,
-                random_state=0,
-            )
-            coordinates = np.nan_to_num(reducer.fit_transform(point_matrix), nan=0.0, posinf=0.0, neginf=0.0)
-            return EmbeddingPcaPayload(
-                available=True, projection_method="umap", x_axis_label="UMAP 1", y_axis_label="UMAP 2",
-                explained_variance_ratio=[], points=graph_points(coordinates), **base_payload,
-            )
-
-        pca = PCA(n_components=2, svd_solver="full")
-        coordinates = np.nan_to_num(pca.fit(fit_matrix).transform(point_matrix), nan=0.0, posinf=0.0, neginf=0.0)
-        explained_variance_ratio = [float(value) for value in np.nan_to_num(pca.explained_variance_ratio_, nan=0.0).tolist()]
+        coordinates, x_label, y_label, explained_variance_ratio, error_reason = self._project_points_2d(
+            fit_matrix, point_matrix, projection_method,
+            perplexity=perplexity, n_neighbors=n_neighbors, min_dist=min_dist,
+        )
+        if error_reason is not None:
+            return EmbeddingPcaPayload(available=False, reason=error_reason, **base_payload)
 
         return EmbeddingPcaPayload(
             available=True,
-            projection_method="pca",
-            x_axis_label="PC1",
-            y_axis_label="PC2",
+            projection_method=projection_method,
+            x_axis_label=x_label,
+            y_axis_label=y_label,
             explained_variance_ratio=explained_variance_ratio,
             points=graph_points(coordinates),
             **base_payload,

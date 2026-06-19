@@ -388,6 +388,14 @@ class FeatureAnalysisMethod(BaseModel):
     name: str
 
 
+# Shared by embedding + feature analysis clustering payloads.
+class AnalysisClusterSummary(BaseModel):
+    cluster: int
+    size: int
+    dominant_label: Optional[Any] = None
+    dominant_label_fraction: Optional[float] = None
+
+
 class FeaturePcaPoint(BaseModel):
     graph_id: str
     x: float
@@ -395,6 +403,7 @@ class FeaturePcaPoint(BaseModel):
     graph_label: Optional[Any] = None
     color_value: str
     node_count: int
+    cluster: Optional[int] = None
 
 
 class FeaturePcaPayload(BaseModel):
@@ -402,7 +411,7 @@ class FeaturePcaPayload(BaseModel):
     reason: Optional[str] = None
     plot_level: Literal["graph"] = "graph"
     aggregation_method: Literal["mean"] = "mean"
-    projection_method: Literal["pca", "raw"] = "pca"
+    projection_method: Literal["pca", "raw", "tsne", "umap"] = "pca"
     x_axis_label: str = "PC1"
     y_axis_label: str = "PC2"
     color_by: Literal["graph_label", "graph_id"]
@@ -420,6 +429,13 @@ class FeaturePcaPayload(BaseModel):
     sample_reason: Optional[str] = None
     explained_variance_ratio: list[float] = Field(default_factory=list)
     points: list[FeaturePcaPoint] = Field(default_factory=list)
+    # Clustering (populated only when a feature clustering request is made)
+    cluster_k: Optional[int] = None
+    cluster_algorithm: Optional[Literal["kmeans"]] = None
+    cluster_silhouette: Optional[float] = None
+    cluster_label_ari: Optional[float] = None
+    cluster_purity: Optional[float] = None
+    clusters: list[AnalysisClusterSummary] = Field(default_factory=list)
 
 
 class FeatureAnalysis(BaseModel):
@@ -560,13 +576,6 @@ class EmbeddingPcaPoint(BaseModel):
     cluster: Optional[int] = None
 
 
-class EmbeddingClusterSummary(BaseModel):
-    cluster: int
-    size: int
-    dominant_label: Optional[Any] = None
-    dominant_label_fraction: Optional[float] = None
-
-
 class EmbeddingPcaPayload(BaseModel):
     available: bool
     reason: Optional[str] = None
@@ -595,7 +604,7 @@ class EmbeddingPcaPayload(BaseModel):
     cluster_silhouette: Optional[float] = None
     cluster_label_ari: Optional[float] = None
     cluster_purity: Optional[float] = None
-    clusters: list[EmbeddingClusterSummary] = Field(default_factory=list)
+    clusters: list[AnalysisClusterSummary] = Field(default_factory=list)
 
 
 class EmbeddingAnalysis(BaseModel):

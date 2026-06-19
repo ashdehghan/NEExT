@@ -1,19 +1,14 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode, type UIEvent } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import * as echarts from "echarts";
-import type { EChartsOption } from "echarts";
 import {
   ArrowLeft,
   CheckCircle2,
   CircleHelp,
   Code2,
-  ChevronLeft,
-  ChevronRight,
   Eye,
   Play,
   Plus,
   RotateCcw,
-  Search,
   Sigma,
   Trash2
 } from "lucide-react";
@@ -25,11 +20,10 @@ import {
   type FeatureAnalysis,
   type FeatureCatalogEntry,
   type FeatureCreatePayload,
-  type FeatureGraphSearchResult,
   type FeatureManifest,
-  type FeaturePcaPoint,
   type TabularPreview
 } from "../../api";
+import { AnalysisCommandCenter } from "../../components/viz/AnalysisCommandCenter";
 import { EmptyState } from "../../components/primitives/EmptyState";
 import { FcIcon } from "../../components/primitives/FcIcon";
 
@@ -961,144 +955,6 @@ function FeatureDataTab({ activeProjectId, feature }: { activeProjectId: string;
   );
 }
 
-type FeaturePcaChartDatum = FeaturePcaPoint & {
-  value: [number, number];
-  itemStyle: { color: string };
-};
-type FeaturePcaChartElement = HTMLDivElement & {
-  __featurePcaChart?: ReturnType<typeof echarts.init>;
-};
-
-function FeaturePcaChart({
-  analysis,
-  selectedGraphId,
-  onSelectGraph
-}: {
-  analysis: FeatureAnalysis;
-  selectedGraphId: string;
-  onSelectGraph: (graphId: string, visible: boolean | null) => void;
-}) {
-  const containerRef = useRef<HTMLDivElement | null>(null);
-  const chartRef = useRef<ReturnType<typeof echarts.init> | null>(null);
-  const onSelectGraphRef = useRef(onSelectGraph);
-  const previousSelectedIndexRef = useRef<number | null>(null);
-
-  useEffect(() => {
-    onSelectGraphRef.current = onSelectGraph;
-  }, [onSelectGraph]);
-
-  useEffect(() => {
-    if (!containerRef.current) return;
-    const chart = echarts.init(containerRef.current);
-    chartRef.current = chart;
-    (containerRef.current as FeaturePcaChartElement).__featurePcaChart = chart;
-    const handleClick = (params: { data?: unknown }) => {
-      const data = params.data as FeaturePcaChartDatum | undefined;
-      if (!data?.graph_id) return;
-      onSelectGraphRef.current(String(data.graph_id), true);
-    };
-    chart.on("click", handleClick);
-    const resizeObserver = new ResizeObserver(() => chart.resize());
-    resizeObserver.observe(containerRef.current);
-    return () => {
-      chart.off("click", handleClick);
-      resizeObserver.disconnect();
-      chart.dispose();
-      if (containerRef.current) delete (containerRef.current as FeaturePcaChartElement).__featurePcaChart;
-      chartRef.current = null;
-    };
-  }, []);
-
-  useEffect(() => {
-    const chart = chartRef.current;
-    if (!chart) return;
-
-    const palette = ["#176ea9", "#d86c1f", "#2d8754", "#8d5db8", "#a4513d", "#4f758b", "#6b7f2a", "#9a5b91"];
-    const colorValues = Array.from(new Set(analysis.pca.points.map((point) => point.color_value)));
-    const colorByValue = new Map(colorValues.map((value, index) => [value, palette[index % palette.length]]));
-    const data: FeaturePcaChartDatum[] = analysis.pca.points.map((point) => ({
-      ...point,
-      value: [point.x, point.y],
-      itemStyle: { color: colorByValue.get(point.color_value) || palette[0] }
-    }));
-
-    const option: EChartsOption = {
-      animation: false,
-      grid: { left: 44, right: 18, top: 22, bottom: 38 },
-      xAxis: {
-        type: "value",
-        name: analysis.pca.x_axis_label,
-        nameLocation: "middle",
-        nameGap: 24,
-        splitLine: { lineStyle: { color: "#dfe5e9" } }
-      },
-      yAxis: {
-        type: "value",
-        name: analysis.pca.y_axis_label,
-        nameLocation: "middle",
-        nameGap: 30,
-        splitLine: { lineStyle: { color: "#dfe5e9" } }
-      },
-      tooltip: {
-        trigger: "item",
-        formatter: (params: unknown) => {
-          const item = Array.isArray(params) ? params[0] : params;
-          const dataPoint = (item as { data?: FeaturePcaChartDatum }).data;
-          if (!dataPoint) return "";
-          return [
-            `Graph ${dataPoint.graph_id}`,
-            `${formatCount(dataPoint.node_count)} nodes`,
-            `Label ${formatValue(dataPoint.graph_label)}`,
-            `${analysis.pca.x_axis_label} ${dataPoint.x.toFixed(4)}`,
-            `${analysis.pca.y_axis_label} ${dataPoint.y.toFixed(4)}`
-          ].join("<br/>");
-        }
-      },
-      series: [
-        {
-          type: "scatter",
-          data,
-          symbolSize: 16,
-          emphasis: {
-            itemStyle: {
-              borderColor: "#111820",
-              borderWidth: 2
-            }
-          }
-        }
-      ]
-    };
-
-    chart.setOption(option, { notMerge: true });
-    previousSelectedIndexRef.current = null;
-  }, [analysis]);
-
-  useEffect(() => {
-    const chart = chartRef.current;
-    if (!chart) return;
-
-    if (previousSelectedIndexRef.current != null) {
-      chart.dispatchAction({ type: "downplay", seriesIndex: 0, dataIndex: previousSelectedIndexRef.current });
-      previousSelectedIndexRef.current = null;
-    }
-    if (!selectedGraphId) return;
-    const selectedIndex = analysis.pca.points.findIndex((point) => point.graph_id === selectedGraphId);
-    if (selectedIndex < 0) return;
-    chart.dispatchAction({ type: "highlight", seriesIndex: 0, dataIndex: selectedIndex });
-    previousSelectedIndexRef.current = selectedIndex;
-  }, [analysis, selectedGraphId]);
-
-  return (
-    <div
-      ref={containerRef}
-      className="feature-pca-chart"
-      role="img"
-      aria-label={`${analysis.feature_name} ${analysis.pca.projection_method === "raw" ? "2D feature plot" : "PCA"}`}
-      tabIndex={0}
-    />
-  );
-}
-
 function FeatureStatisticsTab({ analysis }: { analysis: FeatureAnalysis }) {
   return (
     <div className="dataset-tab-panel">
@@ -1192,163 +1048,6 @@ function FeatureStatisticsTab({ analysis }: { analysis: FeatureAnalysis }) {
   );
 }
 
-function FeaturePcaTab({
-  activeProjectId,
-  feature,
-  analysis,
-  selectedGraphId,
-  onSelectGraph
-}: {
-  activeProjectId: string;
-  feature: FeatureManifest;
-  analysis: FeatureAnalysis;
-  selectedGraphId: string;
-  onSelectGraph: (graphId: string, visible: boolean | null) => void;
-}) {
-  const [searchQuery, setSearchQuery] = useState("");
-  const trimmedSearch = searchQuery.trim();
-  const graphSearch = useQuery({
-    queryKey: ["projects", activeProjectId, "features", feature.id, "analysis", "search", trimmedSearch],
-    queryFn: () => api.featureGraphSearch(activeProjectId, feature.id, trimmedSearch, 25),
-    enabled: Boolean(activeProjectId && feature.id && trimmedSearch)
-  });
-
-  const selectSearchResult = (result: FeatureGraphSearchResult) => {
-    onSelectGraph(result.graph_id, result.in_pca_sample);
-  };
-
-  const selectedResultIndex =
-    graphSearch.data?.results.findIndex((result) => result.graph_id === selectedGraphId) ?? -1;
-  const searchResultCount = graphSearch.data?.results.length || 0;
-
-  const selectResultByIndex = (index: number) => {
-    const result = graphSearch.data?.results[index];
-    if (result) selectSearchResult(result);
-  };
-
-  if (!analysis.pca.available) {
-    return (
-      <div className="dataset-tab-panel">
-        <div className="artifact-table-empty">
-          <EmptyState compact>{analysis.pca.reason || "PCA is unavailable for this feature."}</EmptyState>
-        </div>
-      </div>
-    );
-  }
-
-  const selectedGraphOutsideSample = Boolean(selectedGraphId && !analysis.pca.points.some((point) => point.graph_id === selectedGraphId));
-  const projectionLabel = analysis.pca.projection_method === "raw" ? "Direct 2D" : "PCA";
-  const colorLabel = analysis.pca.color_by === "graph_label" ? "graph label" : "graph ID";
-  const searchStatus = trimmedSearch
-    ? graphSearch.data
-      ? `${formatCount(graphSearch.data.total_matches)} ${graphSearch.data.total_matches === 1 ? "match" : "matches"}`
-      : graphSearch.isLoading
-        ? "Searching"
-        : "Search results"
-    : "Graph ID or label";
-
-  return (
-    <div className="dataset-tab-panel graph-tab-panel">
-      <div className="feature-pca-control-band">
-        <div className="feature-pca-nav-group" aria-label="Feature search navigation">
-          <button
-            type="button"
-            className="icon-btn graph-nav-btn"
-            aria-label="Previous result"
-            title="Previous result"
-            onClick={() => selectResultByIndex(selectedResultIndex - 1)}
-            disabled={searchResultCount === 0 || selectedResultIndex <= 0}
-          >
-            <ChevronLeft />
-          </button>
-          <button
-            type="button"
-            className="icon-btn graph-nav-btn"
-            aria-label="Next result"
-            title="Next result"
-            onClick={() => selectResultByIndex(selectedResultIndex + 1)}
-            disabled={searchResultCount === 0 || selectedResultIndex < 0 || selectedResultIndex >= searchResultCount - 1}
-          >
-            <ChevronRight />
-          </button>
-        </div>
-        <label className="field graph-search-field feature-pca-search-field">
-          <span>Search</span>
-          <div className="graph-search-input">
-            <Search />
-            <input
-              aria-label="Search feature graph IDs and labels"
-              value={searchQuery}
-              placeholder="Graph ID or label"
-              onChange={(event) => setSearchQuery(event.target.value)}
-            />
-          </div>
-        </label>
-        <div className="feature-pca-status-group">
-          <span className="status-pill is-ready">{projectionLabel}</span>
-          {analysis.pca.sampled ? <span className="status-pill is-idle">sampled</span> : null}
-          <span className="muted dataset-page-count">{searchStatus}</span>
-        </div>
-        <div className="feature-pca-meta-group">
-          <span className="muted dataset-page-count">
-            {formatCount(analysis.pca.point_count)} plotted of {formatCount(analysis.pca.total_graphs)} graphs
-          </span>
-          <span className="muted dataset-page-count">color by {colorLabel}</span>
-        </div>
-      </div>
-      {trimmedSearch ? (
-        <div className="graph-search-results" role="listbox" aria-label="Feature graph search results">
-          {graphSearch.isLoading ? <span className="muted">Searching.</span> : null}
-          {graphSearch.error ? <span className="table-error inline-error">{graphSearch.error.message}</span> : null}
-          {graphSearch.data ? (
-            <>
-              <span className="muted">
-                {formatCount(graphSearch.data.total_matches)} {graphSearch.data.total_matches === 1 ? "match" : "matches"}
-              </span>
-              {graphSearch.data.results.length ? (
-                graphSearch.data.results.map((result) => (
-                  <button
-                    type="button"
-                    key={`${result.kind}-${result.graph_id}`}
-                    className={`graph-search-result ${result.graph_id === selectedGraphId ? "is-selected" : ""}`}
-                    onClick={() => selectSearchResult(result)}
-                  >
-                    <span className="status-pill is-idle">{result.kind}</span>
-                    <strong>{result.graph_id}</strong>
-                    <span className="muted">
-                      label {formatValue(result.graph_label)} · {formatCount(result.node_count)} nodes ·{" "}
-                      {result.in_pca_sample ? "plotted" : "not plotted"}
-                    </span>
-                  </button>
-                ))
-              ) : (
-                <span className="muted">No graph matches.</span>
-              )}
-            </>
-          ) : null}
-        </div>
-      ) : null}
-      {analysis.pca.sampled ? (
-        <p className="table-note">
-          Showing {formatCount(analysis.pca.point_count)} plotted graphs
-          {analysis.pca.projection_method === "pca" ? ` and fitting on ${formatCount(analysis.pca.fit_row_count)} graphs` : ""} (
-          {analysis.pca.sample_reason}).
-        </p>
-      ) : null}
-      {selectedGraphOutsideSample ? (
-        <p className="table-note">
-          Selected graph {selectedGraphId} is outside the plotted sample. Inspector details are shown in the Right Panel.
-        </p>
-      ) : null}
-      <FeaturePcaChart
-        analysis={analysis}
-        selectedGraphId={selectedGraphId}
-        onSelectGraph={onSelectGraph}
-      />
-    </div>
-  );
-}
-
 export function FeatureExploreView({
   activeProjectId,
   features,
@@ -1363,7 +1062,7 @@ export function FeatureExploreView({
   onSelectGraph,
   onSelectedGraphVisibilityChange
 }: FeatureExploreViewProps) {
-  const [tab, setTab] = useState<"statistics" | "pca" | "data">("statistics");
+  const [tab, setTab] = useState<"statistics" | "analysis" | "data">("statistics");
   const datasetsById = useMemo(() => new Map(datasets.map((dataset) => [dataset.id, dataset])), [datasets]);
   const catalogById = useMemo(() => new Map(catalog.map((entry) => [entry.id, entry])), [catalog]);
   const feature = useMemo(
@@ -1377,22 +1076,18 @@ export function FeatureExploreView({
     onSelectedGraphVisibilityChange(null);
   }, [feature?.id, onSelectGraph, onSelectedGraphVisibilityChange]);
 
+  // Base analysis (default PCA, no clustering) feeds Statistics/Data and tells us whether labels
+  // exist; the Analysis tab's cards each fetch their own projection/clustering.
   const analysis = useQuery({
-    queryKey: ["projects", activeProjectId, "features", feature?.id, "analysis"],
+    queryKey: ["projects", activeProjectId, "features", feature?.id, "analysis", "base"],
     queryFn: () => api.featureAnalysis(activeProjectId, feature!.id),
     enabled: Boolean(activeProjectId && feature?.id && feature.status === "completed")
   });
 
-  useEffect(() => {
-    if (!selectedGraphId || !analysis.data) {
-      onSelectedGraphVisibilityChange(null);
-      return;
-    }
-    onSelectedGraphVisibilityChange(analysis.data.pca.points.some((point) => point.graph_id === selectedGraphId));
-  }, [analysis.data, onSelectedGraphVisibilityChange, selectedGraphId]);
+  const hasLabels = Object.keys(analysis.data?.graph_label_distribution ?? {}).length > 0;
 
   useEffect(() => {
-    if (tab === "pca" && analysis.data && !analysis.data.pca.available) {
+    if (tab === "analysis" && analysis.data && !analysis.data.pca.available) {
       setTab("statistics");
     }
   }, [analysis.data, tab]);
@@ -1516,18 +1211,18 @@ export function FeatureExploreView({
           <span className="explore-title">{feature.name}</span>
         </header>
         <div className="tab-strip">
-          {(["statistics", "pca", "data"] as const).map((item) => {
-            const pcaDisabled = item === "pca" && Boolean(analysis.data && !analysis.data.pca.available);
+          {(["statistics", "analysis", "data"] as const).map((item) => {
+            const analysisDisabled = item === "analysis" && Boolean(analysis.data && !analysis.data.pca.available);
             return (
               <button
                 key={item}
                 type="button"
                 className={`tab-btn ${tab === item ? "is-active" : ""}`}
                 onClick={() => setTab(item)}
-                disabled={pcaDisabled}
-                title={pcaDisabled ? analysis.data?.pca.reason || "PCA is unavailable for this feature." : undefined}
+                disabled={analysisDisabled}
+                title={analysisDisabled ? analysis.data?.pca.reason || "Analysis is unavailable for this feature." : undefined}
               >
-                {item === "statistics" ? "Statistics" : item === "pca" ? "PCA" : "Data"}
+                {item === "statistics" ? "Statistics" : item === "analysis" ? "Analysis" : "Data"}
               </button>
             );
           })}
@@ -1539,13 +1234,12 @@ export function FeatureExploreView({
           </div>
         ) : null}
         {tab === "statistics" && analysis.data ? <FeatureStatisticsTab analysis={analysis.data} /> : null}
-        {tab === "pca" && analysis.data ? (
-          <FeaturePcaTab
-            activeProjectId={activeProjectId}
-            feature={feature}
-            analysis={analysis.data}
-            selectedGraphId={selectedGraphId}
-            onSelectGraph={onSelectGraph}
+        {tab === "analysis" && analysis.data ? (
+          <AnalysisCommandCenter
+            analyze={(params) => api.featureAnalysis(activeProjectId, feature.id, params)}
+            queryKeyBase={["projects", activeProjectId, "features", feature.id, "analysis"]}
+            exportName={feature.name}
+            hasLabels={hasLabels}
           />
         ) : null}
         {tab === "data" ? <FeatureDataTab activeProjectId={activeProjectId} feature={feature} /> : null}

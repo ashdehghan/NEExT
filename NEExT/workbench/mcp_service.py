@@ -462,12 +462,21 @@ class WorkbenchMcpService:
                 )
             )
         if artifact_kind == "features":
+            cluster_k = opts.get("cluster_k")
+            perplexity = opts.get("perplexity")
+            n_neighbors = opts.get("n_neighbors")
+            min_dist = opts.get("min_dist")
             return self._dump(
                 self.store.analyze_feature(
                     project_id,
                     artifact_id,
                     max_fit_rows=int(opts.get("max_fit_rows", FEATURE_ANALYSIS_DEFAULT_MAX_FIT_ROWS)),
                     max_points=int(opts.get("max_points", FEATURE_ANALYSIS_DEFAULT_MAX_POINTS)),
+                    cluster_k=int(cluster_k) if cluster_k is not None else None,
+                    projection_method=str(opts.get("projection_method", "pca")),
+                    perplexity=float(perplexity) if perplexity is not None else None,
+                    n_neighbors=int(n_neighbors) if n_neighbors is not None else None,
+                    min_dist=float(min_dist) if min_dist is not None else None,
                 )
             )
         if artifact_kind == "embeddings":

@@ -584,9 +584,24 @@ def create_app(workspace_path: Optional[Union[str, Path]] = None):
         feature_id: str,
         max_fit_rows: int = FEATURE_ANALYSIS_DEFAULT_MAX_FIT_ROWS,
         max_points: int = FEATURE_ANALYSIS_DEFAULT_MAX_POINTS,
+        cluster_k: Optional[int] = None,
+        projection_method: str = "pca",
+        perplexity: Optional[float] = None,
+        n_neighbors: Optional[int] = None,
+        min_dist: Optional[float] = None,
     ) -> FeatureAnalysis:
         try:
-            return store.analyze_feature(project_id, feature_id, max_fit_rows=max_fit_rows, max_points=max_points)
+            return store.analyze_feature(
+                project_id,
+                feature_id,
+                max_fit_rows=max_fit_rows,
+                max_points=max_points,
+                cluster_k=cluster_k,
+                projection_method=projection_method,
+                perplexity=perplexity,
+                n_neighbors=n_neighbors,
+                min_dist=min_dist,
+            )
         except Exception as exc:
             raise api_exception(exc) from exc
 
