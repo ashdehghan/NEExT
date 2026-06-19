@@ -2177,6 +2177,13 @@ input:focus, textarea:focus, select:focus {
   flex: 1;
   min-height: 0;
 }
+/* Square plot area (1:1) for scientific scatter/projection cards. The ECharts
+   ResizeObserver in AnalysisScatter re-fits the chart when the body resizes. */
+.chart-card-square .chart-card-body {
+  flex: 0 0 auto;
+  width: 100%;
+  aspect-ratio: 1 / 1;
+}
 .chart-card-overlay {
   position: absolute;
   inset: 0;
@@ -2269,7 +2276,8 @@ input:focus, textarea:focus, select:focus {
   gap: var(--space-3);
 }
 .analysis-grid > .chart-card {
-  min-height: 340px;
+  /* Height is driven by the square plot body (.chart-card-square) plus the header. */
+  min-height: 0;
 }
 @media (max-width: 1180px) {
   .analysis-grid {

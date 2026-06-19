@@ -741,6 +741,13 @@ type ModelMetricsChartElement = HTMLDivElement & {
   __modelMetricsChart?: ReturnType<typeof echarts.init>;
 };
 
+// Shared academic chart styling tokens (kept in sync with viz/AnalysisCommandCenter).
+const CHART_FONT = "'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif";
+const AXIS_NAME_COLOR = "#3a444e";
+const AXIS_LABEL_COLOR = "#5b6671";
+const AXIS_LINE_COLOR = "#c8d0d6";
+const SPLIT_LINE_COLOR = "#eef1f4";
+
 function ModelMetricsChart({
   analysis,
   selectedIteration,
@@ -807,22 +814,32 @@ function ModelMetricsChart({
     const option: EChartsOption = {
       animation: false,
       color: palette,
-      grid: { left: 50, right: 24, top: 32, bottom: 44 },
-      legend: { top: 4, type: "scroll" },
+      textStyle: { fontFamily: CHART_FONT },
+      grid: { left: 54, right: 24, top: 34, bottom: 48 },
+      legend: { top: 4, type: "scroll", icon: "circle", itemWidth: 8, itemHeight: 8, textStyle: { fontSize: 11, color: AXIS_NAME_COLOR, fontFamily: CHART_FONT } },
       xAxis: {
         type: "value",
         name: "Iteration",
         nameLocation: "middle",
-        nameGap: 28,
+        nameGap: 30,
         minInterval: 1,
-        splitLine: { lineStyle: { color: "#dfe5e9" } }
+        nameTextStyle: { color: AXIS_NAME_COLOR, fontSize: 12, fontWeight: 600 },
+        axisLabel: { color: AXIS_LABEL_COLOR, fontSize: 11 },
+        axisTick: { show: false },
+        axisLine: { lineStyle: { color: AXIS_LINE_COLOR } },
+        splitLine: { lineStyle: { color: SPLIT_LINE_COLOR } }
       },
       yAxis: {
         type: "value",
         name: "Metric",
         nameLocation: "middle",
-        nameGap: 34,
-        splitLine: { lineStyle: { color: "#dfe5e9" } }
+        nameGap: 38,
+        scale: true,
+        nameTextStyle: { color: AXIS_NAME_COLOR, fontSize: 12, fontWeight: 600 },
+        axisLabel: { color: AXIS_LABEL_COLOR, fontSize: 11 },
+        axisTick: { show: false },
+        axisLine: { lineStyle: { color: AXIS_LINE_COLOR } },
+        splitLine: { lineStyle: { color: SPLIT_LINE_COLOR } }
       },
       tooltip: {
         trigger: "item",
@@ -886,15 +903,26 @@ function ModelFeatureImportanceChart({
     const values = ordered.map((item) => item.score).reverse();
     const option: EChartsOption = {
       animation: false,
-      grid: { left: 160, right: 28, top: 12, bottom: 40 },
+      textStyle: { fontFamily: CHART_FONT },
+      grid: { left: 160, right: 28, top: 14, bottom: 44 },
       xAxis: {
         type: "value",
         name: scoreLabel,
         nameLocation: "middle",
-        nameGap: 26,
-        splitLine: { lineStyle: { color: "#dfe5e9" } }
+        nameGap: 28,
+        nameTextStyle: { color: AXIS_NAME_COLOR, fontSize: 12, fontWeight: 600 },
+        axisLabel: { color: AXIS_LABEL_COLOR, fontSize: 11 },
+        axisTick: { show: false },
+        axisLine: { lineStyle: { color: AXIS_LINE_COLOR } },
+        splitLine: { lineStyle: { color: SPLIT_LINE_COLOR } }
       },
-      yAxis: { type: "category", data: categories, axisLabel: { fontSize: 11 } },
+      yAxis: {
+        type: "category",
+        data: categories,
+        axisLabel: { fontSize: 11, color: AXIS_LABEL_COLOR },
+        axisTick: { show: false },
+        axisLine: { lineStyle: { color: AXIS_LINE_COLOR } }
+      },
       tooltip: {
         trigger: "item",
         formatter: (params: unknown) => {

@@ -1664,7 +1664,7 @@ test("Datasets and Features prepare and compute through Draft artifacts and jobs
   await expect(page.getByLabel("Parallel Backend")).toHaveCount(0);
 
   await ribbon.getByRole("button", { name: "Library" }).click();
-  await expect(page.locator(".artifact-table .tbl thead th")).toHaveText(["Name", "Type", "Output", "Actions"]);
+  await expect(page.locator(".artifact-table .tbl thead th")).toHaveText(["", "Name", "Type", "Output", "Actions"]);
   await expect(page.getByText("Dataset: MUTAG")).toBeVisible();
   const pageRankRow = page.locator("table tbody tr", { hasText: "PageRank" }).first();
   await expect(pageRankRow).toBeVisible();
@@ -1715,6 +1715,61 @@ test("Datasets and Features prepare and compute through Draft artifacts and jobs
   await expect(featureExploreView.getByRole("button", { name: "Data", exact: true })).toBeVisible();
   await featureExploreView.getByRole("button", { name: "Data", exact: true }).click();
   await expect(page.locator(".artifact-table .tbl thead")).toContainText("page_rank_0");
+});
+
+test("Feature Library bulk-adds selected built-ins and Features Select-All computes them", async ({ page }) => {
+  test.setTimeout(120_000);
+  const projectName = `Bulk Feature Project ${Date.now()}`;
+  seedTinyEmbeddingProject(projectName);
+
+  await page.goto("/");
+  await page.locator(".selection-panel .sel-item-name", { hasText: projectName }).click();
+  await page
+    .locator(".selection-panel .sel-section", { hasText: "Datasets" })
+    .locator(".sel-item", { hasText: "Tiny Embedding" })
+    .click();
+
+  await page.getByRole("button", { name: "FEATURES" }).click();
+  const ribbon = page.locator(".ribbon");
+  await ribbon.getByRole("button", { name: "Library" }).click();
+  await expect(page.locator(".artifact-table .tbl thead th")).toHaveText(["", "Name", "Type", "Output", "Actions"]);
+
+  const addSelected = page.getByRole("button", { name: "Add Selected to Project" });
+  await expect(addSelected).toBeDisabled();
+
+  // Select-All header toggles the whole catalog.
+  const selectAllCatalog = page.getByRole("checkbox", { name: "Select all features" });
+  await selectAllCatalog.check();
+  await expect(addSelected).toBeEnabled();
+  await selectAllCatalog.uncheck();
+  await expect(addSelected).toBeDisabled();
+
+  // Pick two specific built-ins not already in the seeded project.
+  await page.getByRole("checkbox", { name: "Select Closeness Centrality" }).check();
+  await page.getByRole("checkbox", { name: "Select Clustering Coefficient" }).check();
+  await expect(addSelected).toBeEnabled();
+  await addSelected.click();
+
+  // Seeded 2 features + 2 newly added = 4.
+  await expect(page.locator(".selection-panel .sel-section", { hasText: "Features" }).locator(".sel-count")).toHaveText("4", {
+    timeout: 20_000
+  });
+
+  await ribbon.getByRole("button", { name: "Features" }).click();
+  const closenessRow = page.locator("table tbody tr", { hasText: "Tiny Embedding - Closeness Centrality" }).first();
+  const clusteringRow = page.locator("table tbody tr", { hasText: "Tiny Embedding - Clustering Coefficient" }).first();
+  await expect(closenessRow).toContainText("Draft");
+  await expect(clusteringRow).toContainText("Draft");
+
+  // Select-All runnable, then batch compute.
+  const computeSelected = page.getByRole("button", { name: "Compute Selected" });
+  await expect(computeSelected).toBeDisabled();
+  await page.getByRole("checkbox", { name: "Select all runnable features" }).check();
+  await expect(computeSelected).toBeEnabled();
+  await computeSelected.click();
+
+  await expect(closenessRow.locator(".status-pill")).toHaveText("Ready", { timeout: 90_000 });
+  await expect(clusteringRow.locator(".status-pill")).toHaveText("Ready", { timeout: 90_000 });
 });
 
 test("Embeddings library configures, batches, runs, and previews persisted artifacts", async ({ page }) => {

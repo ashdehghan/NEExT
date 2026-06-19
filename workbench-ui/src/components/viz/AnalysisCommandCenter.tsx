@@ -22,6 +22,13 @@ const ANALYSIS_PALETTE = [
   "#176ea9", "#d86c1f", "#2d8754", "#8d5db8", "#a4513d", "#4f758b", "#6b7f2a", "#9a5b91", "#b0883a", "#3f7d7a"
 ];
 
+// Shared academic chart styling tokens.
+const CHART_FONT = "'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif";
+const AXIS_NAME_COLOR = "#3a444e";
+const AXIS_LABEL_COLOR = "#5b6671";
+const AXIS_LINE_COLOR = "#c8d0d6";
+const SPLIT_LINE_COLOR = "#eef1f4";
+
 type AnalysisScatterDatum = {
   value: [number, number];
   graph_id: string;
@@ -116,23 +123,41 @@ function AnalysisScatter({
 
     const option: EChartsOption = {
       animation: false,
-      legend: showLegend ? { type: "scroll", top: 2, textStyle: { fontSize: 11 } } : undefined,
-      grid: { left: 54, right: 18, top: showLegend ? 28 : 14, bottom: 46 },
+      textStyle: { fontFamily: CHART_FONT },
+      legend: showLegend
+        ? {
+            type: "scroll",
+            top: 2,
+            icon: "circle",
+            itemWidth: 8,
+            itemHeight: 8,
+            textStyle: { fontSize: 11, color: AXIS_NAME_COLOR, fontFamily: CHART_FONT }
+          }
+        : undefined,
+      grid: { left: 58, right: 22, top: showLegend ? 30 : 16, bottom: 50 },
       xAxis: {
         type: "value",
         name: payload.x_axis_label,
         nameLocation: "middle",
-        nameGap: 26,
-        splitLine: { lineStyle: { color: "#eceff2" } },
-        axisLine: { lineStyle: { color: "#cfd6dc" } }
+        nameGap: 28,
+        scale: true,
+        nameTextStyle: { color: AXIS_NAME_COLOR, fontSize: 12, fontWeight: 600 },
+        axisLabel: { color: AXIS_LABEL_COLOR, fontSize: 11, hideOverlap: true },
+        axisTick: { show: false },
+        axisLine: { lineStyle: { color: AXIS_LINE_COLOR } },
+        splitLine: { lineStyle: { color: SPLIT_LINE_COLOR } }
       },
       yAxis: {
         type: "value",
         name: payload.y_axis_label,
         nameLocation: "middle",
         nameGap: 40,
-        splitLine: { lineStyle: { color: "#eceff2" } },
-        axisLine: { lineStyle: { color: "#cfd6dc" } }
+        scale: true,
+        nameTextStyle: { color: AXIS_NAME_COLOR, fontSize: 12, fontWeight: 600 },
+        axisLabel: { color: AXIS_LABEL_COLOR, fontSize: 11, hideOverlap: true },
+        axisTick: { show: false },
+        axisLine: { lineStyle: { color: AXIS_LINE_COLOR } },
+        splitLine: { lineStyle: { color: SPLIT_LINE_COLOR } }
       },
       tooltip: {
         trigger: "item",
@@ -287,6 +312,7 @@ function ProjectionCard({
       running={query.isFetching}
       runningLabel={`Computing ${meta.title}…`}
       error={error}
+      className="chart-card-square"
     >
       {payload && payload.available ? (
         <AnalysisScatter payload={payload} colorMode={hasLabels && colorByLabel ? "label" : "none"} chartRef={chartRef} />
@@ -367,6 +393,7 @@ function ClusteringCard({
       running={query.isFetching}
       runningLabel="Clustering…"
       error={error}
+      className="chart-card-square"
     >
       {payload && payload.available ? (
         <AnalysisScatter payload={payload} colorMode="cluster" chartRef={chartRef} />

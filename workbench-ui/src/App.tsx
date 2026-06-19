@@ -1747,6 +1747,7 @@ export default function App() {
     if (route.topTab === "features" && route.command === "library") {
       return (
         <FeatureLibraryView
+          activeProjectId={activeProjectId}
           catalog={featureLibraryQuery.data || []}
           loading={featureLibraryQuery.isLoading}
           selectedCatalogId={selectedFeatureCatalogId}

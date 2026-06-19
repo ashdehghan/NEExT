@@ -28,6 +28,7 @@ import { EmptyState } from "../../components/primitives/EmptyState";
 import { FcIcon } from "../../components/primitives/FcIcon";
 
 interface FeatureLibraryViewProps {
+  activeProjectId: string;
   catalog: FeatureCatalogEntry[];
   loading: boolean;
   selectedCatalogId: string;
@@ -139,6 +140,7 @@ function draftBoolean(draft: Record<string, unknown> | undefined, key: string): 
 }
 
 export function FeatureLibraryView({
+  activeProjectId,
   catalog,
   loading,
   selectedCatalogId,
@@ -146,6 +148,49 @@ export function FeatureLibraryView({
   onSelectCatalog,
   onConfigure
 }: FeatureLibraryViewProps) {
+  const queryClient = useQueryClient();
+  const [checkedCatalogIds, setCheckedCatalogIds] = useState<string[]>([]);
+  const headerCheckboxRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    setCheckedCatalogIds((current) => current.filter((catalogId) => catalog.some((entry) => entry.id === catalogId)));
+  }, [catalog]);
+
+  const allChecked = catalog.length > 0 && checkedCatalogIds.length === catalog.length;
+  const someChecked = checkedCatalogIds.length > 0 && !allChecked;
+
+  useEffect(() => {
+    if (headerCheckboxRef.current) headerCheckboxRef.current.indeterminate = someChecked;
+  }, [someChecked]);
+
+  const addSelected = useMutation({
+    mutationFn: async (catalogIds: string[]) => {
+      const created: FeatureManifest[] = [];
+      const failures: string[] = [];
+      for (const catalogId of catalogIds) {
+        try {
+          const result = await api.createFeature(activeProjectId, {
+            source_dataset_id: selectedDataset!.id,
+            source_feature_id: catalogId,
+            params: { feature_vector_length: 3, normalize_features: true, n_jobs: 1, parallel_backend: "loky" }
+          });
+          created.push(result);
+        } catch (error) {
+          const name = catalog.find((entry) => entry.id === catalogId)?.name || catalogId;
+          failures.push(`${name}: ${(error as Error).message}`);
+        }
+      }
+      if (failures.length) throw new Error(`Failed to add ${failures.length} feature(s): ${failures.join("; ")}`);
+      return created;
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: ["projects", activeProjectId, "features"] });
+      setCheckedCatalogIds([]);
+    }
+  });
+
+  const canAddSelected = checkedCatalogIds.length > 0 && Boolean(selectedDataset) && !addSelected.isPending;
+
   return (
     <div className="workflow">
       <section className="artifact-table">
@@ -156,6 +201,7 @@ export function FeatureLibraryView({
           </span>
           <span className="muted">{selectedDataset ? `Dataset: ${selectedDataset.name}` : "Select a dataset first"}</span>
         </header>
+        {addSelected.error ? <p className="table-error">{addSelected.error.message}</p> : null}
         {loading ? (
           <div className="artifact-table-empty">
             <EmptyState compact>Loading feature library.</EmptyState>
@@ -165,47 +211,88 @@ export function FeatureLibraryView({
             <EmptyState compact>No feature catalog entries.</EmptyState>
           </div>
         ) : (
-          <div className="artifact-table-scroll">
-            <table className="tbl">
-              <thead>
-                <tr>
-                  <th>Name</th>
-                  <th>Type</th>
-                  <th>Output</th>
-                  <th className="actions-col">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {catalog.map((entry) => (
-                  <tr
-                    key={entry.id}
-                    className={entry.id === selectedCatalogId ? "is-selected" : ""}
-                    onClick={() => onSelectCatalog(entry.id)}
-                  >
-                    <td>
-                      <strong>{entry.name}</strong>
-                    </td>
-                    <td className="muted">{featureTypeLabel(entry)}</td>
-                    <td>{entry.output}</td>
-                    <td className="actions-cell actions-cell-wide">
-                      <button
-                        type="button"
-                        className="btn"
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          onSelectCatalog(entry.id);
-                          onConfigure(entry.id);
-                        }}
-                      >
-                        <Plus />
-                        Add to Project
-                      </button>
-                    </td>
+          <>
+            <div className="table-toolbar">
+              <button
+                type="button"
+                className="btn"
+                disabled={!canAddSelected}
+                onClick={() => addSelected.mutate(checkedCatalogIds)}
+              >
+                <Plus />
+                {addSelected.isPending ? "Adding…" : "Add Selected to Project"}
+              </button>
+            </div>
+            <div className="artifact-table-scroll">
+              <table className="tbl">
+                <thead>
+                  <tr>
+                    <th>
+                      <input
+                        ref={headerCheckboxRef}
+                        type="checkbox"
+                        aria-label="Select all features"
+                        checked={allChecked}
+                        onChange={(event) =>
+                          setCheckedCatalogIds(event.target.checked ? catalog.map((entry) => entry.id) : [])
+                        }
+                      />
+                    </th>
+                    <th>Name</th>
+                    <th>Type</th>
+                    <th>Output</th>
+                    <th className="actions-col">Actions</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody>
+                  {catalog.map((entry) => {
+                    const isChecked = checkedCatalogIds.includes(entry.id);
+                    return (
+                      <tr
+                        key={entry.id}
+                        className={entry.id === selectedCatalogId ? "is-selected" : ""}
+                        onClick={() => onSelectCatalog(entry.id)}
+                      >
+                        <td>
+                          <input
+                            type="checkbox"
+                            aria-label={`Select ${entry.name}`}
+                            checked={isChecked}
+                            onChange={(event) => {
+                              event.stopPropagation();
+                              setCheckedCatalogIds((current) =>
+                                event.target.checked ? [...current, entry.id] : current.filter((catalogId) => catalogId !== entry.id)
+                              );
+                            }}
+                            onClick={(event) => event.stopPropagation()}
+                          />
+                        </td>
+                        <td>
+                          <strong>{entry.name}</strong>
+                        </td>
+                        <td className="muted">{featureTypeLabel(entry)}</td>
+                        <td>{entry.output}</td>
+                        <td className="actions-cell actions-cell-wide">
+                          <button
+                            type="button"
+                            className="btn"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              onSelectCatalog(entry.id);
+                              onConfigure(entry.id);
+                            }}
+                          >
+                            <Plus />
+                            Add to Project
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </>
         )}
       </section>
     </div>
@@ -737,6 +824,17 @@ export function ProjectFeaturesView({
     return feature?.status === "planned" || feature?.status === "failed";
   });
 
+  const runnableFeatureIds = features
+    .filter((feature) => feature.status === "planned" || feature.status === "failed")
+    .map((feature) => feature.id);
+  const allRunnableChecked = runnableFeatureIds.length > 0 && runnableFeatureIds.every((id) => checkedFeatureIds.includes(id));
+  const someRunnableChecked = runnableCheckedFeatureIds.length > 0 && !allRunnableChecked;
+  const headerCheckboxRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (headerCheckboxRef.current) headerCheckboxRef.current.indeterminate = someRunnableChecked;
+  }, [someRunnableChecked]);
+
   return (
     <div className="workflow">
       <section className="artifact-table">
@@ -778,7 +876,16 @@ export function ProjectFeaturesView({
             <table className="tbl">
               <thead>
                 <tr>
-                  <th />
+                  <th>
+                    <input
+                      ref={headerCheckboxRef}
+                      type="checkbox"
+                      aria-label="Select all runnable features"
+                      checked={allRunnableChecked}
+                      disabled={runnableFeatureIds.length === 0}
+                      onChange={(event) => setCheckedFeatureIds(event.target.checked ? runnableFeatureIds : [])}
+                    />
+                  </th>
                   <th>Name</th>
                   <th>Dataset</th>
                   <th>Method</th>
