@@ -19,6 +19,8 @@ class FeatureImportanceConfig(BaseModel):
     model_name: Literal["xgboost", "random_forest"] = "random_forest"
     random_state: int = 42
     sample_size: int = 5
+    n_jobs: int = -1
+    parallel_backend: Literal["process", "thread"] = "process"
 
 class FeatureImportance:
     """
@@ -49,14 +51,18 @@ class FeatureImportance:
         algorithm: str,
         embedding_algorithm: str = "approx_wasserstein",
         random_state: int = 42,
-        n_iterations: int = 5  # Keep for backward compatibility
+        n_iterations: int = 5,  # Keep for backward compatibility
+        n_jobs: int = -1,
+        parallel_backend: str = "process",
     ):
         """Initialize the FeatureImportance analyzer."""
         self.config = FeatureImportanceConfig(
             algorithm=algorithm,
             embedding_algorithm=embedding_algorithm,
             random_state=random_state,
-            sample_size=n_iterations  # Use n_iterations as sample_size
+            sample_size=n_iterations,  # Use n_iterations as sample_size
+            n_jobs=n_jobs,
+            parallel_backend=parallel_backend,
         )
         self.graph_collection = graph_collection
         self.features = features
@@ -146,11 +152,13 @@ class FeatureImportance:
                     graph_collection=self.graph_collection,
                     embeddings=embeddings,
                     model_type="classifier" if isinstance(
-                        self.graph_collection.graphs[0].graph_label, 
+                        self.graph_collection.graphs[0].graph_label,
                         (int, np.integer)
                     ) else "regressor",
                     random_state=self.config.random_state,
-                    sample_size=self.config.sample_size  # Use sample_size instead of n_iterations
+                    sample_size=self.config.sample_size,  # Use sample_size instead of n_iterations
+                    n_jobs=self.config.n_jobs,
+                    parallel_backend=self.config.parallel_backend,
                 )
                 results = ml_model.compute()
                 
@@ -191,35 +199,25 @@ class FeatureImportance:
     
     def _supervised_fast(self) -> pd.DataFrame:
         """
-        Compute feature importance using supervised fast algorithm.
-        
-        This method:
-        1. Determines feature importance order using Random Forest on 1D embeddings
-        2. Evaluates performance by iteratively building models with increasing feature sets
-        3. Returns results in same format as greedy method for consistency
-        
+        Compute feature importance using the supervised fast algorithm.
+
+        Each node feature is turned into a 1D graph embedding, the per-feature embeddings are merged
+        into a single matrix (one column per feature), and a Random Forest is trained on that matrix.
+        The forest's ``feature_importances_`` give a genuine, differentiated importance weight per
+        node feature, averaged over ``sample_size`` iterations. Higher weight = more predictive.
+
         Returns:
             pd.DataFrame: Results containing:
-                - feature_name: Name of the feature in order of importance
-                - avg_performance: Performance using features up to this point
+                - feature_name: Name of the node feature
+                - importance: Mean Random Forest importance weight (0..1, sums to ~1 across features)
                 - embedding_algorithm: Name of embedding algorithm used
                 - total_time: Total computation time in seconds
         """
         start_time = time.time()
         feature_embeddings = []
-        
-        # Create progress bar for initial embeddings
-        pbar = tqdm(
-            self.features.feature_columns,
-            desc="Computing initial embeddings",
-            position=0,
-            leave=True
-        )
-        
+
         # Generate 1D embeddings for each feature
-        for feature in pbar:
-            pbar.set_postfix({'feature': feature}, refresh=True)
-            
+        for feature in tqdm(self.features.feature_columns, desc="Computing per-feature embeddings"):
             embeddings = GraphEmbeddings(
                 graph_collection=self.graph_collection,
                 features=self.features,
@@ -228,98 +226,50 @@ class FeatureImportance:
                 feature_columns=[feature],
                 random_state=self.config.random_state
             ).compute()
-            
+
             embedding_df = embeddings.embeddings_df.copy()
             embedding_df.rename(columns={'emb_0': feature}, inplace=True)
             feature_embeddings.append(embedding_df)
-        
-        # Merge all embeddings
+
+        # Merge all per-feature embeddings into one matrix (one column per node feature)
         merged_df = feature_embeddings[0]
         for df in feature_embeddings[1:]:
             merged_df = pd.merge(merged_df, df, on='graph_id', how='outer')
-        
-        # Get feature importance order using Random Forest
+
         embeddings = Embeddings(
             embeddings_df=merged_df,
             embedding_name=self.config.embedding_algorithm,
             embedding_columns=self.features.feature_columns
         )
-        
+
+        # Train a Random Forest and read its real per-feature importance weights
         ml_model = MLModels(
             graph_collection=self.graph_collection,
             embeddings=embeddings,
             model_type="classifier" if isinstance(
-                self.graph_collection.graphs[0].graph_label, 
+                self.graph_collection.graphs[0].graph_label,
                 (int, np.integer)
             ) else "regressor",
             model_name="random_forest",
             compute_feature_importance=True,
             sample_size=self.config.sample_size,
-            random_state=self.config.random_state
+            random_state=self.config.random_state,
+            n_jobs=self.config.n_jobs,
+            parallel_backend=self.config.parallel_backend,
         )
-        
+
         results = ml_model.compute()
-        ordered_features = results['feature_importance'].index.tolist()
-        
-        # Evaluate performance iteratively
-        performance_scores = []
-        
-        # Create progress bar for performance evaluation
-        pbar = tqdm(
-            range(len(ordered_features)),
-            desc="Evaluating feature combinations",
-            position=0,
-            leave=True
-        )
-        
-        # Evaluate each feature combination
-        for i in pbar:
-            current_features = ordered_features[:i+1]
-            pbar.set_postfix({'n_features': len(current_features)}, refresh=True)
-            
-            # Create embeddings using current feature set
-            embeddings = GraphEmbeddings(
-                graph_collection=self.graph_collection,
-                features=self.features,
-                embedding_algorithm=self.config.embedding_algorithm,
-                embedding_dimension=len(current_features),  # Embedding size matches feature count
-                feature_columns=current_features,
-                random_state=self.config.random_state
-            ).compute()
-            
-            # Train and evaluate model
-            ml_model = MLModels(
-                graph_collection=self.graph_collection,
-                embeddings=embeddings,
-                model_type="classifier" if isinstance(
-                    self.graph_collection.graphs[0].graph_label, 
-                    (int, np.integer)
-                ) else "regressor",
-                model_name="random_forest",
-                sample_size=self.config.sample_size,
-                random_state=self.config.random_state
-            )
-            
-            results = ml_model.compute()
-            
-            # Get performance metric
-            if results["model_type"] == "classifier":
-                score = np.mean(results["accuracy"])
-            else:
-                score = -np.mean(results["rmse"])  # Negative RMSE for consistency
-            
-            performance_scores.append(abs(score))  # Convert back to positive RMSE if needed
-        
+        importance_df = results['feature_importance']  # index=feature, column 'importance', desc
+
         total_time = time.time() - start_time
-        
-        # Create results DataFrame
+
         results_df = pd.DataFrame({
-            'feature_name': ordered_features,
-            'avg_performance': performance_scores,
+            'feature_name': importance_df.index.tolist(),
+            'importance': importance_df['importance'].tolist(),
             'embedding_algorithm': self.config.embedding_algorithm,
             'total_time': total_time
         })
-        
+
         return results_df
     
     def _unsupervised(self) -> pd.DataFrame:

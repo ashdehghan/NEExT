@@ -45,6 +45,8 @@ env/
 # JavaScript/frontend dependencies and local workbench state
 node_modules/
 .neext-web*/
+test-results/
+playwright-report/
 
 # IDE specific files
 .idea/
@@ -218,12 +220,24 @@ test_and_debug/
 # Manuscript (separate private repo)
 manuscript/
 
+# Landing page (separate private GitHub Pages repo)
+/neext-landing-page/
+
 # Paper experiments (separate private repo)
 paper_experiments/
 
-# Sandbox directory for validation scripts
-sandbox/
+# Development lifecycle dashboard: commit the canonical HTML, keep local drafts/scratch ignored.
+/development-lifecycle/*
+!/development-lifecycle/index.html
+
+# Sandbox directory: local scratch artifacts, except shareable Workbench mockups.
+sandbox/*
+!sandbox/workbench-mockups/
+!sandbox/workbench-mockups/**
 
 # Personal experiments and research notes (kept locally)
 ash_experiments/
+
+# Demo / presentation material (kept locally)
+/demo/
 notes/

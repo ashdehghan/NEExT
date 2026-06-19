@@ -1,6 +1,6 @@
 import logging
 import random
-from typing import Dict, List, Literal, Optional, Set, Tuple, Union
+from typing import Any, Dict, List, Literal, Optional, Set, Tuple, Union
 
 import igraph as ig
 import networkx as nx
@@ -34,8 +34,8 @@ class Graph(BaseModel):
         "arbitrary_types_allowed": True,  # Allow arbitrary types like nx.Graph
     }
 
-    graph_id: int
-    graph_label: Optional[Union[int, float]] = None
+    graph_id: Union[int, str]
+    graph_label: Optional[Union[int, float, str]] = None
     nodes: List[int]
     edges: List[tuple[int, int]]
     node_attributes: Dict[int, Dict[str, Union[float, int, str]]] = Field(default_factory=dict)
@@ -43,6 +43,10 @@ class Graph(BaseModel):
     graph_type: Literal["networkx", "igraph"] = "networkx"
     G: Optional[Union[nx.Graph, ig.Graph]] = Field(default=None, exclude=True)
     sampled_nodes: Optional[List[int]] = Field(default=None, exclude=True)
+    source_graph_id: Optional[Any] = None
+    source_to_internal_node_id: Dict[Any, int] = Field(default_factory=dict)
+    dropped_source_node_ids: List[Any] = Field(default_factory=list)
+    drop_reasons_by_source_node_id: Dict[Any, str] = Field(default_factory=dict)
 
     def initialize_graph(self):
         """Initialize the graph with the specified backend."""
@@ -97,6 +101,8 @@ class Graph(BaseModel):
     def reindex_nodes(self) -> "Graph":
         """Reindex nodes to be consecutive integers starting from 0."""
         unique_nodes, new_edges, new_node_attrs, new_edge_attrs = self._reindex_nodes()
+        node_mapping = {old: new for new, old in enumerate(unique_nodes)}
+        source_to_internal = self._compose_source_mapping(node_mapping)
 
         # Create new graph with mapped IDs
         return Graph(
@@ -107,6 +113,10 @@ class Graph(BaseModel):
             node_attributes=new_node_attrs,
             edge_attributes=new_edge_attrs,
             graph_type=self.graph_type,
+            source_graph_id=self._source_graph_id(),
+            source_to_internal_node_id=source_to_internal,
+            dropped_source_node_ids=list(self.dropped_source_node_ids),
+            drop_reasons_by_source_node_id=dict(self.drop_reasons_by_source_node_id),
         )
 
     def _reindex_nodes(self):
@@ -133,6 +143,16 @@ class Graph(BaseModel):
             Graph: A new Graph instance containing only the largest connected component
         """
         nodes, edges, node_attrs, edge_attrs = self._filter_largest_component()
+        kept_nodes = set(nodes)
+        removed_nodes = set(self.nodes) - kept_nodes
+        drop_reason = "not_in_largest_connected_component"
+        dropped_source_node_ids = list(self.dropped_source_node_ids)
+        drop_reasons = dict(self.drop_reasons_by_source_node_id)
+        for source_node_id, internal_node_id in self._current_source_mapping().items():
+            if internal_node_id in removed_nodes and source_node_id not in dropped_source_node_ids:
+                dropped_source_node_ids.append(source_node_id)
+            if internal_node_id in removed_nodes:
+                drop_reasons[source_node_id] = drop_reason
 
         # Create new Graph instance
         filtered_graph = Graph(
@@ -143,10 +163,29 @@ class Graph(BaseModel):
             node_attributes=node_attrs,
             edge_attributes=edge_attrs,
             graph_type=self.graph_type,
+            source_graph_id=self._source_graph_id(),
+            source_to_internal_node_id=self._current_source_mapping(),
+            dropped_source_node_ids=dropped_source_node_ids,
+            drop_reasons_by_source_node_id=drop_reasons,
         )
 
         # Reindex nodes to be consecutive
         return filtered_graph.reindex_nodes()
+
+    def _source_graph_id(self):
+        return self.source_graph_id if self.source_graph_id is not None else self.graph_id
+
+    def _current_source_mapping(self) -> Dict[Any, int]:
+        if self.source_to_internal_node_id:
+            return dict(self.source_to_internal_node_id)
+        return {node: node for node in self.nodes}
+
+    def _compose_source_mapping(self, internal_node_mapping: Dict[Any, int]) -> Dict[Any, int]:
+        return {
+            source_node_id: internal_node_mapping[current_node_id]
+            for source_node_id, current_node_id in self._current_source_mapping().items()
+            if current_node_id in internal_node_mapping
+        }
 
     def _filter_largest_component(
         self,
@@ -219,7 +258,7 @@ class Graph(BaseModel):
             "graph_label": self.graph_label,
         }
 
-    def set_graph_label(self, label: int):
+    def set_graph_label(self, label: Union[int, float, str]):
         self.graph_label = label
 
     def sample_nodes(self, sample_rate: float = 1.0, random_seed: Optional[int] = None) -> List[int]:

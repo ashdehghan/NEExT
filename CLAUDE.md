@@ -2,43 +2,71 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Operating Rules (read first, enforce every turn)
+
+These rules override every default behavior. They exist because guessing, inventing, and private testing have repeatedly wasted the user's time. Re-read this section before every non-trivial action.
+
+1. **Never guess. Ask.** If a decision is not explicitly answered by user instructions or existing code, or if the user's request conflicts with the current Workbench pattern, stop and ask one narrow clarifying question. No silent defaults, no "reasonable" assumptions. Every past guess has been wrong.
+
+2. **Do not invent.** Do not add features, buttons, ribbon items, pages, modals, hooks, contexts, providers, helper utilities, Makefile targets, or files the user did not explicitly request. If you think something is needed, ask first. "While I'm here" additions are banned.
+
+3. **One thing, finished.** Complete the literal scope of the current task before opening any other scope. No bundling of unrelated improvements.
+
+4. **Read before writing.** Before creating any new component or behavior, read the relevant existing code and follow the patterns already in place. Reuse existing utilities; do not parallel-invent.
+
+5. **Test the way the user does.** End-to-end verification means running `make neext-workbench` and walking the same click path the user would walk in a browser at `http://127.0.0.1:8765`. Unit tests and Playwright specs are necessary but not sufficient. State explicitly what was tested and what was not — never claim "done" on partial verification.
+
+6. **Pause on every central decision.** Any architectural choice (new top-level pattern, new state model, new file category, new navigation behavior, new abstraction) requires asking the user first, AND asking whether `AGENTS.md` / `CLAUDE.md` should be updated. Update them only with explicit user approval.
+
+7. **Use the Workbench UI pattern.** Primary workflow content belongs in Center Views in the Center Panel. Do not introduce modals, alternative navigation, routes, state models, providers, or file categories unless explicitly approved. Allowed transient UI defaults are `ConfirmDialog` and `Toast`; any other modal/dialog category requires approval.
+
+8. **Canonical run command is `make neext-workbench`.** Do not invent dev/run targets. Test at `http://127.0.0.1:8765` (single server, IPv4 loopback). Do not test at `localhost:5173` unless explicitly asked.
+
+9. **Keep the repo clean. Use `sandbox/`.** This is an open-source project. Never drop screenshots, logs, scratch scripts, dumps, debug output, intermediate artifacts, or any other ephemeral garbage at the repo root or anywhere tracked by git. All such files go in `sandbox/`, which is gitignored (except `sandbox/workbench-mockups/`). If a tool defaults to writing to the working directory (Playwright screenshots, log files, etc.), redirect its output into `sandbox/`. Before declaring a task done, run `git status` and confirm no garbage is staged or untracked at the root.
+
+10. **Keep `AGENTS.md` and `CLAUDE.md` synchronized.** Whenever either file is updated, review the other file and update it in the same change when the guidance applies to both. Before any `git commit`, check whether either file needs an update so repository instructions do not drift.
+
+11. **Never push to git.** Coding agents must never run `git push`, create or update remote branches, push tags, or otherwise publish repository changes to any remote. Only the user may push. If a push seems necessary, stop after committing locally and tell the user what command they can run themselves.
+
+12. **Use voice once.** When using voice output, call the voice tool only once for a given message; if playback seems slow, wait rather than retrying.
+
 ## Build, Test, and Development Commands
 
 ### Testing
 ```bash
-# Run all tests (once tests/ directory is created)
-pytest
+# Run all tests
+python3 -m pytest
 
 # Run with coverage
-pytest --cov=NEExT
+python3 -m pytest --cov=NEExT
 
 # Run specific test file
-pytest tests/test_node_sampling.py
+python3 -m pytest tests/test_workbench.py
 
 # Run tests with verbose output
-pytest -v --tb=short
+python3 -m pytest -v --tb=short
 
 # Run example scripts to verify functionality
-python test.py              # Main integration test
-python test_networkx.py     # NetworkX loading test
+python3 test.py              # Main integration test
+python3 test_networkx.py     # NetworkX loading test
 ```
 
 ### Code Quality
 ```bash
 # Format code (150 char line length)
-black .
+python3 -m black .
 
 # Sort imports
-isort .
+python3 -m isort .
 
 # Run linting (ruff configured for E/W/F/I/B/C4/UP rules)
-ruff check .
+python3 -m ruff check .
 
 # Type checking
-mypy .
+python3 -m mypy .
 
 # Run all formatters and linters before committing
-black . && isort . && ruff check .
+python3 -m black . && python3 -m isort . && python3 -m ruff check .
 ```
 
 ### Documentation
@@ -60,14 +88,33 @@ make clean
 uv venv
 source .venv/bin/activate  # On Windows: .venv\Scripts\activate
 
-# Install NEExT in editable mode
-uv pip install -e .
+# Install NEExT with development and Workbench MCP dependencies
+uv sync --extra dev --extra workbench-mcp
 
-# Install with development dependencies
-uv pip install -e ".[dev]"
+# Fallback with standard Python tooling
+python3 -m venv .venv
+source .venv/bin/activate
+python3 -m pip install -U pip
+python3 -m pip install -e ".[dev,workbench-mcp]"
 
-# Install with specific components
-uv pip install -e ".[dev,test,docs,experiments]"
+# Install Workbench dependencies when needed
+python3 -m pip install -e ".[workbench-mcp]"
+```
+
+Workbench MCP development requires the `workbench-mcp` extra in the active project environment. Do not rely on Anaconda/base Python for MCP validation.
+
+### Workbench
+```bash
+# Canonical local run command
+make neext-workbench
+
+# Canonical browser URL
+http://127.0.0.1:8765
+
+# Workbench-specific automated checks
+python3 -m pytest tests/test_workbench.py
+cd workbench-ui && npm exec tsc
+cd workbench-ui && npm run test:e2e
 ```
 
 ## High-Level Architecture
@@ -89,6 +136,150 @@ Features → Embeddings → ML      EgonetCollection
                                     ↓
                             Features → Embeddings → Outlier Detection
 ```
+
+## Development Lifecycle Dashboard
+
+The committed lifecycle planning artifact is `development-lifecycle/index.html`. It is a self-contained HTML dashboard for current project state, epics, sprints, tasks, decisions, and agent handoff context.
+
+- Update this dashboard when a sprint is created, scoped, completed, or materially changed.
+- Use the dashboard to record approved decisions and known deferred areas; do not use it to invent new product scope or bypass the "Never guess. Ask." rule.
+- Local drafts, exports, notes, and scratch lifecycle material inside `development-lifecycle/` are ignored by git unless explicitly unignored.
+- If lifecycle guidance changes in `AGENTS.md` or `CLAUDE.md`, keep both files synchronized in the same change.
+
+### Workbench Shape
+
+NEExT Workbench is a local, single-user FastAPI + React desktop-style UI for research and scientific NEExT workflows. NEExT is the core lightweight Python library; Workbench is an optional interface over real NEExT capabilities.
+
+- Backend package: `NEExT/workbench/`
+- React source: `workbench-ui/`
+- Built release assets: `NEExT/workbench/static/`
+- Canonical launcher: `make neext-workbench`
+- Canonical browser URL: `http://127.0.0.1:8765`
+- Core `pip install NEExT` must stay lightweight. Workbench dependencies belong behind the Workbench extra or repository setup.
+- Core graph/network functionality belongs in NEExT. Workbench should orchestrate, expose, and enhance real NEExT workflows instead of duplicating algorithms.
+- Do not build fake, stub, placeholder, or half-wired Workbench features. Every Workbench UI feature must have real behavior, real data, and user-path verification.
+- Phase one Workbench is project-first. The committed frontend may contain the shell architecture for Spaces, Ribbon Groups, Ribbon Commands, Left Panel, Center Panel, Right Panel, Command Window, and status bar, but speculative workflow details are not allowed until designed.
+- The current Workbench backend exposes health, workspace, project metadata, Dataset Library/project dataset APIs, Dataset Import/Intake APIs, Feature Library/project feature APIs, custom Python Feature Create, Embedding Library/project embedding APIs, Model Library/project model APIs, local serialized jobs, Dataset preparation, Feature execution, Embedding execution, Model execution, preview APIs, Embedding and Feature analysis clustering (KMeans with silhouette/ARI/purity) and PCA / t-SNE / UMAP projections, Model feature-importance analysis (job-backed, surfaced in a Model Explore tab), a classifier AUC metric, artifact lifecycle v1, and a token-gated SDK-backed local Streamable HTTP MCP endpoint with current approved Workbench parity tools (including `neext_cluster_embedding`, `neext_compute_feature_importance`, and `neext_export_model_metrics`), Dataset Intake tools, resources, prompts, activity, UI-state requests, scoped tool access, and Workbench-enforced delete approval. Model feature-importance reports real per-feature importance weights. Home General Settings also exposes a UI-only Reset Workbench action that archives all projects and the Trash into a workspace-internal `_archives/reset-<timestamp>/` folder and recreates an empty workspace; it is move-aside (recoverable, never deletes), strictly confined to the workspace root, preserves MCP settings, and is not exposed via MCP. Active Create scope is Project Create and custom Feature Create only. Dataset Create, Embedding Create, Model Create, broader import/export beyond approved Dataset Import, dataset current-table CSV export, and model metrics CSV export, prediction workflows, cancellation, permanent purge, archive, individual artifact restore, restore-as-copy, concurrency beyond the single worker, remote OAuth MCP, and broader execution behavior are archived or deferred until explicitly reopened.
+- Do not keep dead Workbench code for later. Remove obsolete workflow code, dialogs, hooks, API clients, schemas, and storage helpers when the corresponding behavior is intentionally deferred.
+
+#### Workbench MCP Rules
+
+- The canonical Workbench MCP endpoint is SDK-backed Streamable HTTP at `http://127.0.0.1:8765/mcp`; stdio remains a compatibility launcher for local clients that need it.
+- MCP is local, token-gated, and single-user. Do not add remote OAuth, remote hosting, multi-user access, or browser-exposed secrets without explicit design approval.
+- MCP tools must map to current approved Workbench behavior only. Do not expose deferred workflows through MCP.
+- MCP tool access is scope-gated. The default scopes are `read`, `write`, `run`, `custom-code`, `ui-control`, `export`, and `lifecycle`.
+- Custom Python Feature validate/create is allowed through MCP only with `custom-code` scope and must remain clearly documented as trusted local Python execution.
+- Project and artifact delete tools must request Workbench approval; MCP must not delete projects or artifacts immediately.
+- MCP UI control may navigate to existing Spaces, Center Views, artifacts, graphs, nodes, and approved add/create form drafts. Do not introduce new routes, modals, or navigation patterns for MCP.
+
+#### Workbench UI Vocabulary
+
+Use this vocabulary when asking questions, planning, implementing, and reporting Workbench changes:
+
+- **Space**: top-row main area, such as `Home`, `Datasets`, `Features`, `Embeddings`, or `Models`.
+- **Ribbon Group**: labeled group inside the ribbon, separated visually from other groups.
+- **Ribbon Command**: clickable item inside a Ribbon Group.
+- **Left Panel**: artifact and selection context.
+- **Center Panel**: main dynamic work area.
+- **Center View**: specific page/view shown in the Center Panel.
+- **Right Panel**: system information area.
+- **Inspector Panel**: selected-item details inside the Right Panel.
+- **Jobs Panel**: job queue/status inside the Right Panel.
+- **Command Window**: bottom logs, errors, and command/job output.
+- **Artifact Store**: table/list of artifacts of one kind.
+- **Artifact**: saved project hierarchy unit, such as project, dataset, feature set, embedding, or model.
+- **Workflow Form**: functional form that creates, imports, computes, or trains something.
+
+The UI follows this pattern:
+
+```text
+Spaces (HOME, DATASETS, FEATURES, EMBEDDINGS, MODELS)
+  -> Ribbon Groups
+  -> Ribbon Commands
+  -> Center Views in the Center Panel
+```
+
+- The Top Row contains Spaces that logically group artifacts and actions.
+- The Ribbon contains commands/subsections for the active Space.
+- The Left Panel shows current artifacts and selected elements.
+- The Center Panel is where primary dynamic workflow UI goes.
+- Artifact Store Center Views and Feature/Embedding/Model Explore chooser lists must match the Left Panel lineage scope. Project-only context shows project datasets only and no downstream artifacts; dataset, feature, embedding, and model contexts show downstream artifacts from that dataset branch. Feature Library, built-in Feature Add-to-Project, custom Feature Create, Embedding Library, built-in Embedding Add-to-Project, Model Library, and built-in Model Add-to-Project are dataset-first workflows and require an active Dataset context. Embedding Add-to-Project lists Feature artifacts from the active Dataset only; if a Feature is selected in that Dataset branch, it is preselected. Model Add-to-Project lists Embedding artifacts from the active Dataset only; if an Embedding is selected in that Dataset branch, it is preselected. Other Library and Add-to-Project workflow forms remain project-wide unless explicitly redesigned.
+- The Right Panel contains system-level information such as the Inspector Panel and Jobs Panel.
+- The Command Window shows logs, errors, and command/job output.
+- Primary workflows must use Center Views, not random modals. New modal/dialog categories require explicit approval.
+
+Initial Ribbon guidance:
+
+- `Home`
+  - `Project Management`: `Create`, `Projects`, `Trash`
+  - `App Management`: `Settings`
+- `Datasets`
+  - `Dataset Management`: `Import`, `Library`, `Datasets`
+- `Features`
+  - `Feature Management`: `Library`, `Create`, `Features`
+- `Embeddings`
+  - `Embedding Management`: `Library`, `Embeddings`
+- `Models`
+  - `Model Management`: `Library`, `Models`
+
+Current Create and documentation guidance:
+
+- Active Create workflows are Project Create and custom Feature Create only. Do not restore Dataset Create, Embedding Create, or Model Create without a new explicit planning decision.
+- Dataset Import is approved only for the NEExT table contract through the Datasets Import Center View and matching Dataset Intake API/MCP tools. Broader Workbench import/export is archived for now. Do not add project archive import/export, dataset bundle export, non-dataset artifact export, arbitrary URL imports, or arbitrary import providers unless explicitly reopened.
+- Custom Feature Create includes an in-Center-View guide for the trusted Python feature contract. Broader Workbench/NEExT documentation lives under Home Settings Docs. Do not restore a Home Help command without explicit redesign approval.
+
+Approved Workbench project foundation:
+
+```text
+~/NEExT-Workbench/
+  workspace.json
+  projects/
+    <project_uuid>/
+      project.json
+      jobs/
+        <job_uuid>/
+          job.json
+      artifacts/
+        datasets/
+        features/
+        embeddings/
+        models/
+```
+
+- Project and future artifact IDs are UUIDv4 values. Folder names are IDs only; display names live in manifests and may change without moving folders.
+- `workspace.json` and `project.json` use `schema_version`, `manifest_type`, `created_at`, and `updated_at`. Project manifests also contain `id`, `name`, and `description`.
+- Manifests must not store absolute paths. Store relative paths only when files are referenced. Project API responses must not expose on-disk project paths.
+- In the current Dataset preparation, Feature execution, Embedding execution, and Model execution phase, projects, Draft Dataset artifacts, Feature artifacts, Embedding artifacts, Model artifacts, and local job records are real and persisted. Project creation creates the typed artifact directories above. Jobs are created under `jobs/<job_uuid>/job.json` when execution is requested.
+- The running Workbench server process is the sole durable job executor, and job execution is disk-driven. A job is persisted to `jobs/<job_uuid>/job.json` as `queued`, and the server's single worker reconstructs the work from the persisted manifest (`operation.operation_id`, `operation.params`, `target_artifacts`) — the in-memory queue carries only job IDs. MCP client processes (the stdio launcher) are not executors: they create stores with `run_worker=False`, persist jobs to disk only, and never run jobs locally. The server recovers `queued` jobs from disk on startup and on a fixed interval, so jobs created over MCP and jobs left queued across a server restart are picked up automatically. Recovering stale `running` jobs left by a crashed server is out of scope. Do not start a job worker in any MCP client process or add a second executor.
+- Project deletion moves `projects/<project_uuid>/` into workspace-relative `trash/projects/<folder-name>/`; when the direct trash folder exists, use a suffixed folder instead of overwriting it. Project restore is approved and must block if a live project folder with the same ID exists.
+- Artifact lifecycle v1 is approved for Dataset, Feature, Embedding, and Model artifacts. Delete planning derives direct and transitive downstream dependents from manifest `inputs`; non-cascade delete is allowed for leaf artifacts; cascade delete requires explicit confirmation and moves the selected artifact plus all downstream dependents into one project-scoped trash bundle. Restore is bundle-only and must block if any live target folder already exists.
+- Queued or running jobs targeting any artifact in a delete set block deletion. Completed and failed jobs remain live project history when related artifacts are trashed or restored.
+- Delete and restore APIs/UI must not expose absolute paths. Trash paths are workspace-relative.
+- Dataset Library entries are source templates, not executable project artifacts. A catalog row must be added to the project as a Dataset artifact before it can participate in the compute graph.
+- Dataset artifacts are real project artifacts under `artifacts/datasets/<dataset_uuid>/artifact.json`, with UUIDv4 artifact IDs, typed file references, source metadata, preparation operation specs, and status.
+- Dataset Import creates Draft Dataset artifacts from the NEExT table contract, not from local path strings. Required intake tables are `edges` with `src_node_id,dest_node_id` and `node_graph_mapping` with `node_id,graph_id`; optional tables are `graph_labels` with `graph_id,graph_label`, `node_features` beginning with `node_id`, and `edge_features` beginning with `src_node_id,dest_node_id`. Node IDs must be integer-compatible because current NEExT graph objects require integer node IDs. Browser import accepts matching CSV files or a zip of those CSV files. MCP Dataset Intake accepts `records` or `csv` payloads, supports temporary sessions, validates before artifact creation, and creates a Draft Dataset artifact with `source_type="uploaded_neext_tables"`.
+- Workbench compute graph starts at Dataset artifacts. Dataset artifacts are explicit DAG roots and their manifests have `inputs: []`.
+- Future non-dataset artifact folders should use `artifacts/<kind>/<artifact_uuid>/artifact.json`, with UUIDv4 artifact IDs and typed file references.
+- Artifact lineage is a general DAG represented by typed input references in artifact manifests. This must support one dataset to many feature sets, multiple feature sets to one embedding, one artifact to many downstream artifacts, and future multi-dataset workflows.
+- Dataset artifacts are Draft compute graph nodes until Dataset preparation runs. Dataset preparation uses NEExT graph construction and normalization semantics, writes a raw Parquet snapshot, prepared NEExT-ready graph Parquet files, complete source-to-internal mapping Parquet files, summary stats, and status/error metadata.
+- Feature artifacts define compute graph nodes and may execute once their Dataset input is prepared. One Feature artifact targets one Dataset artifact and records one dataset input. Built-in Feature Library artifacts reference one built-in structural node feature method and are added from the active Dataset context. Custom Python Feature Create artifacts store trusted local Python source under the feature artifact, use the artifact UUID as the runtime feature key, require a `compute_feature(graph)` function, support advisory validation before Create, validate again on Create against the first prepared graph of a completed dataset, and write feature output Parquet only on successful execution.
+- Embedding Library entries are built-in graph embedding algorithm templates, not executable project artifacts. A catalog row must be added from the active Dataset context into a project Embedding artifact before it can participate in the compute graph.
+- Built-in Embedding Add-to-Project is dataset-first: it uses the active Dataset context, lists only Feature artifacts from that Dataset, and preselects the active Feature when the selected Feature belongs to the active Dataset branch.
+- Embedding artifacts define compute graph nodes downstream of one or more Feature artifacts. All selected Feature inputs must reference the same Dataset. Embedding execution can auto-run Draft or failed upstream Dataset preparation and Feature computation before computing graph-level embeddings.
+- Workbench persists Embedding manifests, graph embedding Parquet outputs, jobs, readable job logs, preview metadata, and output file metadata.
+- Model Library entries are built-in supervised graph model algorithm templates, not executable project artifacts. A catalog row must be added from the active Dataset context into a project Model artifact before it can participate in the compute graph.
+- Built-in Model Add-to-Project is dataset-first: it uses the active Dataset context, lists only Embedding artifacts from that Dataset, and preselects the active Embedding when the selected Embedding belongs to the active Dataset branch.
+- Model artifacts define Draft DAG nodes downstream of one or more Embedding artifacts. All selected Embedding inputs must trace to the same Dataset. Model execution can auto-run Draft or failed upstream Embedding, Feature, and Dataset work before training.
+- Workbench persists Model manifests, trained model files, metrics JSON, jobs, readable job logs, and metrics previews.
+- Future artifacts are immutable once saved. Edits create new artifact IDs.
+- Workbench canonical dataset storage is Parquet plus `artifact.json`; CSV is an import/source format, not the canonical Workbench dataset format.
+- Dataset Library v1 uses curated NEExT CSV bundles as graph-collection source templates and may also include curated single-graph CSV source templates. Dataset preparation downloads/loads graph collections directly and prepares single graphs into downstream graph collections through k-hop egonets.
+- Dataset manifests and APIs must expose only artifact/workspace/project-relative paths. Do not expose on-disk absolute project paths.
+- Feature execution depends on Dataset artifacts, never directly on Dataset Library catalog entries or source-shaped imported data. If a Feature computation targets a Draft Dataset, Workbench prepares the Dataset first.
+- Workbench persists raw snapshots, prepared graph data, mappings, jobs, readable job logs, preview metadata, and output files. Browser previews must stay limited/paginated and must not load complete large mapping or output files by default.
+- Do not add arbitrary URL imports, PyG/DGL/OGB providers, Dataset Create, Embedding Create, Model Create, feature editing, embedding editing, model editing, feature duplication, embedding duplication, model duplication, model import/export, prediction workflows, permanent purge, archive, cancellation, individual artifact restore, restore-as-copy, overwrite restore, additional status transitions, or broader artifact lifecycle behavior without explicit design approval. (Embedding clustering, LDA/t-SNE projections, and Model feature-importance analysis are approved and implemented.)
+- Future project archives should contain `project.json` and `artifacts/` at zip root. If an imported project UUID already exists, import it as a copy with a new UUID and preserve the original UUID in metadata.
+- Do not keep dead Workbench code for later. Add import/export, prediction workflows, cancellation, concurrency beyond the single local worker, additional storage categories, and broader execution behavior only after each layer is explicitly designed.
 
 ### Key Architectural Components
 
@@ -203,8 +394,27 @@ embeddings = EmbeddingBuilder(egonet_collection, features).compute()
 # Each embedding now represents one node's neighborhood
 ```
 
+### Workbench Feature Workflow
+
+1. Read `AGENTS.md`, `CLAUDE.md`, and the relevant Workbench files before changing behavior.
+2. Confirm the requested scope maps to the shared vocabulary: Space, Ribbon Group, Ribbon Command, Left Panel, Center View, Right Panel, Inspector Panel, Jobs Panel, Command Window, Artifact Store, Artifact, or Workflow Form.
+3. Ask before every central decision, including new navigation behavior, state model, API shape, file category, provider/context, modal, or reusable abstraction.
+4. If the user's wording is ambiguous or conflicts with the Workbench pattern, clarify before planning or editing.
+5. Implement only the approved scope. Do not add fake, stub, placeholder, or half-wired features.
+6. Run the narrowest relevant automated checks first, then Workbench-specific checks when the UI or API is affected.
+7. For UI work, perform Playwright MCP browser testing through the user path at `http://127.0.0.1:8765`.
+8. Run `git status` before reporting completion and account for every modified or untracked path.
+
+Temporary artifacts from Workbench development, including screenshots, traces, logs, local e2e workspaces, dumps, and scratch scripts, belong under `sandbox/`. The only intended shareable sandbox exception is `sandbox/workbench-mockups/`. `npm run build` writes `NEExT/workbench/static/`; those built assets are intentional release artifacts so installed users can launch the Workbench without Node.
+
+### Security and Secrets
+
+- Never commit API keys, tokens, `.env` files, credentials, private datasets, or local workspace contents.
+- Do not paste secret values into issue reports, docs, tests, logs, screenshots, or agent replies.
+- If a secret appears in any local agent config or shell history, move it to an environment-specific mechanism and rotate it if the value may have been exposed.
+
 ### Testing Approach
-Integration tests are available as root-level scripts (`test.py`, `test_networkx.py`). Run these after modifications to core components. When a `tests/` directory is added, pytest will be used for unit testing.
+Integration tests are available as root-level scripts (`test.py`, `test_networkx.py`) and pytest tests under `tests/`. Run these after modifications to core components. For Workbench changes, use `tests/test_workbench.py`, TypeScript checking, and the canonical browser verification path.
 
 ### Input File Formats
 The framework expects CSV files with these structures:
@@ -214,7 +424,7 @@ The framework expects CSV files with these structures:
 - **node_features.csv** (optional): `node_id,graph_id,feature1,feature2,...`
 
 ### Custom Feature Functions
-Custom features must return a DataFrame with columns in order: `node_id`, `graph_id`, `feature_name_0`, etc.
+Custom features registered through `my_feature_methods` or Workbench Feature Create must return a DataFrame with columns in order: `node_id`, `graph_id`, `feature_name_0`, etc.
 ```python
 def my_custom_feature(graph):
     return pd.DataFrame({
@@ -224,3 +434,5 @@ def my_custom_feature(graph):
     })[['node_id', 'graph_id', 'my_feature_0']]
 ```
 Register via `my_feature_methods=[{"feature_name": "...", "feature_function": func}]` in `compute_node_features()`.
+
+Workbench custom Feature Create v1 is trusted local code execution, not a sandbox. The Center View requires an active completed Dataset artifact, a display name, and Python code defining `compute_feature(graph)`. Validate performs an advisory dry run against one prepared graph and Create repeats validation before creating the Draft Feature artifact. Missing Python packages must be reported clearly; Workbench must not install packages automatically. The Feature Create guide must stay contract-focused and must not introduce new runtime behavior.

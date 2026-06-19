@@ -129,22 +129,57 @@ cd NEExT
 
 # Install with development dependencies
 pip install -e ".[dev]"
+
+# Install with development and Workbench MCP dependencies
+pip install -e ".[dev,workbench-mcp]"
 ```
 
 ### Additional Components
 ```bash
-# For running tests
-pip install -e ".[test]"
-
 # For building documentation
 pip install -e ".[docs]"
 
 # For running experiments
 pip install -e ".[experiments]"
 
+# For the local web workbench
+pip install -e ".[workbench]"
+
+# For the local web workbench with MCP client integration
+pip install -e ".[workbench-mcp]"
+
 # Install all components
-pip install -e ".[dev,test,docs,experiments]"
+pip install -e ".[all]"
 ```
+
+### Local Workbench
+```bash
+# From an installed package
+neext-workbench
+
+# From a development checkout
+make neext-workbench
+```
+
+The workbench starts a localhost-only FastAPI server and serves the browser UI from the same process. Projects and artifacts are stored under `~/NEExT-Workbench` by default; override the location with `NEEXT_WORKBENCH_HOME` or `neext-workbench --workspace <path>`.
+
+Workbench MCP integration requires the `workbench-mcp` extra in the Python environment that launches Workbench. Use a project virtual environment instead of relying on a global or Anaconda base environment:
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+python3 -m pip install -U pip
+python3 -m pip install -e ".[dev,workbench-mcp]"
+make neext-workbench
+```
+
+#### Connecting MCP clients
+
+Enable MCP from **Home → Settings → Agentic**, then copy the snippet for your client:
+
+- **Claude Desktop** connects to a local server only over **stdio**. Its snippet launches the exact Python interpreter running Workbench (`<python> -m NEExT.workbench.mcp_cli --workspace <path>`) and is dropped into `claude_desktop_config.json`. Claude Desktop's remote/HTTP connectors run from Anthropic's cloud and cannot reach `127.0.0.1`, so stdio is the only local path.
+- **Cursor, Claude Code, MCP Inspector, and other local clients** connect to the Streamable HTTP endpoint at `http://127.0.0.1:8765/mcp` with an `Authorization: Bearer <token>` header.
+- **macOS only:** Claude Desktop runs stdio servers sandboxed and cannot read `~/Desktop`, `~/Documents`, or `~/Downloads`. If the Python environment lives in one of those folders, Workbench hides the Claude Desktop snippet and shows remediation — recreate the venv outside those folders (e.g. `~/neext-dev/.venv`) or grant Claude Full Disk Access. Windows and Linux have no such restriction (and Claude Desktop is not available on Linux — use a local HTTP client there).
 
 ## 🚀 Quick Start
 

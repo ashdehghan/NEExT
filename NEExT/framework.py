@@ -415,6 +415,8 @@ class NEExT:
         embedding_algorithm: str = "approx_wasserstein",
         random_state: int = 42,
         n_iterations: int = 5,
+        n_jobs: int = -1,
+        parallel_backend: str = "process",
     ) -> pd.DataFrame:
         """
         Compute feature importance for graph embeddings.
@@ -440,6 +442,8 @@ class NEExT:
             embedding_algorithm=embedding_algorithm,
             random_state=random_state,
             n_iterations=n_iterations,
+            n_jobs=n_jobs,
+            parallel_backend=parallel_backend,
         )
 
         results_df = feature_importance.compute()

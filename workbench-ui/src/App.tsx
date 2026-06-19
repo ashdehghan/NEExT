@@ -1,0 +1,2184 @@
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
+import {
+  useDatasetLibrary,
+  useEmbeddingLibrary,
+  useMcpActivity,
+  useMcpUiState,
+  useFeatureLibrary,
+  useModelLibrary,
+  useProjectDatasets,
+  useProjectEmbeddings,
+  useProjectFeatures,
+  useProjectModels,
+  useProjectJobs,
+  useWorkspace,
+  useProjects,
+  useTrash
+} from "./hooks/useWorkspace";
+import {
+  api,
+  type ArtifactDeletionPlan,
+  type ArtifactKind,
+  type DatasetGraphSummary,
+  type DatasetManifest,
+  type EmbeddingManifest,
+  type FeatureManifest,
+  type LifecycleArtifactRef,
+  type ModelManifest
+} from "./api";
+import type { MainTab } from "./types";
+import { MAIN_TABS, titleCase } from "./types";
+
+import { DesktopShell } from "./components/shell/DesktopShell";
+import { TopTabs } from "./components/shell/TopTabs";
+import { Ribbon, type RibbonCommand } from "./components/shell/Ribbon";
+import { StatusBar } from "./components/shell/StatusBar";
+import { readNav, writeNav, readAppliedMcpUiStateId, writeAppliedMcpUiStateId } from "./navPersistence";
+
+import { SelectionPanel } from "./components/panels/SelectionPanel";
+import { Inspector } from "./components/panels/Inspector";
+import { JobsPanel } from "./components/panels/JobsPanel";
+import { CommandWindow } from "./components/panels/CommandWindow";
+import { ConfirmDialog } from "./components/primitives/ConfirmDialog";
+import { EmptyState } from "./components/primitives/EmptyState";
+import { CreateProjectView, ProjectsView, TrashView } from "./pages/home/ProjectsPage";
+import { SettingsView } from "./pages/home/SettingsPage";
+import { ConfigureDatasetView, DatasetExploreView, DatasetImportView, DatasetLibraryView, ProjectDatasetsView } from "./pages/datasets/DatasetsPage";
+import { ConfigureFeatureView, CreateFeatureView, FeatureExploreView, FeatureLibraryView, ProjectFeaturesView } from "./pages/features/FeaturesPage";
+import { ConfigureEmbeddingView, EmbeddingExploreView, EmbeddingLibraryView, ProjectEmbeddingsView } from "./pages/embeddings/EmbeddingsPage";
+import { ConfigureModelView, ModelExploreView, ModelLibraryView, ProjectModelsView } from "./pages/models/ModelsPage";
+
+interface Route {
+  topTab: MainTab;
+  command: RibbonCommand;
+}
+
+const DEFAULT_COMMANDS: Record<MainTab, RibbonCommand> = {
+  home: "projects",
+  datasets: "datasets",
+  features: "features",
+  embeddings: "embeddings",
+  models: "models"
+};
+
+const HOME_TITLES: Record<string, string> = {
+  import: "Import",
+  create: "Create",
+  projects: "Projects",
+  trash: "Trash",
+  settings: "Settings"
+};
+
+function viewTitle(route: Route): string {
+  if (route.topTab === "home") return HOME_TITLES[String(route.command)] || titleCase(String(route.command));
+  return titleCase(String(route.command));
+}
+
+function TitleOnlyView({ title }: { title: string }) {
+  return <h1 className="title-only">{title}</h1>;
+}
+
+function routeString(route: Record<string, unknown>, key: string): string {
+  const value = route[key];
+  return typeof value === "string" ? value : "";
+}
+
+function routeMainTab(value: string): MainTab | null {
+  return MAIN_TABS.includes(value as MainTab) ? (value as MainTab) : null;
+}
+
+function routeCommand(value: string, fallback: RibbonCommand): RibbonCommand {
+  const commands: RibbonCommand[] = ["import", "create", "projects", "trash", "settings", "library", "explore", "datasets", "features", "embeddings", "models"];
+  return commands.includes(value as RibbonCommand) ? (value as RibbonCommand) : fallback;
+}
+
+function routeArtifactKind(value: string): ArtifactKind | null {
+  return value === "dataset" || value === "feature" || value === "embedding" || value === "model" ? value : null;
+}
+
+function routeDraft(route: Record<string, unknown>): Record<string, unknown> | undefined {
+  const draft = route.draft;
+  return draft && typeof draft === "object" && !Array.isArray(draft) ? (draft as Record<string, unknown>) : undefined;
+}
+
+function artifactKindLabel(kind: ArtifactKind): string {
+  return titleCase(kind);
+}
+
+function featureDatasetId(feature: FeatureManifest): string {
+  return feature.inputs.find((input) => input.role === "source_dataset" && input.artifact_kind === "dataset")?.artifact_id || "";
+}
+
+function embeddingFeatureIds(embedding: EmbeddingManifest): string[] {
+  return embedding.inputs
+    .filter((input) => input.role === "source_feature" && input.artifact_kind === "feature")
+    .map((input) => input.artifact_id);
+}
+
+function modelEmbeddingIds(model: ModelManifest): string[] {
+  return model.inputs
+    .filter((input) => input.role === "source_embedding" && input.artifact_kind === "embedding")
+    .map((input) => input.artifact_id);
+}
+
+interface SelectionLineage {
+  activeDatasetId: string;
+  datasets: DatasetManifest[];
+  features: FeatureManifest[];
+  embeddings: EmbeddingManifest[];
+  models: ModelManifest[];
+  relatedEmbeddingIds: string[];
+  relatedModelIds: string[];
+}
+
+export default function App() {
+  const queryClient = useQueryClient();
+  // Restore persisted navigation (Space, command, project, selections, explore
+  // targets, command window) once on mount; null when nothing was stored.
+  const [persisted] = useState(() => readNav());
+  const [route, setRoute] = useState<Route>(() => {
+    const tab = persisted ? routeMainTab(String(persisted.topTab)) : null;
+    if (!tab) return { topTab: "home", command: DEFAULT_COMMANDS.home };
+    return { topTab: tab, command: routeCommand(String(persisted!.command), DEFAULT_COMMANDS[tab]) };
+  });
+  const [activeProjectId, setActiveProjectId] = useState(() => persisted?.activeProjectId ?? "");
+  const [hasAutoSelectedProject, setHasAutoSelectedProject] = useState(() => Boolean(persisted?.activeProjectId));
+  const [selectedDatasetId, setSelectedDatasetId] = useState(() => persisted?.selectedDatasetId ?? "");
+  const [selectedCatalogId, setSelectedCatalogId] = useState("");
+  const [selectedFeatureId, setSelectedFeatureId] = useState(() => persisted?.selectedFeatureId ?? "");
+  const [selectedFeatureCatalogId, setSelectedFeatureCatalogId] = useState("");
+  const [selectedEmbeddingId, setSelectedEmbeddingId] = useState(() => persisted?.selectedEmbeddingId ?? "");
+  const [selectedEmbeddingCatalogId, setSelectedEmbeddingCatalogId] = useState("");
+  const [selectedModelId, setSelectedModelId] = useState(() => persisted?.selectedModelId ?? "");
+  const [selectedModelCatalogId, setSelectedModelCatalogId] = useState("");
+  const [configureDatasetCatalogId, setConfigureDatasetCatalogId] = useState(() => persisted?.configureDatasetCatalogId ?? "");
+  const [configureFeatureCatalogId, setConfigureFeatureCatalogId] = useState(() => persisted?.configureFeatureCatalogId ?? "");
+  const [configureEmbeddingCatalogId, setConfigureEmbeddingCatalogId] = useState(() => persisted?.configureEmbeddingCatalogId ?? "");
+  const [configureModelCatalogId, setConfigureModelCatalogId] = useState(() => persisted?.configureModelCatalogId ?? "");
+  const [exploreDatasetId, setExploreDatasetId] = useState(() => persisted?.exploreDatasetId ?? "");
+  const [exploreGraphId, setExploreGraphId] = useState("");
+  const [exploreGraphSummary, setExploreGraphSummary] = useState<DatasetGraphSummary | null>(null);
+  const [exploreNodeId, setExploreNodeId] = useState("");
+  const [exploreNodeVisible, setExploreNodeVisible] = useState<boolean | null>(null);
+  const [exploreFeatureId, setExploreFeatureId] = useState(() => persisted?.exploreFeatureId ?? "");
+  const [exploreFeatureGraphId, setExploreFeatureGraphId] = useState("");
+  const [exploreFeatureGraphVisible, setExploreFeatureGraphVisible] = useState<boolean | null>(null);
+  const [exploreEmbeddingId, setExploreEmbeddingId] = useState(() => persisted?.exploreEmbeddingId ?? "");
+  const [exploreEmbeddingGraphId, setExploreEmbeddingGraphId] = useState("");
+  const [exploreEmbeddingGraphVisible, setExploreEmbeddingGraphVisible] = useState<boolean | null>(null);
+  const [exploreModelId, setExploreModelId] = useState(() => persisted?.exploreModelId ?? "");
+  const [exploreModelIteration, setExploreModelIteration] = useState<number | null>(null);
+  const [artifactDeletePlan, setArtifactDeletePlan] = useState<ArtifactDeletionPlan | null>(null);
+  const [artifactDeleteError, setArtifactDeleteError] = useState("");
+  const [artifactDeleteBusy, setArtifactDeleteBusy] = useState(false);
+  const [commandWindowHeight, setCommandWindowHeight] = useState(() => persisted?.commandWindowHeight ?? 168);
+  const [commandWindowCollapsed, setCommandWindowCollapsed] = useState(() => persisted?.commandWindowCollapsed ?? false);
+  const [mcpDraft, setMcpDraft] = useState<Record<string, unknown> | undefined>();
+  const lastAppliedMcpUiStateId = useRef(readAppliedMcpUiStateId());
+  const lastSeenActivityId = useRef<string | null>(null);
+  const lastJobStatuses = useRef<Map<string, string> | null>(null);
+
+  const workspaceQuery = useWorkspace();
+  const mcpActivityQuery = useMcpActivity();
+  const mcpUiStateQuery = useMcpUiState();
+  const projectsQuery = useProjects();
+  const trashQuery = useTrash();
+  const datasetLibraryQuery = useDatasetLibrary();
+  const featureLibraryQuery = useFeatureLibrary();
+  const embeddingLibraryQuery = useEmbeddingLibrary();
+  const modelLibraryQuery = useModelLibrary();
+  const projectDatasetsQuery = useProjectDatasets(activeProjectId);
+  const projectFeaturesQuery = useProjectFeatures(activeProjectId);
+  const projectEmbeddingsQuery = useProjectEmbeddings(activeProjectId);
+  const projectModelsQuery = useProjectModels(activeProjectId);
+  const projectJobsQuery = useProjectJobs(activeProjectId);
+
+  useEffect(() => {
+    if (!hasAutoSelectedProject && !activeProjectId && projectsQuery.data?.length) {
+      setActiveProjectId(projectsQuery.data[0].id);
+      setHasAutoSelectedProject(true);
+    }
+  }, [activeProjectId, hasAutoSelectedProject, projectsQuery.data]);
+
+  // One-time validation: if localStorage restored a project that was deleted
+  // while away, drop it so auto-select picks a live project. Runs only on the
+  // first successful projects load so it never interferes with the create/select
+  // race (where a freshly-activated project briefly precedes the list refetch).
+  const validatedPersistedProject = useRef(false);
+  useEffect(() => {
+    if (validatedPersistedProject.current || !projectsQuery.isSuccess) return;
+    validatedPersistedProject.current = true;
+    if (activeProjectId && !(projectsQuery.data ?? []).some((item) => item.id === activeProjectId)) {
+      setActiveProjectId("");
+      setHasAutoSelectedProject(false);
+    }
+  }, [activeProjectId, projectsQuery.isSuccess, projectsQuery.data]);
+
+  useEffect(() => {
+    writeNav({
+      topTab: route.topTab,
+      command: route.command,
+      activeProjectId,
+      selectedDatasetId,
+      selectedFeatureId,
+      selectedEmbeddingId,
+      selectedModelId,
+      configureDatasetCatalogId,
+      configureFeatureCatalogId,
+      configureEmbeddingCatalogId,
+      configureModelCatalogId,
+      exploreDatasetId,
+      exploreFeatureId,
+      exploreEmbeddingId,
+      exploreModelId,
+      commandWindowHeight,
+      commandWindowCollapsed
+    });
+  }, [
+    route,
+    activeProjectId,
+    selectedDatasetId,
+    selectedFeatureId,
+    selectedEmbeddingId,
+    selectedModelId,
+    configureDatasetCatalogId,
+    configureFeatureCatalogId,
+    configureEmbeddingCatalogId,
+    configureModelCatalogId,
+    exploreDatasetId,
+    exploreFeatureId,
+    exploreEmbeddingId,
+    exploreModelId,
+    commandWindowHeight,
+    commandWindowCollapsed
+  ]);
+
+  const project = useMemo(
+    () => projectsQuery.data?.find((item) => item.id === activeProjectId),
+    [activeProjectId, projectsQuery.data]
+  );
+  const datasets = projectDatasetsQuery.data || [];
+  const features = projectFeaturesQuery.data || [];
+  const embeddings = projectEmbeddingsQuery.data || [];
+  const models = projectModelsQuery.data || [];
+  const selectedDataset = useMemo(
+    () => datasets.find((dataset) => dataset.id === selectedDatasetId),
+    [datasets, selectedDatasetId]
+  );
+  const selectedFeature = useMemo(
+    () => features.find((feature) => feature.id === selectedFeatureId),
+    [features, selectedFeatureId]
+  );
+  const selectedEmbedding = useMemo(
+    () => embeddings.find((embedding) => embedding.id === selectedEmbeddingId),
+    [embeddings, selectedEmbeddingId]
+  );
+  const selectedModel = useMemo(
+    () => models.find((model) => model.id === selectedModelId),
+    [models, selectedModelId]
+  );
+  const selectedCatalogEntry = useMemo(
+    () => datasetLibraryQuery.data?.find((entry) => entry.id === selectedCatalogId),
+    [datasetLibraryQuery.data, selectedCatalogId]
+  );
+  const selectedFeatureCatalogEntry = useMemo(
+    () => featureLibraryQuery.data?.find((entry) => entry.id === selectedFeatureCatalogId),
+    [featureLibraryQuery.data, selectedFeatureCatalogId]
+  );
+  const selectedEmbeddingCatalogEntry = useMemo(
+    () => embeddingLibraryQuery.data?.find((entry) => entry.id === selectedEmbeddingCatalogId),
+    [embeddingLibraryQuery.data, selectedEmbeddingCatalogId]
+  );
+  const selectedModelCatalogEntry = useMemo(
+    () => modelLibraryQuery.data?.find((entry) => entry.id === selectedModelCatalogId),
+    [modelLibraryQuery.data, selectedModelCatalogId]
+  );
+  const configuredFeatureCatalogEntry = useMemo(
+    () => featureLibraryQuery.data?.find((entry) => entry.id === configureFeatureCatalogId),
+    [configureFeatureCatalogId, featureLibraryQuery.data]
+  );
+  const configuredEmbeddingCatalogEntry = useMemo(
+    () => embeddingLibraryQuery.data?.find((entry) => entry.id === configureEmbeddingCatalogId),
+    [configureEmbeddingCatalogId, embeddingLibraryQuery.data]
+  );
+  const configuredModelCatalogEntry = useMemo(
+    () => modelLibraryQuery.data?.find((entry) => entry.id === configureModelCatalogId),
+    [configureModelCatalogId, modelLibraryQuery.data]
+  );
+  const configuredDatasetCatalogEntry = useMemo(
+    () => datasetLibraryQuery.data?.find((entry) => entry.id === configureDatasetCatalogId),
+    [configureDatasetCatalogId, datasetLibraryQuery.data]
+  );
+  const exploreModel = useMemo(
+    () => models.find((model) => model.id === exploreModelId),
+    [exploreModelId, models]
+  );
+  const selectedFeatureMethod = useMemo(
+    () => featureLibraryQuery.data?.find((entry) => entry.id === selectedFeature?.source_feature_id),
+    [featureLibraryQuery.data, selectedFeature]
+  );
+  const selectedFeatureDataset = useMemo(() => {
+    const datasetInput = selectedFeature?.inputs.find((input) => input.role === "source_dataset" && input.artifact_kind === "dataset");
+    return datasetInput ? datasets.find((dataset) => dataset.id === datasetInput.artifact_id) : undefined;
+  }, [datasets, selectedFeature]);
+  const selectedEmbeddingAlgorithm = useMemo(
+    () => embeddingLibraryQuery.data?.find((entry) => entry.id === selectedEmbedding?.source_embedding_id),
+    [embeddingLibraryQuery.data, selectedEmbedding]
+  );
+  const selectedEmbeddingFeatures = useMemo(() => {
+    if (!selectedEmbedding) return [];
+    const featureIds = selectedEmbedding.inputs
+      .filter((input) => input.role === "source_feature" && input.artifact_kind === "feature")
+      .map((input) => input.artifact_id);
+    return featureIds.map((featureId) => features.find((feature) => feature.id === featureId)).filter(Boolean) as typeof features;
+  }, [features, selectedEmbedding]);
+  const selectedEmbeddingDataset = useMemo(() => {
+    const firstFeature = selectedEmbeddingFeatures[0];
+    const datasetInput = firstFeature?.inputs.find((input) => input.role === "source_dataset" && input.artifact_kind === "dataset");
+    return datasetInput ? datasets.find((dataset) => dataset.id === datasetInput.artifact_id) : undefined;
+  }, [datasets, selectedEmbeddingFeatures]);
+  const selectedModelAlgorithm = useMemo(
+    () => modelLibraryQuery.data?.find((entry) => entry.id === selectedModel?.source_model_id),
+    [modelLibraryQuery.data, selectedModel]
+  );
+  const selectedModelEmbeddings = useMemo(() => {
+    if (!selectedModel) return [];
+    const embeddingIds = selectedModel.inputs
+      .filter((input) => input.role === "source_embedding" && input.artifact_kind === "embedding")
+      .map((input) => input.artifact_id);
+    return embeddingIds.map((embeddingId) => embeddings.find((embedding) => embedding.id === embeddingId)).filter(Boolean) as typeof embeddings;
+  }, [embeddings, selectedModel]);
+  const selectedModelDataset = useMemo(() => {
+    const firstEmbedding = selectedModelEmbeddings[0];
+    if (!firstEmbedding) return undefined;
+    const featureIds = firstEmbedding.inputs
+      .filter((input) => input.role === "source_feature" && input.artifact_kind === "feature")
+      .map((input) => input.artifact_id);
+    const firstFeature = featureIds.map((featureId) => features.find((feature) => feature.id === featureId)).find(Boolean);
+    const datasetInput = firstFeature?.inputs.find((input) => input.role === "source_dataset" && input.artifact_kind === "dataset");
+    return datasetInput ? datasets.find((dataset) => dataset.id === datasetInput.artifact_id) : undefined;
+  }, [datasets, features, selectedModelEmbeddings]);
+  const selectionLineage = useMemo<SelectionLineage>(() => {
+    const projectContext = {
+      activeDatasetId: "",
+      datasets,
+      features: [],
+      embeddings: [],
+      models: [],
+      relatedEmbeddingIds: [],
+      relatedModelIds: []
+    };
+    const featuresById = new Map(features.map((feature) => [feature.id, feature]));
+    const embeddingsById = new Map(embeddings.map((embedding) => [embedding.id, embedding]));
+    const embeddingDatasetId = (embedding: EmbeddingManifest) => {
+      const sourceFeatureIds = embeddingFeatureIds(embedding);
+      if (sourceFeatureIds.length === 0) return "";
+      const datasetIds = new Set<string>();
+      for (const featureId of sourceFeatureIds) {
+        const feature = featuresById.get(featureId);
+        const datasetId = feature ? featureDatasetId(feature) : "";
+        if (!datasetId) return "";
+        datasetIds.add(datasetId);
+      }
+      return datasetIds.size === 1 ? Array.from(datasetIds)[0] : "";
+    };
+    const modelDatasetId = (model: ModelManifest) => {
+      const sourceEmbeddingIds = modelEmbeddingIds(model);
+      if (sourceEmbeddingIds.length === 0) return "";
+      const datasetIds = new Set<string>();
+      for (const embeddingId of sourceEmbeddingIds) {
+        const embedding = embeddingsById.get(embeddingId);
+        const datasetId = embedding ? embeddingDatasetId(embedding) : "";
+        if (!datasetId) return "";
+        datasetIds.add(datasetId);
+      }
+      return datasetIds.size === 1 ? Array.from(datasetIds)[0] : "";
+    };
+    const datasetContext = (
+      dataset: DatasetManifest,
+      relatedEmbeddingIds: string[] = [],
+      relatedModelIds: string[] = []
+    ): SelectionLineage => {
+      const datasetId = dataset.id;
+      const lineageFeatures = features.filter((feature) => featureDatasetId(feature) === datasetId);
+      const lineageEmbeddings = embeddings.filter((embedding) => embeddingDatasetId(embedding) === datasetId);
+      const lineageModels = models.filter((model) => modelDatasetId(model) === datasetId);
+      return {
+        activeDatasetId: dataset.id,
+        datasets,
+        features: lineageFeatures,
+        embeddings: lineageEmbeddings,
+        models: lineageModels,
+        relatedEmbeddingIds,
+        relatedModelIds
+      };
+    };
+
+    if (selectedDataset) {
+      return datasetContext(selectedDataset);
+    }
+
+    if (selectedFeature) {
+      const datasetId = featureDatasetId(selectedFeature);
+      const lineageDataset = datasets.find((dataset) => dataset.id === datasetId);
+      const relatedEmbeddings = lineageDataset
+        ? embeddings.filter((embedding) => embeddingDatasetId(embedding) === datasetId && embeddingFeatureIds(embedding).includes(selectedFeature.id))
+        : [];
+      const relatedEmbeddingIds = relatedEmbeddings.map((embedding) => embedding.id);
+      const relatedEmbeddingIdSet = new Set(relatedEmbeddingIds);
+      const relatedModelIds = lineageDataset
+        ? models
+            .filter(
+              (model) =>
+                modelDatasetId(model) === datasetId && modelEmbeddingIds(model).some((embeddingId) => relatedEmbeddingIdSet.has(embeddingId))
+            )
+            .map((model) => model.id)
+        : [];
+      if (lineageDataset) {
+        return datasetContext(lineageDataset, relatedEmbeddingIds, relatedModelIds);
+      }
+      return {
+        activeDatasetId: "",
+        datasets: [],
+        features: [selectedFeature],
+        embeddings: [],
+        models: [],
+        relatedEmbeddingIds: [],
+        relatedModelIds: []
+      };
+    }
+
+    if (selectedEmbedding) {
+      const datasetId = embeddingDatasetId(selectedEmbedding);
+      const lineageDataset = datasets.find((dataset) => dataset.id === datasetId);
+      const relatedModelIds = lineageDataset
+        ? models
+            .filter((model) => modelDatasetId(model) === datasetId && modelEmbeddingIds(model).includes(selectedEmbedding.id))
+            .map((model) => model.id)
+        : [];
+      if (lineageDataset) {
+        return datasetContext(lineageDataset, [], relatedModelIds);
+      }
+      return {
+        activeDatasetId: "",
+        datasets: [],
+        features: [],
+        embeddings: [selectedEmbedding],
+        models: [],
+        relatedEmbeddingIds: [],
+        relatedModelIds: []
+      };
+    }
+
+    if (selectedModel) {
+      const datasetId = modelDatasetId(selectedModel);
+      const lineageDataset = datasets.find((dataset) => dataset.id === datasetId);
+      if (lineageDataset) {
+        return datasetContext(lineageDataset);
+      }
+      return {
+        activeDatasetId: "",
+        datasets: [],
+        features: [],
+        embeddings: [],
+        models: [selectedModel],
+        relatedEmbeddingIds: [],
+        relatedModelIds: []
+      };
+    }
+
+    return projectContext;
+  }, [datasets, embeddings, features, models, project, selectedDataset, selectedEmbedding, selectedFeature, selectedModel]);
+  const activeLineageDataset = useMemo(
+    () => datasets.find((dataset) => dataset.id === selectionLineage.activeDatasetId),
+    [datasets, selectionLineage.activeDatasetId]
+  );
+  const activeLineageFeatureId = useMemo(
+    () =>
+      selectedFeature && selectionLineage.activeDatasetId && featureDatasetId(selectedFeature) === selectionLineage.activeDatasetId
+        ? selectedFeature.id
+        : "",
+    [selectedFeature, selectionLineage.activeDatasetId]
+  );
+  const activeLineageEmbeddingId = useMemo(
+    () =>
+      selectedEmbedding && selectionLineage.activeDatasetId && selectionLineage.embeddings.some((embedding) => embedding.id === selectedEmbedding.id)
+        ? selectedEmbedding.id
+        : "",
+    [selectedEmbedding, selectionLineage.activeDatasetId, selectionLineage.embeddings]
+  );
+  const importedCatalogIds = useMemo(() => new Set(datasets.map((dataset) => dataset.source_catalog_id)), [datasets]);
+  const jobs = projectJobsQuery.data || [];
+  const trashHasItems = Boolean((trashQuery.data?.projects.length || 0) + (trashQuery.data?.artifact_deletions.length || 0));
+  const isProjectSelected = Boolean(
+    project &&
+      !selectedDatasetId &&
+      !selectedCatalogId &&
+      !selectedFeatureId &&
+      !selectedFeatureCatalogId &&
+      !selectedEmbeddingId &&
+      !selectedEmbeddingCatalogId &&
+      !selectedModelId &&
+      !selectedModelCatalogId &&
+      !configureDatasetCatalogId &&
+      !configureFeatureCatalogId &&
+      !configureEmbeddingCatalogId &&
+      !configureModelCatalogId &&
+      !exploreDatasetId &&
+      !exploreGraphId &&
+      !exploreNodeId &&
+      !exploreFeatureId &&
+      !exploreFeatureGraphId &&
+      !exploreEmbeddingId &&
+      !exploreEmbeddingGraphId &&
+      !exploreModelId
+  );
+
+  const projectResetMounted = useRef(false);
+  useEffect(() => {
+    // Skip the first run so restored selections survive the initial mount; only
+    // clear downstream state when the user actually switches the active project.
+    if (!projectResetMounted.current) {
+      projectResetMounted.current = true;
+      return;
+    }
+    setSelectedDatasetId("");
+    setSelectedCatalogId("");
+    setSelectedFeatureId("");
+    setSelectedFeatureCatalogId("");
+    setSelectedEmbeddingId("");
+    setSelectedEmbeddingCatalogId("");
+    setSelectedModelId("");
+    setSelectedModelCatalogId("");
+    setConfigureDatasetCatalogId("");
+    setConfigureFeatureCatalogId("");
+    setConfigureEmbeddingCatalogId("");
+    setConfigureModelCatalogId("");
+    setExploreDatasetId("");
+    setExploreGraphId("");
+    setExploreGraphSummary(null);
+    setExploreNodeId("");
+    setExploreNodeVisible(null);
+    setExploreFeatureId("");
+    setExploreFeatureGraphId("");
+    setExploreFeatureGraphVisible(null);
+    setExploreEmbeddingId("");
+    setExploreEmbeddingGraphId("");
+    setExploreEmbeddingGraphVisible(null);
+    setExploreModelId("");
+    setExploreModelIteration(null);
+  }, [activeProjectId]);
+
+  useEffect(() => {
+    if (selectedDatasetId && projectDatasetsQuery.data && !selectedDataset) {
+      setSelectedDatasetId("");
+    }
+  }, [projectDatasetsQuery.data, selectedDataset, selectedDatasetId]);
+
+  useEffect(() => {
+    if (exploreDatasetId && projectDatasetsQuery.data && !datasets.some((dataset) => dataset.id === exploreDatasetId)) {
+      setExploreDatasetId("");
+      setExploreGraphId("");
+      setExploreGraphSummary(null);
+      setExploreNodeId("");
+      setExploreNodeVisible(null);
+    }
+  }, [datasets, exploreDatasetId, projectDatasetsQuery.data]);
+
+  useEffect(() => {
+    if (selectedCatalogId && datasetLibraryQuery.data?.length && !selectedCatalogEntry) {
+      setSelectedCatalogId("");
+    }
+  }, [datasetLibraryQuery.data, selectedCatalogEntry, selectedCatalogId]);
+
+  useEffect(() => {
+    if (selectedFeatureId && projectFeaturesQuery.data && !selectedFeature) {
+      setSelectedFeatureId("");
+    }
+  }, [projectFeaturesQuery.data, selectedFeature, selectedFeatureId]);
+
+  useEffect(() => {
+    if (exploreFeatureId && projectFeaturesQuery.data && !features.some((feature) => feature.id === exploreFeatureId)) {
+      setExploreFeatureId("");
+      setExploreFeatureGraphId("");
+      setExploreFeatureGraphVisible(null);
+    }
+  }, [exploreFeatureId, features, projectFeaturesQuery.data]);
+
+  useEffect(() => {
+    if (selectedFeatureCatalogId && featureLibraryQuery.data?.length && !selectedFeatureCatalogEntry) {
+      setSelectedFeatureCatalogId("");
+    }
+  }, [featureLibraryQuery.data, selectedFeatureCatalogEntry, selectedFeatureCatalogId]);
+
+  useEffect(() => {
+    if (selectedEmbeddingId && projectEmbeddingsQuery.data && !selectedEmbedding) {
+      setSelectedEmbeddingId("");
+    }
+  }, [projectEmbeddingsQuery.data, selectedEmbedding, selectedEmbeddingId]);
+
+  useEffect(() => {
+    if (exploreEmbeddingId && projectEmbeddingsQuery.data && !embeddings.some((embedding) => embedding.id === exploreEmbeddingId)) {
+      setExploreEmbeddingId("");
+      setExploreEmbeddingGraphId("");
+      setExploreEmbeddingGraphVisible(null);
+    }
+  }, [embeddings, exploreEmbeddingId, projectEmbeddingsQuery.data]);
+
+  useEffect(() => {
+    if (selectedEmbeddingCatalogId && embeddingLibraryQuery.data?.length && !selectedEmbeddingCatalogEntry) {
+      setSelectedEmbeddingCatalogId("");
+    }
+  }, [embeddingLibraryQuery.data, selectedEmbeddingCatalogEntry, selectedEmbeddingCatalogId]);
+
+  useEffect(() => {
+    if (selectedModelId && projectModelsQuery.data && !selectedModel) {
+      setSelectedModelId("");
+    }
+  }, [projectModelsQuery.data, selectedModel, selectedModelId]);
+
+  useEffect(() => {
+    if (exploreModelId && projectModelsQuery.data && !exploreModel) {
+      setExploreModelId("");
+      setExploreModelIteration(null);
+    }
+  }, [exploreModel, exploreModelId, projectModelsQuery.data]);
+
+  useEffect(() => {
+    if (selectedModelCatalogId && modelLibraryQuery.data?.length && !selectedModelCatalogEntry) {
+      setSelectedModelCatalogId("");
+    }
+  }, [modelLibraryQuery.data, selectedModelCatalogEntry, selectedModelCatalogId]);
+
+  const setActiveTab = useCallback((tab: MainTab) => {
+    setConfigureDatasetCatalogId("");
+    setConfigureFeatureCatalogId("");
+    setConfigureEmbeddingCatalogId("");
+    setConfigureModelCatalogId("");
+    setExploreDatasetId("");
+    setExploreGraphId("");
+    setExploreGraphSummary(null);
+    setExploreNodeId("");
+    setExploreNodeVisible(null);
+    setExploreFeatureId("");
+    setExploreFeatureGraphId("");
+    setExploreFeatureGraphVisible(null);
+    setExploreEmbeddingId("");
+    setExploreEmbeddingGraphId("");
+    setExploreEmbeddingGraphVisible(null);
+    setExploreModelId("");
+    setExploreModelIteration(null);
+    setRoute({ topTab: tab, command: DEFAULT_COMMANDS[tab] });
+  }, []);
+
+  const setActiveCommand = useCallback((command: RibbonCommand) => {
+    setConfigureDatasetCatalogId("");
+    setConfigureFeatureCatalogId("");
+    setConfigureEmbeddingCatalogId("");
+    setConfigureModelCatalogId("");
+    setExploreDatasetId(command === "explore" && route.topTab === "datasets" ? selectedDatasetId : "");
+    setExploreGraphId("");
+    setExploreGraphSummary(null);
+    setExploreNodeId("");
+    setExploreNodeVisible(null);
+    setExploreFeatureId(command === "explore" && route.topTab === "features" ? selectedFeatureId : "");
+    setExploreFeatureGraphId("");
+    setExploreFeatureGraphVisible(null);
+    setExploreEmbeddingId(command === "explore" && route.topTab === "embeddings" ? selectedEmbeddingId : "");
+    setExploreEmbeddingGraphId("");
+    setExploreEmbeddingGraphVisible(null);
+    setExploreModelId(command === "explore" && route.topTab === "models" ? selectedModelId : "");
+    setExploreModelIteration(null);
+    setRoute((current) => ({ ...current, command }));
+  }, [route.topTab, selectedDatasetId, selectedEmbeddingId, selectedFeatureId, selectedModelId]);
+
+  const refreshAll = useCallback(() => {
+    queryClient.invalidateQueries({ queryKey: ["workspace"] });
+    queryClient.invalidateQueries({ queryKey: ["mcp-settings"] });
+    queryClient.invalidateQueries({ queryKey: ["trash"] });
+    queryClient.invalidateQueries({ queryKey: ["projects"] });
+    queryClient.invalidateQueries({ queryKey: ["dataset-library"] });
+    queryClient.invalidateQueries({ queryKey: ["feature-library"] });
+    queryClient.invalidateQueries({ queryKey: ["embedding-library"] });
+    queryClient.invalidateQueries({ queryKey: ["model-library"] });
+    if (activeProjectId) {
+      queryClient.invalidateQueries({ queryKey: ["projects", activeProjectId, "datasets"] });
+      queryClient.invalidateQueries({ queryKey: ["projects", activeProjectId, "features"] });
+      queryClient.invalidateQueries({ queryKey: ["projects", activeProjectId, "embeddings"] });
+      queryClient.invalidateQueries({ queryKey: ["projects", activeProjectId, "models"] });
+      queryClient.invalidateQueries({ queryKey: ["projects", activeProjectId, "jobs"] });
+    }
+  }, [activeProjectId, queryClient]);
+
+  const clearDeletedArtifactState = useCallback((artifacts: LifecycleArtifactRef[]) => {
+    const deletedDatasets = new Set(artifacts.filter((artifact) => artifact.artifact_kind === "dataset").map((artifact) => artifact.artifact_id));
+    const deletedFeatures = new Set(artifacts.filter((artifact) => artifact.artifact_kind === "feature").map((artifact) => artifact.artifact_id));
+    const deletedEmbeddings = new Set(artifacts.filter((artifact) => artifact.artifact_kind === "embedding").map((artifact) => artifact.artifact_id));
+    const deletedModels = new Set(artifacts.filter((artifact) => artifact.artifact_kind === "model").map((artifact) => artifact.artifact_id));
+    if (deletedDatasets.has(selectedDatasetId)) setSelectedDatasetId("");
+    if (deletedDatasets.has(exploreDatasetId)) {
+      setExploreDatasetId("");
+      setExploreGraphId("");
+      setExploreGraphSummary(null);
+      setExploreNodeId("");
+      setExploreNodeVisible(null);
+    }
+    if (deletedFeatures.has(selectedFeatureId)) setSelectedFeatureId("");
+    if (deletedFeatures.has(exploreFeatureId)) {
+      setExploreFeatureId("");
+      setExploreFeatureGraphId("");
+      setExploreFeatureGraphVisible(null);
+    }
+    if (deletedEmbeddings.has(selectedEmbeddingId)) setSelectedEmbeddingId("");
+    if (deletedEmbeddings.has(exploreEmbeddingId)) {
+      setExploreEmbeddingId("");
+      setExploreEmbeddingGraphId("");
+      setExploreEmbeddingGraphVisible(null);
+    }
+    if (deletedModels.has(selectedModelId)) setSelectedModelId("");
+    if (deletedModels.has(exploreModelId)) {
+      setExploreModelId("");
+      setExploreModelIteration(null);
+    }
+  }, [exploreDatasetId, exploreEmbeddingId, exploreFeatureId, exploreModelId, selectedDatasetId, selectedEmbeddingId, selectedFeatureId, selectedModelId]);
+
+  const handleRequestArtifactDelete = useCallback(
+    async (artifactKind: ArtifactKind, artifactId: string) => {
+      if (!activeProjectId) return;
+      setArtifactDeleteError("");
+      setArtifactDeleteBusy(true);
+      try {
+        const plan = await api.artifactDeletionPlan(activeProjectId, artifactKind, artifactId);
+        setArtifactDeletePlan(plan);
+      } catch (error) {
+        setArtifactDeletePlan(null);
+        setArtifactDeleteError(error instanceof Error ? error.message : String(error));
+      } finally {
+        setArtifactDeleteBusy(false);
+      }
+    },
+    [activeProjectId]
+  );
+
+  const closeArtifactDeleteDialog = useCallback(() => {
+    if (artifactDeleteBusy) return;
+    setArtifactDeletePlan(null);
+    setArtifactDeleteError("");
+  }, [artifactDeleteBusy]);
+
+  const confirmArtifactDelete = useCallback(async () => {
+    if (!artifactDeletePlan) {
+      closeArtifactDeleteDialog();
+      return;
+    }
+    if (artifactDeletePlan.active_jobs.length) {
+      closeArtifactDeleteDialog();
+      return;
+    }
+    setArtifactDeleteBusy(true);
+    setArtifactDeleteError("");
+    try {
+      await api.deleteArtifact(
+        artifactDeletePlan.project_id,
+        artifactDeletePlan.root_artifact.artifact_kind,
+        artifactDeletePlan.root_artifact.artifact_id,
+        artifactDeletePlan.requires_cascade
+      );
+      clearDeletedArtifactState(artifactDeletePlan.artifacts);
+      refreshAll();
+      setArtifactDeletePlan(null);
+    } catch (error) {
+      setArtifactDeleteError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setArtifactDeleteBusy(false);
+    }
+  }, [artifactDeletePlan, clearDeletedArtifactState, closeArtifactDeleteDialog, refreshAll]);
+
+  const applyMcpUiState = useCallback(
+    (requestedRoute: Record<string, unknown>) => {
+      const projectId = routeString(requestedRoute, "project_id");
+      const requestedTopTab = routeMainTab(routeString(requestedRoute, "top_tab"));
+      const artifactKind = routeArtifactKind(routeString(requestedRoute, "artifact_kind"));
+      const artifactId = routeString(requestedRoute, "artifact_id");
+      const catalogKind = routeArtifactKind(routeString(requestedRoute, "catalog_kind"));
+      const catalogId = routeString(requestedRoute, "catalog_id");
+      const graphId = routeString(requestedRoute, "graph_id");
+      const nodeId = routeString(requestedRoute, "node_id");
+      const draft = routeDraft(requestedRoute);
+
+      refreshAll();
+      setMcpDraft(draft);
+      if (projectId) {
+        setActiveProjectId(projectId);
+        setHasAutoSelectedProject(true);
+      }
+
+      setSelectedDatasetId("");
+      setSelectedCatalogId("");
+      setSelectedFeatureId("");
+      setSelectedFeatureCatalogId("");
+      setSelectedEmbeddingId("");
+      setSelectedEmbeddingCatalogId("");
+      setSelectedModelId("");
+      setSelectedModelCatalogId("");
+      setConfigureDatasetCatalogId("");
+      setConfigureFeatureCatalogId("");
+      setConfigureEmbeddingCatalogId("");
+      setConfigureModelCatalogId("");
+      setExploreDatasetId("");
+      setExploreGraphId("");
+      setExploreGraphSummary(null);
+      setExploreNodeId("");
+      setExploreNodeVisible(null);
+      setExploreFeatureId("");
+      setExploreFeatureGraphId("");
+      setExploreFeatureGraphVisible(null);
+      setExploreEmbeddingId("");
+      setExploreEmbeddingGraphId("");
+      setExploreEmbeddingGraphVisible(null);
+      setExploreModelId("");
+      setExploreModelIteration(null);
+
+      let nextTopTab: MainTab =
+        requestedTopTab ||
+        (catalogKind === "dataset" || artifactKind === "dataset"
+          ? "datasets"
+          : catalogKind === "feature" || artifactKind === "feature"
+            ? "features"
+            : catalogKind === "embedding" || artifactKind === "embedding"
+              ? "embeddings"
+              : catalogKind === "model" || artifactKind === "model"
+                ? "models"
+                : "home");
+      let nextCommand = routeCommand(routeString(requestedRoute, "command"), DEFAULT_COMMANDS[nextTopTab]);
+
+      if (catalogKind && catalogId) {
+        nextCommand = "library";
+        if (catalogKind === "dataset") {
+          setSelectedCatalogId(catalogId);
+          setConfigureDatasetCatalogId(catalogId);
+          nextTopTab = "datasets";
+        } else if (catalogKind === "feature") {
+          setSelectedFeatureCatalogId(catalogId);
+          setConfigureFeatureCatalogId(catalogId);
+          if (artifactKind === "dataset" && artifactId) setSelectedDatasetId(artifactId);
+          nextTopTab = "features";
+        } else if (catalogKind === "embedding") {
+          setSelectedEmbeddingCatalogId(catalogId);
+          setConfigureEmbeddingCatalogId(catalogId);
+          if (artifactKind === "feature" && artifactId) setSelectedFeatureId(artifactId);
+          if (artifactKind === "dataset" && artifactId) setSelectedDatasetId(artifactId);
+          nextTopTab = "embeddings";
+        } else if (catalogKind === "model") {
+          setSelectedModelCatalogId(catalogId);
+          setConfigureModelCatalogId(catalogId);
+          if (artifactKind === "embedding" && artifactId) setSelectedEmbeddingId(artifactId);
+          if (artifactKind === "dataset" && artifactId) setSelectedDatasetId(artifactId);
+          nextTopTab = "models";
+        }
+      } else if (artifactKind && artifactId) {
+        if (artifactKind === "dataset") {
+          setSelectedDatasetId(artifactId);
+          nextTopTab = "datasets";
+          if (nextCommand === "explore") {
+            setExploreDatasetId(artifactId);
+            setExploreGraphId(graphId);
+            setExploreNodeId(nodeId);
+          } else {
+            nextCommand = "datasets";
+          }
+        } else if (artifactKind === "feature") {
+          setSelectedFeatureId(artifactId);
+          nextTopTab = "features";
+          if (nextCommand === "explore") {
+            setExploreFeatureId(artifactId);
+            setExploreFeatureGraphId(graphId);
+          } else {
+            nextCommand = "features";
+          }
+        } else if (artifactKind === "embedding") {
+          setSelectedEmbeddingId(artifactId);
+          nextTopTab = "embeddings";
+          if (nextCommand === "explore") {
+            setExploreEmbeddingId(artifactId);
+            setExploreEmbeddingGraphId(graphId);
+          } else {
+            nextCommand = "embeddings";
+          }
+        } else if (artifactKind === "model") {
+          setSelectedModelId(artifactId);
+          nextTopTab = "models";
+          nextCommand = nextCommand === "explore" ? "explore" : "models";
+          if (nextCommand === "explore") setExploreModelId(artifactId);
+        }
+      }
+
+      setRoute({ topTab: nextTopTab, command: nextCommand });
+    },
+    [refreshAll]
+  );
+
+  useEffect(() => {
+    const state = mcpUiStateQuery.data;
+    if (!state?.id || state.id === lastAppliedMcpUiStateId.current) return;
+    lastAppliedMcpUiStateId.current = state.id;
+    writeAppliedMcpUiStateId(state.id);
+    applyMcpUiState(state.route);
+  }, [applyMcpUiState, mcpUiStateQuery.data]);
+
+  // Refresh-in-place when an MCP agent acts: the activity feed (polled every 2s)
+  // records every MCP action, so a new newest entry means something changed.
+  // Refetch the current view's live data without navigating the user anywhere.
+  useEffect(() => {
+    const newestActivityId = mcpActivityQuery.data?.entries?.[0]?.id;
+    if (!newestActivityId) return;
+    if (lastSeenActivityId.current === null) {
+      lastSeenActivityId.current = newestActivityId;
+      return;
+    }
+    if (newestActivityId !== lastSeenActivityId.current) {
+      lastSeenActivityId.current = newestActivityId;
+      refreshAll();
+    }
+  }, [mcpActivityQuery.data, refreshAll]);
+
+  // Refresh-in-place when a job finishes: produced outputs (prepared datasets,
+  // computed features, embeddings, trained models) only exist after the job
+  // transitions to completed/failed, so refetch so they appear without a reload.
+  useEffect(() => {
+    const previous = lastJobStatuses.current;
+    const current = new Map<string, string>();
+    let transitioned = false;
+    for (const job of jobs) {
+      current.set(job.id, job.status);
+      const before = previous?.get(job.id);
+      if (previous && before !== job.status && (job.status === "completed" || job.status === "failed")) {
+        transitioned = true;
+      }
+    }
+    lastJobStatuses.current = current;
+    if (transitioned) refreshAll();
+  }, [jobs, refreshAll]);
+
+  useEffect(() => {
+    if (!mcpDraft) return;
+    const onDraftForm =
+      (route.topTab === "datasets" && route.command === "library" && Boolean(configureDatasetCatalogId)) ||
+      (route.topTab === "features" && route.command === "library" && Boolean(configureFeatureCatalogId)) ||
+      (route.topTab === "features" && route.command === "create") ||
+      (route.topTab === "embeddings" && route.command === "library" && Boolean(configureEmbeddingCatalogId)) ||
+      (route.topTab === "models" && route.command === "library" && Boolean(configureModelCatalogId));
+    if (!onDraftForm) setMcpDraft(undefined);
+  }, [configureDatasetCatalogId, configureEmbeddingCatalogId, configureFeatureCatalogId, configureModelCatalogId, mcpDraft, route.command, route.topTab]);
+
+  const handleProjectCreated = useCallback((projectId: string) => {
+    setActiveProjectId(projectId);
+    setHasAutoSelectedProject(true);
+    setRoute({ topTab: "home", command: "projects" });
+  }, []);
+
+  const handleSelectProject = useCallback((projectId: string) => {
+    setActiveProjectId(projectId);
+    setSelectedDatasetId("");
+    setSelectedCatalogId("");
+    setSelectedFeatureId("");
+    setSelectedFeatureCatalogId("");
+    setSelectedEmbeddingId("");
+    setSelectedEmbeddingCatalogId("");
+    setSelectedModelId("");
+    setSelectedModelCatalogId("");
+    setConfigureDatasetCatalogId("");
+    setConfigureFeatureCatalogId("");
+    setConfigureEmbeddingCatalogId("");
+    setConfigureModelCatalogId("");
+    setExploreDatasetId("");
+    setExploreGraphId("");
+    setExploreGraphSummary(null);
+    setExploreNodeId("");
+    setExploreNodeVisible(null);
+    setExploreFeatureId("");
+    setExploreFeatureGraphId("");
+    setExploreFeatureGraphVisible(null);
+    setExploreEmbeddingId("");
+    setExploreEmbeddingGraphId("");
+    setExploreEmbeddingGraphVisible(null);
+    setExploreModelId("");
+    setExploreModelIteration(null);
+    setRoute({ topTab: "home", command: "projects" });
+  }, []);
+
+  const handleSelectActiveProject = useCallback(() => {
+    handleSelectProject(activeProjectId);
+  }, [activeProjectId, handleSelectProject]);
+
+  const handleSelectCatalog = useCallback((catalogId: string) => {
+    setSelectedCatalogId(catalogId);
+    setSelectedDatasetId("");
+    setSelectedFeatureId("");
+    setSelectedFeatureCatalogId("");
+    setSelectedEmbeddingId("");
+    setSelectedEmbeddingCatalogId("");
+    setSelectedModelId("");
+    setSelectedModelCatalogId("");
+    setConfigureDatasetCatalogId("");
+    setConfigureFeatureCatalogId("");
+    setConfigureEmbeddingCatalogId("");
+    setConfigureModelCatalogId("");
+    setExploreDatasetId("");
+    setExploreGraphId("");
+    setExploreGraphSummary(null);
+    setExploreNodeId("");
+    setExploreNodeVisible(null);
+    setExploreFeatureId("");
+    setExploreFeatureGraphId("");
+    setExploreFeatureGraphVisible(null);
+    setExploreEmbeddingId("");
+    setExploreEmbeddingGraphId("");
+    setExploreEmbeddingGraphVisible(null);
+    setExploreModelId("");
+    setExploreModelIteration(null);
+  }, []);
+
+  const handleConfigureDatasetCatalog = useCallback((catalogId: string) => {
+    setSelectedCatalogId(catalogId);
+    setSelectedDatasetId("");
+    setSelectedFeatureId("");
+    setSelectedFeatureCatalogId("");
+    setSelectedEmbeddingId("");
+    setSelectedEmbeddingCatalogId("");
+    setSelectedModelId("");
+    setSelectedModelCatalogId("");
+    setConfigureDatasetCatalogId(catalogId);
+    setConfigureFeatureCatalogId("");
+    setConfigureEmbeddingCatalogId("");
+    setConfigureModelCatalogId("");
+    setExploreDatasetId("");
+    setExploreGraphId("");
+    setExploreGraphSummary(null);
+    setExploreNodeId("");
+    setExploreNodeVisible(null);
+    setExploreFeatureId("");
+    setExploreFeatureGraphId("");
+    setExploreFeatureGraphVisible(null);
+    setExploreEmbeddingId("");
+    setExploreEmbeddingGraphId("");
+    setExploreEmbeddingGraphVisible(null);
+    setExploreModelId("");
+    setExploreModelIteration(null);
+    setRoute({ topTab: "datasets", command: "library" });
+  }, []);
+
+  const handleBackToDatasetLibrary = useCallback(() => {
+    setConfigureDatasetCatalogId("");
+    setRoute({ topTab: "datasets", command: "library" });
+  }, []);
+
+  const handleSelectDataset = useCallback((datasetId: string) => {
+    setSelectedDatasetId(datasetId);
+    setSelectedCatalogId("");
+    setSelectedFeatureId("");
+    setSelectedFeatureCatalogId("");
+    setSelectedEmbeddingId("");
+    setSelectedEmbeddingCatalogId("");
+    setSelectedModelId("");
+    setSelectedModelCatalogId("");
+    setConfigureDatasetCatalogId("");
+    setConfigureFeatureCatalogId("");
+    setConfigureEmbeddingCatalogId("");
+    setConfigureModelCatalogId("");
+    setExploreDatasetId("");
+    setExploreGraphId("");
+    setExploreGraphSummary(null);
+    setExploreNodeId("");
+    setExploreNodeVisible(null);
+    setExploreFeatureId("");
+    setExploreFeatureGraphId("");
+    setExploreFeatureGraphVisible(null);
+    setExploreEmbeddingId("");
+    setExploreEmbeddingGraphId("");
+    setExploreEmbeddingGraphVisible(null);
+    setExploreModelId("");
+    setExploreModelIteration(null);
+    setRoute({ topTab: "datasets", command: "datasets" });
+  }, []);
+
+  const handleSelectFeatureCatalog = useCallback((catalogId: string) => {
+    setSelectedFeatureCatalogId(catalogId);
+    setSelectedDatasetId(selectionLineage.activeDatasetId);
+    setSelectedCatalogId("");
+    setSelectedFeatureId("");
+    setSelectedEmbeddingId("");
+    setSelectedEmbeddingCatalogId("");
+    setSelectedModelId("");
+    setSelectedModelCatalogId("");
+    setConfigureDatasetCatalogId("");
+    setConfigureFeatureCatalogId("");
+    setConfigureEmbeddingCatalogId("");
+    setConfigureModelCatalogId("");
+    setExploreDatasetId("");
+    setExploreGraphId("");
+    setExploreGraphSummary(null);
+    setExploreNodeId("");
+    setExploreNodeVisible(null);
+    setExploreFeatureId("");
+    setExploreFeatureGraphId("");
+    setExploreFeatureGraphVisible(null);
+    setExploreEmbeddingId("");
+    setExploreEmbeddingGraphId("");
+    setExploreEmbeddingGraphVisible(null);
+    setExploreModelId("");
+    setExploreModelIteration(null);
+  }, [selectionLineage.activeDatasetId]);
+
+  const handleConfigureFeatureCatalog = useCallback((catalogId: string) => {
+    setSelectedFeatureCatalogId(catalogId);
+    setSelectedDatasetId(selectionLineage.activeDatasetId);
+    setSelectedCatalogId("");
+    setSelectedFeatureId("");
+    setSelectedEmbeddingId("");
+    setSelectedEmbeddingCatalogId("");
+    setSelectedModelId("");
+    setSelectedModelCatalogId("");
+    setConfigureDatasetCatalogId("");
+    setConfigureFeatureCatalogId(catalogId);
+    setConfigureEmbeddingCatalogId("");
+    setConfigureModelCatalogId("");
+    setExploreDatasetId("");
+    setExploreGraphId("");
+    setExploreGraphSummary(null);
+    setExploreNodeId("");
+    setExploreNodeVisible(null);
+    setExploreFeatureId("");
+    setExploreFeatureGraphId("");
+    setExploreFeatureGraphVisible(null);
+    setExploreEmbeddingId("");
+    setExploreEmbeddingGraphId("");
+    setExploreEmbeddingGraphVisible(null);
+    setExploreModelId("");
+    setExploreModelIteration(null);
+    setRoute({ topTab: "features", command: "library" });
+  }, [selectionLineage.activeDatasetId]);
+
+  const handleSelectFeature = useCallback((featureId: string) => {
+    setSelectedFeatureId(featureId);
+    setSelectedDatasetId("");
+    setSelectedCatalogId("");
+    setSelectedFeatureCatalogId("");
+    setSelectedEmbeddingId("");
+    setSelectedEmbeddingCatalogId("");
+    setSelectedModelId("");
+    setSelectedModelCatalogId("");
+    setConfigureDatasetCatalogId("");
+    setConfigureFeatureCatalogId("");
+    setConfigureEmbeddingCatalogId("");
+    setConfigureModelCatalogId("");
+    setExploreDatasetId("");
+    setExploreGraphId("");
+    setExploreGraphSummary(null);
+    setExploreNodeId("");
+    setExploreNodeVisible(null);
+    setExploreFeatureId("");
+    setExploreFeatureGraphId("");
+    setExploreFeatureGraphVisible(null);
+    setExploreEmbeddingId("");
+    setExploreEmbeddingGraphId("");
+    setExploreEmbeddingGraphVisible(null);
+    setExploreModelId("");
+    setExploreModelIteration(null);
+    setRoute({ topTab: "features", command: "features" });
+  }, []);
+
+  const handleDatasetCreated = useCallback((datasetId: string) => {
+    setSelectedDatasetId(datasetId);
+    setSelectedCatalogId("");
+    setSelectedFeatureId("");
+    setSelectedFeatureCatalogId("");
+    setSelectedEmbeddingId("");
+    setSelectedEmbeddingCatalogId("");
+    setSelectedModelId("");
+    setSelectedModelCatalogId("");
+    setConfigureDatasetCatalogId("");
+    setConfigureFeatureCatalogId("");
+    setConfigureEmbeddingCatalogId("");
+    setConfigureModelCatalogId("");
+    setExploreDatasetId("");
+    setExploreGraphId("");
+    setExploreGraphSummary(null);
+    setExploreNodeId("");
+    setExploreNodeVisible(null);
+    setExploreFeatureId("");
+    setExploreFeatureGraphId("");
+    setExploreFeatureGraphVisible(null);
+    setExploreEmbeddingId("");
+    setExploreEmbeddingGraphId("");
+    setExploreEmbeddingGraphVisible(null);
+    setExploreModelId("");
+    setExploreModelIteration(null);
+    setRoute({ topTab: "datasets", command: "datasets" });
+  }, []);
+
+  const handleFeatureCreated = useCallback((featureId: string) => {
+    setSelectedFeatureId(featureId);
+    setSelectedDatasetId("");
+    setSelectedCatalogId("");
+    setSelectedFeatureCatalogId("");
+    setSelectedEmbeddingId("");
+    setSelectedEmbeddingCatalogId("");
+    setSelectedModelId("");
+    setSelectedModelCatalogId("");
+    setConfigureDatasetCatalogId("");
+    setConfigureFeatureCatalogId("");
+    setConfigureEmbeddingCatalogId("");
+    setConfigureModelCatalogId("");
+    setExploreDatasetId("");
+    setExploreGraphId("");
+    setExploreGraphSummary(null);
+    setExploreNodeId("");
+    setExploreNodeVisible(null);
+    setExploreFeatureId("");
+    setExploreFeatureGraphId("");
+    setExploreFeatureGraphVisible(null);
+    setExploreEmbeddingId("");
+    setExploreEmbeddingGraphId("");
+    setExploreEmbeddingGraphVisible(null);
+    setExploreModelId("");
+    setExploreModelIteration(null);
+    setRoute({ topTab: "features", command: "features" });
+  }, []);
+
+  const handleExploreDataset = useCallback((datasetId: string) => {
+    setSelectedDatasetId(datasetId);
+    setSelectedCatalogId("");
+    setSelectedFeatureId("");
+    setSelectedFeatureCatalogId("");
+    setSelectedEmbeddingId("");
+    setSelectedEmbeddingCatalogId("");
+    setSelectedModelId("");
+    setSelectedModelCatalogId("");
+    setConfigureDatasetCatalogId("");
+    setConfigureFeatureCatalogId("");
+    setConfigureEmbeddingCatalogId("");
+    setConfigureModelCatalogId("");
+    setExploreDatasetId(datasetId);
+    setExploreGraphId("");
+    setExploreGraphSummary(null);
+    setExploreNodeId("");
+    setExploreNodeVisible(null);
+    setExploreFeatureId("");
+    setExploreFeatureGraphId("");
+    setExploreFeatureGraphVisible(null);
+    setExploreEmbeddingId("");
+    setExploreEmbeddingGraphId("");
+    setExploreEmbeddingGraphVisible(null);
+    setExploreModelId("");
+    setExploreModelIteration(null);
+    setRoute({ topTab: "datasets", command: "explore" });
+  }, []);
+
+  const handleBackToDatasets = useCallback(() => {
+    setExploreDatasetId("");
+    setExploreGraphId("");
+    setExploreGraphSummary(null);
+    setExploreNodeId("");
+    setExploreNodeVisible(null);
+    setRoute({ topTab: "datasets", command: "datasets" });
+  }, []);
+
+  const handleExploreGraphChange = useCallback(
+    (graphId: string, summary: DatasetGraphSummary | null, options: { clearNode?: boolean } = {}) => {
+      setExploreGraphId(graphId);
+      setExploreGraphSummary(summary);
+      if (options.clearNode !== false) {
+        setExploreNodeId("");
+        setExploreNodeVisible(null);
+      }
+    },
+    []
+  );
+
+  const handleExploreNodeChange = useCallback((nodeId: string) => {
+    setExploreNodeId(nodeId);
+    setExploreNodeVisible(null);
+  }, []);
+
+  const handleExploreFeature = useCallback((featureId: string) => {
+    setSelectedFeatureId(featureId);
+    setSelectedDatasetId("");
+    setSelectedCatalogId("");
+    setSelectedFeatureCatalogId("");
+    setSelectedEmbeddingId("");
+    setSelectedEmbeddingCatalogId("");
+    setSelectedModelId("");
+    setSelectedModelCatalogId("");
+    setExploreFeatureId(featureId);
+    setExploreFeatureGraphId("");
+    setExploreFeatureGraphVisible(null);
+    setExploreDatasetId("");
+    setExploreGraphId("");
+    setExploreGraphSummary(null);
+    setExploreNodeId("");
+    setExploreNodeVisible(null);
+    setExploreEmbeddingId("");
+    setExploreEmbeddingGraphId("");
+    setExploreEmbeddingGraphVisible(null);
+    setExploreModelId("");
+    setExploreModelIteration(null);
+    setRoute({ topTab: "features", command: "explore" });
+  }, []);
+
+  const handleClearExploreFeature = useCallback(() => {
+    if (selectionLineage.activeDatasetId) {
+      setSelectedDatasetId(selectionLineage.activeDatasetId);
+    }
+    setSelectedFeatureId("");
+    setExploreFeatureId("");
+    setExploreFeatureGraphId("");
+    setExploreFeatureGraphVisible(null);
+    setRoute({ topTab: "features", command: "explore" });
+  }, [selectionLineage.activeDatasetId]);
+
+  const handleExploreFeatureGraphChange = useCallback((graphId: string, visible: boolean | null) => {
+    setExploreFeatureGraphId(graphId);
+    setExploreFeatureGraphVisible(visible);
+  }, []);
+
+  const handleSelectEmbeddingCatalog = useCallback((catalogId: string) => {
+    const initialFeatureId =
+      selectedFeature && selectionLineage.activeDatasetId && featureDatasetId(selectedFeature) === selectionLineage.activeDatasetId
+        ? selectedFeature.id
+        : "";
+    setSelectedEmbeddingCatalogId(catalogId);
+    setSelectedDatasetId(initialFeatureId ? "" : selectionLineage.activeDatasetId);
+    setSelectedCatalogId("");
+    setSelectedFeatureId(initialFeatureId);
+    setSelectedFeatureCatalogId("");
+    setSelectedEmbeddingId("");
+    setSelectedModelId("");
+    setSelectedModelCatalogId("");
+    setConfigureDatasetCatalogId("");
+    setConfigureFeatureCatalogId("");
+    setConfigureEmbeddingCatalogId("");
+    setConfigureModelCatalogId("");
+    setExploreDatasetId("");
+    setExploreGraphId("");
+    setExploreGraphSummary(null);
+    setExploreNodeId("");
+    setExploreNodeVisible(null);
+    setExploreFeatureId("");
+    setExploreFeatureGraphId("");
+    setExploreFeatureGraphVisible(null);
+    setExploreEmbeddingId("");
+    setExploreEmbeddingGraphId("");
+    setExploreEmbeddingGraphVisible(null);
+    setExploreModelId("");
+    setExploreModelIteration(null);
+  }, [selectedFeature, selectionLineage.activeDatasetId]);
+
+  const handleConfigureEmbeddingCatalog = useCallback((catalogId: string) => {
+    const initialFeatureId =
+      selectedFeature && selectionLineage.activeDatasetId && featureDatasetId(selectedFeature) === selectionLineage.activeDatasetId
+        ? selectedFeature.id
+        : "";
+    setSelectedEmbeddingCatalogId(catalogId);
+    setSelectedDatasetId(initialFeatureId ? "" : selectionLineage.activeDatasetId);
+    setSelectedCatalogId("");
+    setSelectedFeatureId(initialFeatureId);
+    setSelectedFeatureCatalogId("");
+    setSelectedEmbeddingId("");
+    setSelectedModelId("");
+    setSelectedModelCatalogId("");
+    setConfigureDatasetCatalogId("");
+    setConfigureFeatureCatalogId("");
+    setConfigureEmbeddingCatalogId(catalogId);
+    setConfigureModelCatalogId("");
+    setExploreDatasetId("");
+    setExploreGraphId("");
+    setExploreGraphSummary(null);
+    setExploreNodeId("");
+    setExploreNodeVisible(null);
+    setExploreFeatureId("");
+    setExploreFeatureGraphId("");
+    setExploreFeatureGraphVisible(null);
+    setExploreEmbeddingId("");
+    setExploreEmbeddingGraphId("");
+    setExploreEmbeddingGraphVisible(null);
+    setExploreModelId("");
+    setExploreModelIteration(null);
+    setRoute({ topTab: "embeddings", command: "library" });
+  }, [selectedFeature, selectionLineage.activeDatasetId]);
+
+  const handleSelectEmbedding = useCallback((embeddingId: string) => {
+    setSelectedEmbeddingId(embeddingId);
+    setSelectedDatasetId("");
+    setSelectedCatalogId("");
+    setSelectedFeatureId("");
+    setSelectedFeatureCatalogId("");
+    setSelectedEmbeddingCatalogId("");
+    setSelectedModelId("");
+    setSelectedModelCatalogId("");
+    setConfigureDatasetCatalogId("");
+    setConfigureFeatureCatalogId("");
+    setConfigureEmbeddingCatalogId("");
+    setConfigureModelCatalogId("");
+    setExploreDatasetId("");
+    setExploreGraphId("");
+    setExploreGraphSummary(null);
+    setExploreNodeId("");
+    setExploreNodeVisible(null);
+    setExploreFeatureId("");
+    setExploreFeatureGraphId("");
+    setExploreFeatureGraphVisible(null);
+    setExploreEmbeddingId("");
+    setExploreEmbeddingGraphId("");
+    setExploreEmbeddingGraphVisible(null);
+    setExploreModelId("");
+    setExploreModelIteration(null);
+    setRoute({ topTab: "embeddings", command: "embeddings" });
+  }, []);
+
+  const handleEmbeddingCreated = useCallback((embeddingId: string) => {
+    setSelectedEmbeddingId(embeddingId);
+    setSelectedDatasetId("");
+    setSelectedCatalogId("");
+    setSelectedFeatureId("");
+    setSelectedFeatureCatalogId("");
+    setSelectedEmbeddingCatalogId("");
+    setSelectedModelId("");
+    setSelectedModelCatalogId("");
+    setConfigureDatasetCatalogId("");
+    setConfigureFeatureCatalogId("");
+    setConfigureEmbeddingCatalogId("");
+    setConfigureModelCatalogId("");
+    setExploreDatasetId("");
+    setExploreGraphId("");
+    setExploreGraphSummary(null);
+    setExploreNodeId("");
+    setExploreNodeVisible(null);
+    setExploreFeatureId("");
+    setExploreFeatureGraphId("");
+    setExploreFeatureGraphVisible(null);
+    setExploreEmbeddingId("");
+    setExploreEmbeddingGraphId("");
+    setExploreEmbeddingGraphVisible(null);
+    setExploreModelId("");
+    setExploreModelIteration(null);
+    setRoute({ topTab: "embeddings", command: "embeddings" });
+  }, []);
+
+  const handleExploreEmbedding = useCallback((embeddingId: string) => {
+    setSelectedEmbeddingId(embeddingId);
+    setSelectedDatasetId("");
+    setSelectedCatalogId("");
+    setSelectedFeatureId("");
+    setSelectedFeatureCatalogId("");
+    setSelectedEmbeddingCatalogId("");
+    setSelectedModelId("");
+    setSelectedModelCatalogId("");
+    setConfigureDatasetCatalogId("");
+    setConfigureFeatureCatalogId("");
+    setConfigureEmbeddingCatalogId("");
+    setConfigureModelCatalogId("");
+    setExploreEmbeddingId(embeddingId);
+    setExploreEmbeddingGraphId("");
+    setExploreEmbeddingGraphVisible(null);
+    setExploreDatasetId("");
+    setExploreGraphId("");
+    setExploreGraphSummary(null);
+    setExploreNodeId("");
+    setExploreNodeVisible(null);
+    setExploreFeatureId("");
+    setExploreFeatureGraphId("");
+    setExploreFeatureGraphVisible(null);
+    setExploreModelId("");
+    setExploreModelIteration(null);
+    setRoute({ topTab: "embeddings", command: "explore" });
+  }, []);
+
+  const handleClearExploreEmbedding = useCallback(() => {
+    if (selectionLineage.activeDatasetId) {
+      setSelectedDatasetId(selectionLineage.activeDatasetId);
+    }
+    setSelectedEmbeddingId("");
+    setExploreEmbeddingId("");
+    setExploreEmbeddingGraphId("");
+    setExploreEmbeddingGraphVisible(null);
+    setRoute({ topTab: "embeddings", command: "explore" });
+  }, [selectionLineage.activeDatasetId]);
+
+  const handleExploreEmbeddingGraphChange = useCallback((graphId: string, visible: boolean | null) => {
+    setExploreEmbeddingGraphId(graphId);
+    setExploreEmbeddingGraphVisible(visible);
+  }, []);
+
+  const handleSelectModelCatalog = useCallback((catalogId: string) => {
+    const initialEmbeddingId =
+      selectedEmbedding && selectionLineage.activeDatasetId && selectionLineage.embeddings.some((embedding) => embedding.id === selectedEmbedding.id)
+        ? selectedEmbedding.id
+        : "";
+    setSelectedModelCatalogId(catalogId);
+    setSelectedDatasetId(initialEmbeddingId ? "" : selectionLineage.activeDatasetId);
+    setSelectedCatalogId("");
+    setSelectedFeatureId("");
+    setSelectedFeatureCatalogId("");
+    setSelectedEmbeddingId(initialEmbeddingId);
+    setSelectedEmbeddingCatalogId("");
+    setSelectedModelId("");
+    setConfigureDatasetCatalogId("");
+    setConfigureFeatureCatalogId("");
+    setConfigureEmbeddingCatalogId("");
+    setConfigureModelCatalogId("");
+    setExploreDatasetId("");
+    setExploreGraphId("");
+    setExploreGraphSummary(null);
+    setExploreNodeId("");
+    setExploreNodeVisible(null);
+    setExploreFeatureId("");
+    setExploreFeatureGraphId("");
+    setExploreFeatureGraphVisible(null);
+    setExploreEmbeddingId("");
+    setExploreEmbeddingGraphId("");
+    setExploreEmbeddingGraphVisible(null);
+    setExploreModelId("");
+    setExploreModelIteration(null);
+  }, [selectedEmbedding, selectionLineage.activeDatasetId, selectionLineage.embeddings]);
+
+  const handleConfigureModelCatalog = useCallback((catalogId: string) => {
+    const initialEmbeddingId =
+      selectedEmbedding && selectionLineage.activeDatasetId && selectionLineage.embeddings.some((embedding) => embedding.id === selectedEmbedding.id)
+        ? selectedEmbedding.id
+        : "";
+    setSelectedModelCatalogId(catalogId);
+    setSelectedDatasetId(initialEmbeddingId ? "" : selectionLineage.activeDatasetId);
+    setSelectedCatalogId("");
+    setSelectedFeatureId("");
+    setSelectedFeatureCatalogId("");
+    setSelectedEmbeddingId(initialEmbeddingId);
+    setSelectedEmbeddingCatalogId("");
+    setSelectedModelId("");
+    setConfigureDatasetCatalogId("");
+    setConfigureFeatureCatalogId("");
+    setConfigureEmbeddingCatalogId("");
+    setConfigureModelCatalogId(catalogId);
+    setExploreDatasetId("");
+    setExploreGraphId("");
+    setExploreGraphSummary(null);
+    setExploreNodeId("");
+    setExploreNodeVisible(null);
+    setExploreFeatureId("");
+    setExploreFeatureGraphId("");
+    setExploreFeatureGraphVisible(null);
+    setExploreEmbeddingId("");
+    setExploreEmbeddingGraphId("");
+    setExploreEmbeddingGraphVisible(null);
+    setExploreModelId("");
+    setExploreModelIteration(null);
+    setRoute({ topTab: "models", command: "library" });
+  }, [selectedEmbedding, selectionLineage.activeDatasetId, selectionLineage.embeddings]);
+
+  const handleSelectModel = useCallback((modelId: string) => {
+    setSelectedModelId(modelId);
+    setSelectedDatasetId("");
+    setSelectedCatalogId("");
+    setSelectedFeatureId("");
+    setSelectedFeatureCatalogId("");
+    setSelectedEmbeddingId("");
+    setSelectedEmbeddingCatalogId("");
+    setSelectedModelCatalogId("");
+    setConfigureDatasetCatalogId("");
+    setConfigureFeatureCatalogId("");
+    setConfigureEmbeddingCatalogId("");
+    setConfigureModelCatalogId("");
+    setExploreDatasetId("");
+    setExploreGraphId("");
+    setExploreGraphSummary(null);
+    setExploreNodeId("");
+    setExploreNodeVisible(null);
+    setExploreFeatureId("");
+    setExploreFeatureGraphId("");
+    setExploreFeatureGraphVisible(null);
+    setExploreEmbeddingId("");
+    setExploreEmbeddingGraphId("");
+    setExploreEmbeddingGraphVisible(null);
+    setExploreModelId("");
+    setExploreModelIteration(null);
+    setRoute({ topTab: "models", command: "models" });
+  }, []);
+
+  const handleModelCreated = useCallback((modelId: string) => {
+    setSelectedModelId(modelId);
+    setSelectedDatasetId("");
+    setSelectedCatalogId("");
+    setSelectedFeatureId("");
+    setSelectedFeatureCatalogId("");
+    setSelectedEmbeddingId("");
+    setSelectedEmbeddingCatalogId("");
+    setSelectedModelCatalogId("");
+    setConfigureDatasetCatalogId("");
+    setConfigureFeatureCatalogId("");
+    setConfigureEmbeddingCatalogId("");
+    setConfigureModelCatalogId("");
+    setExploreDatasetId("");
+    setExploreGraphId("");
+    setExploreGraphSummary(null);
+    setExploreNodeId("");
+    setExploreNodeVisible(null);
+    setExploreFeatureId("");
+    setExploreFeatureGraphId("");
+    setExploreFeatureGraphVisible(null);
+    setExploreEmbeddingId("");
+    setExploreEmbeddingGraphId("");
+    setExploreEmbeddingGraphVisible(null);
+    setExploreModelId("");
+    setExploreModelIteration(null);
+    setRoute({ topTab: "models", command: "models" });
+  }, []);
+
+  const handleExploreModel = useCallback((modelId: string) => {
+    setSelectedModelId(modelId);
+    setSelectedDatasetId("");
+    setSelectedCatalogId("");
+    setSelectedFeatureId("");
+    setSelectedFeatureCatalogId("");
+    setSelectedEmbeddingId("");
+    setSelectedEmbeddingCatalogId("");
+    setSelectedModelCatalogId("");
+    setExploreModelId(modelId);
+    setExploreModelIteration(null);
+    setExploreDatasetId("");
+    setExploreGraphId("");
+    setExploreGraphSummary(null);
+    setExploreNodeId("");
+    setExploreNodeVisible(null);
+    setExploreFeatureId("");
+    setExploreFeatureGraphId("");
+    setExploreFeatureGraphVisible(null);
+    setExploreEmbeddingId("");
+    setExploreEmbeddingGraphId("");
+    setExploreEmbeddingGraphVisible(null);
+    setRoute({ topTab: "models", command: "explore" });
+  }, []);
+
+  const handleClearExploreModel = useCallback(() => {
+    if (selectionLineage.activeDatasetId) {
+      setSelectedDatasetId(selectionLineage.activeDatasetId);
+    }
+    setSelectedModelId("");
+    setExploreModelId("");
+    setExploreModelIteration(null);
+    setRoute({ topTab: "models", command: "explore" });
+  }, [selectionLineage.activeDatasetId]);
+
+  const handleExploreModelIterationChange = useCallback((iteration: number | null) => {
+    setExploreModelIteration(iteration);
+  }, []);
+
+  function renderCenterView() {
+    const title = viewTitle(route);
+    if (route.topTab === "home" && route.command === "create") {
+      return <CreateProjectView onCreated={handleProjectCreated} />;
+    }
+    if (route.topTab === "home" && route.command === "projects") {
+      return (
+        <ProjectsView
+          workspacePath={workspaceQuery.data?.path || ""}
+          projects={projectsQuery.data || []}
+          activeProjectId={activeProjectId}
+          onSelectProject={handleSelectProject}
+        />
+      );
+    }
+    if (route.topTab === "home" && route.command === "trash") {
+      return <TrashView />;
+    }
+    if (route.topTab === "home" && route.command === "settings") {
+      return <SettingsView workspace={workspaceQuery.data} projects={projectsQuery.data || []} activeProject={project} />;
+    }
+    if (route.topTab === "datasets" && route.command === "import") {
+      return <DatasetImportView activeProjectId={activeProjectId} onCreated={handleDatasetCreated} />;
+    }
+    if (route.topTab === "datasets" && route.command === "library" && configureDatasetCatalogId) {
+      return (
+        <ConfigureDatasetView
+          activeProjectId={activeProjectId}
+          entry={configuredDatasetCatalogEntry}
+          draft={mcpDraft}
+          onBack={handleBackToDatasetLibrary}
+          onCreated={handleDatasetCreated}
+        />
+      );
+    }
+    if (route.topTab === "datasets" && route.command === "library") {
+      return (
+        <DatasetLibraryView
+          activeProjectId={activeProjectId}
+          catalog={datasetLibraryQuery.data || []}
+          datasets={datasets}
+          loading={datasetLibraryQuery.isLoading || projectDatasetsQuery.isLoading}
+          selectedCatalogId={selectedCatalogId}
+          onSelectCatalog={handleSelectCatalog}
+          onConfigure={handleConfigureDatasetCatalog}
+        />
+      );
+    }
+    if (route.topTab === "datasets" && route.command === "explore") {
+      return (
+        <DatasetExploreView
+          activeProjectId={activeProjectId}
+          datasets={selectionLineage.datasets}
+          loading={projectDatasetsQuery.isLoading}
+          selectedDatasetId={selectionLineage.activeDatasetId}
+          exploreDatasetId={exploreDatasetId}
+          exploreGraphId={exploreGraphId}
+          exploreNodeId={exploreNodeId}
+          onExploreDataset={handleExploreDataset}
+          onBackToDatasets={handleBackToDatasets}
+          onExploreGraphChange={handleExploreGraphChange}
+          onExploreNodeChange={handleExploreNodeChange}
+          onExploreNodeVisualStateChange={setExploreNodeVisible}
+        />
+      );
+    }
+    if (route.topTab === "datasets" && route.command === "datasets") {
+      return (
+        <ProjectDatasetsView
+          activeProjectId={activeProjectId}
+          datasets={selectionLineage.datasets}
+          loading={projectDatasetsQuery.isLoading}
+          selectedDatasetId={selectionLineage.activeDatasetId}
+          onSelectDataset={handleSelectDataset}
+          onPreviewDataset={handleExploreDataset}
+          onDeleteArtifact={handleRequestArtifactDelete}
+        />
+      );
+    }
+    if ((route.topTab === "features" && route.command === "library") || (route.topTab === "features" && route.command === "create")) {
+      if (!activeLineageDataset) {
+        return (
+          <div className="workflow">
+            <section className="artifact-table">
+              <header className="artifact-table-head">
+                <span className="artifact-table-title">Select a Dataset</span>
+                <span className="muted">Feature workflows are dataset-first</span>
+              </header>
+              <div className="artifact-table-empty">
+                <EmptyState compact>Select a dataset in the Left Panel before creating or configuring features.</EmptyState>
+              </div>
+            </section>
+          </div>
+        );
+      }
+    }
+    if (route.topTab === "features" && route.command === "library" && configureFeatureCatalogId) {
+      return (
+        <ConfigureFeatureView
+          activeProjectId={activeProjectId}
+          feature={configuredFeatureCatalogEntry}
+          dataset={activeLineageDataset}
+          draft={mcpDraft}
+          onCreated={handleFeatureCreated}
+        />
+      );
+    }
+    if (route.topTab === "features" && route.command === "library") {
+      return (
+        <FeatureLibraryView
+          activeProjectId={activeProjectId}
+          catalog={featureLibraryQuery.data || []}
+          loading={featureLibraryQuery.isLoading}
+          selectedCatalogId={selectedFeatureCatalogId}
+          selectedDataset={activeLineageDataset}
+          onSelectCatalog={handleSelectFeatureCatalog}
+          onConfigure={handleConfigureFeatureCatalog}
+        />
+      );
+    }
+    if (route.topTab === "features" && route.command === "create") {
+      return (
+        <CreateFeatureView
+          activeProjectId={activeProjectId}
+          dataset={activeLineageDataset}
+          draft={mcpDraft}
+          onCreated={handleFeatureCreated}
+        />
+      );
+    }
+    if (route.topTab === "features" && route.command === "explore") {
+      return (
+        <FeatureExploreView
+          activeProjectId={activeProjectId}
+          features={selectionLineage.features}
+          datasets={selectionLineage.datasets}
+          catalog={featureLibraryQuery.data || []}
+          loading={projectFeaturesQuery.isLoading}
+          selectedFeatureId={selectedFeatureId}
+          exploreFeatureId={exploreFeatureId}
+          selectedGraphId={exploreFeatureGraphId}
+          onExploreFeature={handleExploreFeature}
+          onClearExploreFeature={handleClearExploreFeature}
+          onSelectGraph={handleExploreFeatureGraphChange}
+          onSelectedGraphVisibilityChange={setExploreFeatureGraphVisible}
+        />
+      );
+    }
+    if (route.topTab === "features" && route.command === "features") {
+      return (
+        <ProjectFeaturesView
+          activeProjectId={activeProjectId}
+          features={selectionLineage.features}
+          datasets={selectionLineage.datasets}
+          catalog={featureLibraryQuery.data || []}
+          loading={projectFeaturesQuery.isLoading}
+          selectedFeatureId={selectedFeatureId}
+          onSelectFeature={handleSelectFeature}
+          onPreviewFeature={handleExploreFeature}
+          onDeleteArtifact={handleRequestArtifactDelete}
+        />
+      );
+    }
+    if (route.topTab === "embeddings" && route.command === "library") {
+      if (!activeLineageDataset) {
+        return (
+          <div className="workflow">
+            <section className="artifact-table">
+              <header className="artifact-table-head">
+                <span className="artifact-table-title">Select a Dataset</span>
+                <span className="muted">Embedding workflows are dataset-first</span>
+              </header>
+              <div className="artifact-table-empty">
+                <EmptyState compact>Select a dataset in the Left Panel before configuring embeddings.</EmptyState>
+              </div>
+            </section>
+          </div>
+        );
+      }
+    }
+    if (route.topTab === "embeddings" && route.command === "library" && configureEmbeddingCatalogId) {
+      return (
+        <ConfigureEmbeddingView
+          activeProjectId={activeProjectId}
+          embedding={configuredEmbeddingCatalogEntry}
+          features={selectionLineage.features}
+          dataset={activeLineageDataset}
+          loading={projectFeaturesQuery.isLoading}
+          initialSelectedFeatureId={activeLineageFeatureId}
+          draft={mcpDraft}
+          onCreated={handleEmbeddingCreated}
+        />
+      );
+    }
+    if (route.topTab === "embeddings" && route.command === "library") {
+      return (
+        <EmbeddingLibraryView
+          activeProjectId={activeProjectId}
+          catalog={embeddingLibraryQuery.data || []}
+          loading={embeddingLibraryQuery.isLoading}
+          selectedCatalogId={selectedEmbeddingCatalogId}
+          selectedDataset={activeLineageDataset}
+          onSelectCatalog={handleSelectEmbeddingCatalog}
+          onConfigure={handleConfigureEmbeddingCatalog}
+        />
+      );
+    }
+    if (route.topTab === "embeddings" && route.command === "explore") {
+      return (
+        <EmbeddingExploreView
+          activeProjectId={activeProjectId}
+          embeddings={selectionLineage.embeddings}
+          features={selectionLineage.features}
+          datasets={selectionLineage.datasets}
+          catalog={embeddingLibraryQuery.data || []}
+          loading={projectEmbeddingsQuery.isLoading}
+          selectedEmbeddingId={selectedEmbeddingId}
+          exploreEmbeddingId={exploreEmbeddingId}
+          selectedGraphId={exploreEmbeddingGraphId}
+          onExploreEmbedding={handleExploreEmbedding}
+          onClearExploreEmbedding={handleClearExploreEmbedding}
+          onSelectGraph={handleExploreEmbeddingGraphChange}
+          onSelectedGraphVisibilityChange={setExploreEmbeddingGraphVisible}
+        />
+      );
+    }
+    if (route.topTab === "embeddings" && route.command === "embeddings") {
+      return (
+        <ProjectEmbeddingsView
+          activeProjectId={activeProjectId}
+          embeddings={selectionLineage.embeddings}
+          features={selectionLineage.features}
+          datasets={selectionLineage.datasets}
+          catalog={embeddingLibraryQuery.data || []}
+          loading={projectEmbeddingsQuery.isLoading}
+          selectedEmbeddingId={selectedEmbeddingId}
+          onSelectEmbedding={handleSelectEmbedding}
+          onPreviewEmbedding={handleExploreEmbedding}
+          onDeleteArtifact={handleRequestArtifactDelete}
+        />
+      );
+    }
+    if (route.topTab === "models" && route.command === "library") {
+      if (!activeLineageDataset) {
+        return (
+          <div className="workflow">
+            <section className="artifact-table">
+              <header className="artifact-table-head">
+                <span className="artifact-table-title">Select a Dataset</span>
+                <span className="muted">Model workflows are dataset-first</span>
+              </header>
+              <div className="artifact-table-empty">
+                <EmptyState compact>Select a dataset in the Left Panel before configuring models.</EmptyState>
+              </div>
+            </section>
+          </div>
+        );
+      }
+    }
+    if (route.topTab === "models" && route.command === "library" && configureModelCatalogId) {
+      return (
+        <ConfigureModelView
+          activeProjectId={activeProjectId}
+          model={configuredModelCatalogEntry}
+          embeddings={selectionLineage.embeddings}
+          features={selectionLineage.features}
+          dataset={activeLineageDataset}
+          loading={projectEmbeddingsQuery.isLoading || projectFeaturesQuery.isLoading}
+          initialSelectedEmbeddingId={activeLineageEmbeddingId}
+          draft={mcpDraft}
+          onCreated={handleModelCreated}
+        />
+      );
+    }
+    if (route.topTab === "models" && route.command === "library") {
+      return (
+        <ModelLibraryView
+          activeProjectId={activeProjectId}
+          catalog={modelLibraryQuery.data || []}
+          loading={modelLibraryQuery.isLoading}
+          selectedCatalogId={selectedModelCatalogId}
+          selectedDataset={activeLineageDataset}
+          onSelectCatalog={handleSelectModelCatalog}
+          onConfigure={handleConfigureModelCatalog}
+        />
+      );
+    }
+    if (route.topTab === "models" && route.command === "explore") {
+      return (
+        <ModelExploreView
+          activeProjectId={activeProjectId}
+          models={selectionLineage.models}
+          embeddings={selectionLineage.embeddings}
+          features={selectionLineage.features}
+          datasets={selectionLineage.datasets}
+          catalog={modelLibraryQuery.data || []}
+          loading={projectModelsQuery.isLoading}
+          selectedModelId={selectedModelId}
+          exploreModelId={exploreModelId}
+          selectedIteration={exploreModelIteration}
+          onExploreModel={handleExploreModel}
+          onClearExploreModel={handleClearExploreModel}
+          onSelectIteration={handleExploreModelIterationChange}
+        />
+      );
+    }
+    if (route.topTab === "models" && route.command === "models") {
+      return (
+        <ProjectModelsView
+          activeProjectId={activeProjectId}
+          models={selectionLineage.models}
+          embeddings={selectionLineage.embeddings}
+          features={selectionLineage.features}
+          datasets={selectionLineage.datasets}
+          catalog={modelLibraryQuery.data || []}
+          loading={projectModelsQuery.isLoading}
+          selectedModelId={selectedModelId}
+          onSelectModel={handleSelectModel}
+          onPreviewModel={handleExploreModel}
+          onDeleteArtifact={handleRequestArtifactDelete}
+        />
+      );
+    }
+    return <TitleOnlyView title={title} />;
+  }
+
+  const artifactDeleteDialog = artifactDeletePlan ? (
+    <ConfirmDialog
+      title={artifactDeletePlan.active_jobs.length ? "Delete Blocked" : artifactDeletePlan.requires_cascade ? "Delete Artifact Bundle" : "Delete Artifact"}
+      message={
+        artifactDeletePlan.active_jobs.length
+          ? `"${artifactDeletePlan.root_artifact.name}" cannot be deleted while queued or running jobs target the delete set.`
+          : artifactDeletePlan.requires_cascade
+            ? `Deleting "${artifactDeletePlan.root_artifact.name}" will also move downstream artifacts to project trash.`
+            : `Move "${artifactDeletePlan.root_artifact.name}" to project trash?`
+      }
+      confirmLabel={
+        artifactDeletePlan.active_jobs.length
+          ? "Close"
+          : artifactDeletePlan.requires_cascade
+            ? artifactDeleteBusy
+              ? "Deleting"
+              : "Delete bundle"
+            : artifactDeleteBusy
+              ? "Deleting"
+              : "Delete artifact"
+      }
+      busy={artifactDeleteBusy}
+      error={artifactDeleteError}
+      onCancel={closeArtifactDeleteDialog}
+      onConfirm={confirmArtifactDelete}
+    >
+      {artifactDeletePlan.downstream_artifacts.length ? (
+        <div className="confirm-detail">
+          <strong>Downstream artifacts</strong>
+          <ul>
+            {artifactDeletePlan.downstream_artifacts.map((artifact) => (
+              <li key={`${artifact.artifact_kind}-${artifact.artifact_id}`}>
+                <span>{artifact.name}</span>
+                <span className="muted">
+                  {artifactKindLabel(artifact.artifact_kind)} · {artifact.status}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+      {artifactDeletePlan.active_jobs.length ? (
+        <div className="confirm-detail">
+          <strong>Active jobs</strong>
+          <ul>
+            {artifactDeletePlan.active_jobs.map((job) => (
+              <li key={job.id}>
+                <span>{job.operation_id}</span>
+                <span className="muted">
+                  {job.status} · {job.id}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+    </ConfirmDialog>
+  ) : artifactDeleteError ? (
+    <ConfirmDialog
+      title="Delete Artifact"
+      message={artifactDeleteError}
+      confirmLabel="Close"
+      busy={artifactDeleteBusy}
+      onCancel={closeArtifactDeleteDialog}
+      onConfirm={closeArtifactDeleteDialog}
+    />
+  ) : null;
+
+  return (
+    <>
+      <DesktopShell
+      commandWindowHeight={commandWindowHeight}
+      commandWindowCollapsed={commandWindowCollapsed}
+      topTabs={
+        <TopTabs activeTab={route.topTab} onSelect={setActiveTab} />
+      }
+      ribbon={
+        <Ribbon
+          activeTab={route.topTab}
+          activeCommand={String(route.command)}
+          trashHasItems={trashHasItems}
+          onCommand={setActiveCommand}
+        />
+      }
+      left={
+        <SelectionPanel
+          project={project}
+          datasets={selectionLineage.datasets}
+          features={selectionLineage.features}
+          embeddings={selectionLineage.embeddings}
+          models={selectionLineage.models}
+          relatedEmbeddingIds={selectionLineage.relatedEmbeddingIds}
+          relatedModelIds={selectionLineage.relatedModelIds}
+          isProjectSelected={isProjectSelected}
+          selectedDatasetId={selectionLineage.activeDatasetId}
+          selectedFeatureId={selectedFeatureId}
+          selectedEmbeddingId={selectedEmbeddingId}
+          selectedModelId={selectedModelId}
+          onSelectProject={handleSelectActiveProject}
+          onSelectDataset={handleSelectDataset}
+          onSelectFeature={handleSelectFeature}
+          onSelectEmbedding={handleSelectEmbedding}
+          onSelectModel={handleSelectModel}
+        />
+      }
+      center={
+        <>
+          <section className="document">
+            <div className="doc-body">{renderCenterView()}</div>
+          </section>
+          <CommandWindow
+            jobs={jobs}
+            mcpActivity={mcpActivityQuery.data?.entries || []}
+            collapsed={commandWindowCollapsed}
+            height={commandWindowHeight}
+            onToggleCollapsed={() => setCommandWindowCollapsed((current) => !current)}
+            onHeightChange={setCommandWindowHeight}
+          />
+        </>
+      }
+      right={
+        <>
+          <Inspector
+            activeProjectId={activeProjectId}
+            project={project}
+            dataset={selectedDataset}
+            exploreDataset={route.topTab === "datasets" && route.command === "explore" ? selectedDataset : undefined}
+            exploreGraphSummary={route.topTab === "datasets" && route.command === "explore" ? exploreGraphSummary : null}
+            exploreNodeId={route.topTab === "datasets" && route.command === "explore" ? exploreNodeId : ""}
+            exploreNodeVisible={route.topTab === "datasets" && route.command === "explore" ? exploreNodeVisible : null}
+            catalogEntry={selectedCatalogEntry}
+            catalogImportStatus={
+              selectedCatalogEntry
+                ? activeProjectId
+                  ? importedCatalogIds.has(selectedCatalogEntry.id)
+                    ? "Added to Project"
+                    : "Not added"
+                  : "No active project"
+                : undefined
+            }
+            feature={selectedFeature}
+            featureDataset={selectedFeatureDataset}
+            featureCatalogEntry={selectedFeatureMethod}
+            selectedFeatureCatalogEntry={selectedFeatureCatalogEntry}
+            exploreFeature={route.topTab === "features" && route.command === "explore" ? selectedFeature : undefined}
+            exploreFeatureDataset={route.topTab === "features" && route.command === "explore" ? selectedFeatureDataset : undefined}
+            exploreFeatureGraphId={route.topTab === "features" && route.command === "explore" ? exploreFeatureGraphId : ""}
+            exploreFeatureGraphVisible={route.topTab === "features" && route.command === "explore" ? exploreFeatureGraphVisible : null}
+            embedding={selectedEmbedding}
+            embeddingDataset={selectedEmbeddingDataset}
+            embeddingFeatures={selectedEmbeddingFeatures}
+            embeddingCatalogEntry={selectedEmbeddingAlgorithm}
+            selectedEmbeddingCatalogEntry={selectedEmbeddingCatalogEntry}
+            exploreEmbedding={route.topTab === "embeddings" && route.command === "explore" ? selectedEmbedding : undefined}
+            exploreEmbeddingDataset={route.topTab === "embeddings" && route.command === "explore" ? selectedEmbeddingDataset : undefined}
+            exploreEmbeddingFeatures={route.topTab === "embeddings" && route.command === "explore" ? selectedEmbeddingFeatures : []}
+            exploreEmbeddingGraphId={route.topTab === "embeddings" && route.command === "explore" ? exploreEmbeddingGraphId : ""}
+            exploreEmbeddingGraphVisible={route.topTab === "embeddings" && route.command === "explore" ? exploreEmbeddingGraphVisible : null}
+            model={selectedModel}
+            modelDataset={selectedModelDataset}
+            modelEmbeddings={selectedModelEmbeddings}
+            modelCatalogEntry={selectedModelAlgorithm}
+            selectedModelCatalogEntry={selectedModelCatalogEntry}
+            exploreModel={route.topTab === "models" && route.command === "explore" ? selectedModel : undefined}
+            exploreModelDataset={route.topTab === "models" && route.command === "explore" ? selectedModelDataset : undefined}
+            exploreModelEmbeddings={route.topTab === "models" && route.command === "explore" ? selectedModelEmbeddings : []}
+            exploreModelIteration={route.topTab === "models" && route.command === "explore" ? exploreModelIteration : null}
+          />
+          <JobsPanel jobs={jobs} />
+        </>
+      }
+      statusBar={
+        <StatusBar
+          workspacePath={workspaceQuery.data?.path}
+          projectName={project?.name}
+          version={workspaceQuery.data?.version}
+        />
+      }
+      />
+      {artifactDeleteDialog}
+    </>
+  );
+}

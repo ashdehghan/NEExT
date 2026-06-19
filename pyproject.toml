@@ -106,14 +106,33 @@ experiments = [
     "ipykernel>=6.0.0",
 ]
 
+# Local web workbench
+workbench = [
+    "fastapi>=0.111.0,<1.0",
+    "uvicorn[standard]>=0.30.0,<1.0",
+    "httpx>=0.27.0",
+    "pyarrow>=14.0.0",
+    "umap-learn>=0.5.7,!=0.5.9.post2",  # UMAP projection in Embedding analysis
+]
+
+# Local MCP integration for NEExT Workbench
+workbench-mcp = [
+    "fastapi>=0.111.0,<1.0",
+    "uvicorn[standard]>=0.30.0,<1.0",
+    "httpx>=0.27.0",
+    "pyarrow>=14.0.0",
+    "umap-learn>=0.5.7,!=0.5.9.post2",  # UMAP projection in Embedding analysis
+    "mcp>=1.27,<2; python_version >= '3.10'",
+]
+
 # All extras combined (without DGL - for non-deep learning users)
 all = [
-    "NEExT[advanced,dev,docs,experiments]",
+    "NEExT[advanced,dev,docs,experiments,workbench]",
 ]
 
 # All extras with deep learning support
 all-dl = [
-    "NEExT[advanced,dev,docs,experiments,dgl]",
+    "NEExT[advanced,dev,docs,experiments,workbench,dgl]",
 ]
 
 [project.urls]
@@ -121,6 +140,9 @@ Homepage = "https://github.com/ashdehghan/NEExT"
 Documentation = "https://neext.readthedocs.io"
 Repository = "https://github.com/ashdehghan/NEExT"
 Issues = "https://github.com/ashdehghan/NEExT/issues"
+
+[project.scripts]
+neext-workbench = "NEExT.workbench.cli:main"
 
 [tool.hatch.version]
 path = "NEExT/__init__.py"
@@ -144,6 +166,10 @@ exclude = [
 
 [tool.hatch.build.targets.wheel]
 packages = ["NEExT"]
+artifacts = [
+    "NEExT/workbench/static/**",
+    "NEExT/workbench/catalog_data/**",
+]
 
 [tool.ruff]
 line-length = 150
@@ -163,6 +189,8 @@ ignore = [
     "E501",  # line too long (handled by formatter)
     "B008",  # do not perform function calls in argument defaults
     "C901",  # too complex
+    "UP007",  # keep Python 3.9-compatible Optional/Union syntax
+    "UP045",  # keep Python 3.9-compatible Optional syntax
 ]
 
 [tool.black]

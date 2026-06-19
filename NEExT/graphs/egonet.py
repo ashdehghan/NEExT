@@ -1,4 +1,4 @@
-from typing import Dict, Optional
+from typing import Dict, Optional, Union
 
 from pydantic import Field
 
@@ -11,7 +11,7 @@ class Egonet(Graph):
         node_mapping Optional[Dict[int, int]]: Mapping from original graph node IDs to internal egonet node IDs
     """
 
-    original_graph_id: int = Field(default=None)
+    original_graph_id: Optional[Union[int, str]] = Field(default=None)
     original_node_id: int = Field(default=None)
     node_mapping: Optional[Dict[int, int]] = Field(default_factory=dict)
 

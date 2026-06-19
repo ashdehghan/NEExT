@@ -1,0 +1,139 @@
+/* ============================================================
+ * NEExT Workbench — MATLAB R2023+ Modern Flat Design Tokens
+ *
+ * Single source of truth for all design tokens used by the UI.
+ * Imported once from main.tsx before any other stylesheet.
+ *
+ * Token groups:
+ *   1. Brand colors (saturated, for icons/foregrounds/primary)
+ *   2. Category tile bg/fg pairs (per-artifact-kind identity)
+ *   3. Chrome scale (cool grays)
+ *   4. Semantic colors (ok / warn / err / info)
+ *   5. Surfaces (bg, chrome, panel, etc.)
+ *   6. Typography (font families, type scale)
+ *   7. Spacing scale (4/6/8/12/16/24)
+ *   8. Radii
+ *   9. Shadows
+ *  10. Layout dimensions (named heights/widths used in grid)
+ *  11. Legacy aliases (kept for existing styles.css; migrate over
+ *      time in Phase 4-5 then remove)
+ * ============================================================ */
+
+:root {
+  color-scheme: light;
+
+  /* ---- 1. Brand colors (saturated) ---- */
+  --neext-blue:   #1062a2;
+  --neext-orange: #c0541d;
+  --neext-green:  #3e7733;
+  --neext-purple: #5a4a8a;
+
+  /* ---- 2. Category tile bg/fg pairs ---- */
+  --tile-data-bg:    #e3edf5;
+  --tile-data-fg:    #0d568e;
+  --tile-feat-bg:    #faead8;
+  --tile-feat-fg:    #a8481a;
+  --tile-emb-bg:     #e0ebd9;
+  --tile-emb-fg:     #356326;
+  --tile-model-bg:   #e8e4f0;
+  --tile-model-fg:   #4e3f7a;
+  --tile-neutral-bg: #eef0f3;
+  --tile-neutral-fg: #4a5260;
+  --tile-run-bg:     #cfe6da;
+  --tile-run-fg:     #1f6b40;
+
+  /* ---- 3. Chrome scale ---- */
+  --chrome-50:  #fafbfc;
+  --chrome-100: #f3f5f7;
+  --chrome-200: #e7eaee;
+  --chrome-300: #d4d9df;
+  --chrome-400: #b3bac3;
+  --chrome-500: #8d949e;
+  --chrome-600: #5e666d;
+  --chrome-700: #3f464d;
+  --chrome-800: #262b30;
+  --chrome-900: #15181a;
+
+  /* ---- 4. Semantic ---- */
+  --ok:   #2e7d32;
+  --warn: #b27000;
+  --err:  #c0392b;
+  --info: var(--neext-blue);
+
+  /* ---- 5. Surfaces ---- */
+  --bg:            #ebedf0;
+  --chrome:        var(--chrome-100);
+  --toolstrip:     #fbfbfc;
+  --panel:         #ffffff;
+  --panel-alt:     var(--chrome-50);
+  --border:        var(--chrome-300);
+  --border-strong: var(--chrome-400);
+  --text:          #1f2428;
+  --muted:         var(--chrome-600);
+  --soft:          #7a8089;
+
+  /* Selection (light blue tint, MATLAB-style) */
+  --select-bg:     #dbeafc;
+  --select-border: #6fa9d2;
+
+  /* ---- 6. Typography ---- */
+  --font-sans: "Inter", "Helvetica Neue", -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", "Menlo", "Consolas", "Liberation Mono", monospace;
+
+  /* Type scale (px values; use raw pixels in css for clarity) */
+  --text-10: 10px;
+  --text-11: 11px;
+  --text-12: 12px;
+  --text-13: 13px;
+  --text-15: 15px;
+  --text-18: 18px;
+  --text-22: 22px;
+
+  /* ---- 7. Spacing ---- */
+  --space-1: 4px;
+  --space-2: 6px;
+  --space-3: 8px;
+  --space-4: 12px;
+  --space-5: 16px;
+  --space-6: 24px;
+
+  /* ---- 8. Radii ---- */
+  --radius-1: 2px;
+  --radius-2: 4px;
+  --radius-3: 6px;
+
+  /* ---- 9. Shadows ---- */
+  --shadow-rest:       0 1px 2px rgba(15, 23, 32, .05);
+  --shadow-raised:     0 2px 6px rgba(15, 23, 32, .08), 0 1px 2px rgba(15, 23, 32, .04);
+  --shadow-tile:       inset 0 1px 0 rgba(255, 255, 255, .6), 0 1px 1.5px rgba(15, 23, 32, .07);
+  --shadow-tile-hover: inset 0 1px 0 rgba(255, 255, 255, .7), 0 2px 4px rgba(15, 23, 32, .10);
+
+  /* ---- 10. Layout dimensions ---- */
+  --h-tabs:    36px;
+  --h-ribbon:  104px;
+  --h-status:  24px;
+  --h-doctab:  28px;
+  --h-pipeline: 40px;
+  --w-panel-left:      290px;
+  --w-panel-right:     296px;
+  --w-panel-collapsed: 48px;
+
+  /* ============================================================
+   * 11. Legacy aliases (used by current styles.css)
+   *
+   * These keep the existing component CSS working while Phase 4
+   * migrates markup to the new token names. Remove this block once
+   * styles.css is fully rewritten.
+   * ============================================================ */
+  --chrome-2:   var(--chrome-200);
+  --border-dark: var(--border-strong);
+  --blue:   var(--neext-blue);
+  --orange: var(--neext-orange);
+  --green:  var(--neext-green);
+  --purple: var(--neext-purple);
+  --select: var(--select-bg);
+  --warning: var(--warn);
+  --error:   var(--err);
+  --mono: var(--font-mono);
+  --sans: var(--font-sans);
+}
