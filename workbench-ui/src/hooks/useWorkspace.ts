@@ -26,7 +26,7 @@ export function useMcpUiState() {
 }
 
 export function useProjects() {
-  return useQuery({ queryKey: ["projects"], queryFn: api.projects, refetchInterval: 60_000 });
+  return useQuery({ queryKey: ["projects"], queryFn: api.projects, refetchInterval: 5_000 });
 }
 
 export function useTrash() {

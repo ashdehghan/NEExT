@@ -176,6 +176,8 @@ export default function App() {
   const [commandWindowCollapsed, setCommandWindowCollapsed] = useState(() => persisted?.commandWindowCollapsed ?? false);
   const [mcpDraft, setMcpDraft] = useState<Record<string, unknown> | undefined>();
   const lastAppliedMcpUiStateId = useRef(readAppliedMcpUiStateId());
+  const lastSeenActivityId = useRef<string | null>(null);
+  const lastJobStatuses = useRef<Map<string, string> | null>(null);
 
   const workspaceQuery = useWorkspace();
   const mcpActivityQuery = useMcpActivity();
@@ -924,6 +926,40 @@ export default function App() {
     writeAppliedMcpUiStateId(state.id);
     applyMcpUiState(state.route);
   }, [applyMcpUiState, mcpUiStateQuery.data]);
+
+  // Refresh-in-place when an MCP agent acts: the activity feed (polled every 2s)
+  // records every MCP action, so a new newest entry means something changed.
+  // Refetch the current view's live data without navigating the user anywhere.
+  useEffect(() => {
+    const newestActivityId = mcpActivityQuery.data?.entries?.[0]?.id;
+    if (!newestActivityId) return;
+    if (lastSeenActivityId.current === null) {
+      lastSeenActivityId.current = newestActivityId;
+      return;
+    }
+    if (newestActivityId !== lastSeenActivityId.current) {
+      lastSeenActivityId.current = newestActivityId;
+      refreshAll();
+    }
+  }, [mcpActivityQuery.data, refreshAll]);
+
+  // Refresh-in-place when a job finishes: produced outputs (prepared datasets,
+  // computed features, embeddings, trained models) only exist after the job
+  // transitions to completed/failed, so refetch so they appear without a reload.
+  useEffect(() => {
+    const previous = lastJobStatuses.current;
+    const current = new Map<string, string>();
+    let transitioned = false;
+    for (const job of jobs) {
+      current.set(job.id, job.status);
+      const before = previous?.get(job.id);
+      if (previous && before !== job.status && (job.status === "completed" || job.status === "failed")) {
+        transitioned = true;
+      }
+    }
+    lastJobStatuses.current = current;
+    if (transitioned) refreshAll();
+  }, [jobs, refreshAll]);
 
   useEffect(() => {
     if (!mcpDraft) return;
