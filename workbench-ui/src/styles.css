@@ -577,6 +577,7 @@ textarea {
   flex: 1;
   min-height: 0;
   overflow: auto;
+  align-content: start;
 }
 .feature-create-head {
   grid-template-columns: 40px 1fr auto;
