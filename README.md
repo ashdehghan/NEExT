@@ -28,6 +28,7 @@ Detailed documentation is available in the `docs` directory. Build it locally or
   - Approximate Wasserstein
   - Exact Wasserstein
   - Sinkhorn Vectorizer
+  - Graph Neural Network (GCN, GraphSAGE, GIN; pure PyTorch, install with `NEExT[gnn]`)
   - Customizable embedding dimensions
 
 - **Machine Learning Integration**
@@ -216,6 +217,15 @@ embeddings = nxt.compute_graph_embeddings(
     embedding_algorithm="approx_wasserstein",
     embedding_dimension=3
 )
+
+# Or learn embeddings with a graph neural network (requires NEExT[gnn]):
+# embeddings = nxt.compute_graph_embeddings(
+#     graph_collection=graph_collection,
+#     features=features,
+#     embedding_algorithm="gnn",
+#     architecture="GCN",          # or "GraphSAGE", "GIN"
+#     embedding_dimension=16,
+# )
 
 # Train a classifier
 model_results = nxt.train_ml_model(

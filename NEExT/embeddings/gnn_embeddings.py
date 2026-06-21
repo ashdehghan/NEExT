@@ -24,6 +24,11 @@ logger = logging.getLogger(__name__)
 
 ARCHITECTURES = ("GCN", "GraphSAGE", "GIN")
 
+# Each graph is processed with a dense adjacency matrix (O(n^2) memory), which is
+# appropriate for NEExT's small graphs. Warn past this node count so a very large
+# graph does not silently blow up memory.
+DENSE_ADJACENCY_WARN_NODES = 5000
+
 
 def _require_torch():
     """Import torch lazily with a clear, actionable error message."""
@@ -138,6 +143,16 @@ class GNNEmbeddings:
             node_ids = sub["node_id"].tolist()
             index_of = {nid: i for i, nid in enumerate(node_ids)}
             n = len(node_ids)
+
+            if n > DENSE_ADJACENCY_WARN_NODES:
+                logger.warning(
+                    "Graph %r has %d nodes; the GNN builds a dense %dx%d adjacency "
+                    "matrix (O(n^2) memory). Consider node sampling for very large graphs.",
+                    graph_id,
+                    n,
+                    n,
+                    n,
+                )
 
             x = sub[self.feature_columns].to_numpy(dtype=np.float32)
             x_t = torch.tensor(x, dtype=torch.float32, device=self.device)

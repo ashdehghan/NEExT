@@ -83,6 +83,18 @@ Basic Example
             random_state=42
         )
 
+        # Alternatively, learn embeddings with a graph neural network.
+        # Requires the optional ``gnn`` extra (``pip install 'NEExT[gnn]'``).
+        # - architecture: "GCN", "GraphSAGE", or "GIN"
+        # gnn_embeddings = nxt.compute_graph_embeddings(
+        #     graph_collection=graph_collection,
+        #     features=features,
+        #     embedding_algorithm="gnn",
+        #     architecture="GCN",
+        #     embedding_dimension=16,
+        #     random_state=42
+        # )
+
         # Print embedding information
         print("\nComputed Graph Embeddings:")
         print(f"Number of graphs: {len(embeddings.embeddings_df)}")

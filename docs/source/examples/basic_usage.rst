@@ -79,6 +79,16 @@ will represent each graph as a fixed-size vector, making them suitable for machi
         random_state=42
     )
 
+    # Graph neural network embeddings (requires the optional ``gnn`` extra):
+    # gnn_embeddings = nxt.compute_graph_embeddings(
+    #     graph_collection=graph_collection,
+    #     features=features,
+    #     embedding_algorithm="gnn",
+    #     architecture="GCN",   # or "GraphSAGE", "GIN"
+    #     embedding_dimension=16,
+    #     random_state=42
+    # )
+
 Training and Evaluating Models
 ----------------------------
 

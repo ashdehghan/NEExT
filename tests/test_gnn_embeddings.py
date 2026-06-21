@@ -141,6 +141,44 @@ def test_gnn_embeddings_are_deterministic_for_fixed_seed():
     assert np.array_equal(first[cols].to_numpy(), second[cols].to_numpy())
 
 
+def test_gnn_embeddings_warns_on_large_graphs(monkeypatch, caplog):
+    """A graph above the dense-adjacency threshold logs a memory warning."""
+    import logging
+
+    from NEExT.embeddings import gnn_embeddings as gnn_module
+
+    _, collection, features = _tiny_collection_and_features(n_graphs=2)
+    monkeypatch.setattr(gnn_module, "DENSE_ADJACENCY_WARN_NODES", 3)
+
+    with caplog.at_level(logging.WARNING, logger=gnn_module.logger.name):
+        GNNEmbeddings(
+            graph_collection=collection,
+            features=features,
+            architecture="GCN",
+            embedding_dimension=2,
+        ).compute()
+
+    assert any("dense" in record.message and "adjacency" in record.message for record in caplog.records)
+
+
+def test_embedding_builder_supports_gnn():
+    """EmbeddingBuilder routes the gnn algorithm to GNNEmbeddings."""
+    from NEExT.builders import EmbeddingBuilder
+
+    _, collection, features = _tiny_collection_and_features()
+    builder = EmbeddingBuilder(
+        graph_collection=collection,
+        structural_features=features,
+        embeddings_dimension=4,
+        embeddings_algorithm="gnn",
+        architecture="GIN",
+    )
+    embeddings = builder.compute(strategy="structural_embeddings")
+    assert len(embeddings.embeddings_df) == len(collection.graphs)
+    assert embeddings.embedding_name == "gnn_gin"
+    assert np.isfinite(embeddings.embeddings_df[embeddings.embedding_columns].to_numpy()).all()
+
+
 def test_gnn_embeddings_rejects_unknown_architecture():
     _, collection, features = _tiny_collection_and_features(n_graphs=2)
     with pytest.raises(ValueError):

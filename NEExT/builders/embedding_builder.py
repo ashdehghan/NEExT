@@ -17,6 +17,7 @@ class EmbeddingBuilder:
         random_state: int = 42,
         memory_size: str = "4G",
         embeddings_algorithm: str = "approx_wasserstein",
+        architecture: str = "GCN",
     ):
         if structural_features is None and features is None:
             raise ValueError("At least one of structural_features or features must be provided.")
@@ -27,6 +28,8 @@ class EmbeddingBuilder:
         self.random_state = random_state
         self.memory_size = memory_size
         self.embedding_algorithm = embeddings_algorithm
+        # Used only when embeddings_algorithm == "gnn".
+        self.architecture = architecture
 
         if structural_features is not None:
             self.structural_embeddings_dimension = min(len(self.structural_features.feature_columns), embeddings_dimension)
@@ -99,34 +102,48 @@ class EmbeddingBuilder:
             suffix="combined",
         )
 
-    def _structural_embeddings(self):
-        structural_config = self._get_structural_config()
+    def _compute_embeddings(self, config: dict) -> "Embeddings":
+        """Compute embeddings for one config, dispatching on the algorithm.
 
-        graph_structural_embeddings = GraphEmbeddings(**structural_config)
-        embeddings = graph_structural_embeddings.compute()
+        The GNN path uses ``GNNEmbeddings`` instead of the vectorizer-based
+        ``GraphEmbeddings`` and applies the config's ``suffix`` by renaming the
+        output columns, so downstream merges (e.g. structural + feature) stay
+        collision-free.
+        """
+        if self.embedding_algorithm != "gnn":
+            return GraphEmbeddings(**config).compute()
 
+        from NEExT.embeddings import GNNEmbeddings
+
+        embeddings = GNNEmbeddings(
+            graph_collection=config["graph_collection"],
+            features=config["features"],
+            architecture=self.architecture,
+            embedding_dimension=config["embedding_dimension"],
+            random_state=config["random_state"],
+        ).compute()
+
+        suffix = config.get("suffix") or ""
+        if suffix:
+            rename = {col: f"{col}_{suffix}" for col in embeddings.embedding_columns}
+            embeddings.embeddings_df = embeddings.embeddings_df.rename(columns=rename)
+            embeddings.embedding_columns = [rename[col] for col in embeddings.embedding_columns]
         return embeddings
+
+    def _structural_embeddings(self):
+        return self._compute_embeddings(self._get_structural_config())
 
     def _feature_embeddings(self):
-        features_config = self._get_node_feature_config()
-
-        graph_feature_embeddings = GraphEmbeddings(**features_config)
-        embeddings = graph_feature_embeddings.compute()
-
-        return embeddings
+        return self._compute_embeddings(self._get_node_feature_config())
 
     def _separate_embeddings(self):
         embeddings = None
 
         if self.structural_features is not None:
-            structural_config = self._get_structural_config()
-            graph_structural_embeddings = GraphEmbeddings(**structural_config)
-            embeddings = graph_structural_embeddings.compute()
+            embeddings = self._compute_embeddings(self._get_structural_config())
 
         if self.features is not None:
-            features_config = self._get_node_feature_config()
-            graph_feature_embeddings = GraphEmbeddings(**features_config)
-            feature_embeddings = graph_feature_embeddings.compute()
+            feature_embeddings = self._compute_embeddings(self._get_node_feature_config())
             if embeddings is not None:
                 embeddings = embeddings + feature_embeddings
             else:
@@ -135,10 +152,7 @@ class EmbeddingBuilder:
         return embeddings
 
     def _combined_embeddings(self):
-        combined_config = self.get_combined_config()
-        graph_embeddings = GraphEmbeddings(**combined_config)
-        embeddings = graph_embeddings.compute()
-        return embeddings
+        return self._compute_embeddings(self.get_combined_config())
 
     def _only_egonet_node_features(self):
         if not isinstance(self.graph_collection, EgonetCollection):
@@ -151,10 +165,7 @@ class EmbeddingBuilder:
         if not isinstance(self.graph_collection, EgonetCollection):
             raise Exception("Graph collection is not an EgonetCollection!")
 
-        structural_config = self._get_structural_config()
-
-        graph_structural_embeddings = GraphEmbeddings(**structural_config)
-        embeddings = graph_structural_embeddings.compute()
+        embeddings = self._compute_embeddings(self._get_structural_config())
         embeddings = embeddings + self.graph_collection.egonet_node_features
         return embeddings
 
@@ -162,9 +173,6 @@ class EmbeddingBuilder:
         if not isinstance(self.graph_collection, EgonetCollection):
             raise Exception("Graph collection is not an EgonetCollection!")
 
-        features_config = self._get_node_feature_config()
-
-        graph_feature_embeddings = GraphEmbeddings(**features_config)
-        embeddings = graph_feature_embeddings.compute()
+        embeddings = self._compute_embeddings(self._get_node_feature_config())
         embeddings = embeddings + self.graph_collection.egonet_node_features
         return embeddings
