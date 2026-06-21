@@ -7,7 +7,7 @@ import pandas as pd
 
 from NEExT.collections import GraphCollection
 from NEExT.collections.egonet_collection import EgonetCollection
-from NEExT.embeddings import Embeddings, GraphEmbeddings
+from NEExT.embeddings import Embeddings, GNNEmbeddings, GraphEmbeddings
 from NEExT.features import Features, StructuralNodeFeatures
 from NEExT.ml_models import FeatureImportance
 
@@ -246,6 +246,7 @@ class NEExT:
         feature_columns: Optional[List[str]] = None,
         random_state: int = 42,
         memory_size: str = "4G",
+        architecture: str = "GCN",
     ) -> Embeddings:
         """
         Compute graph embeddings based on node features.
@@ -253,28 +254,41 @@ class NEExT:
         Args:
             graph_collection: Collection of graphs to compute embeddings for
             features: Features object containing node features
-            embedding_algorithm: Algorithm to use for embedding computation
+            embedding_algorithm: Algorithm to use for embedding computation. One of
+                "approx_wasserstein", "wasserstein", "sinkhornvectorizer", or "gnn".
             embedding_dimension: Dimension of the output embeddings
             feature_columns: Specific feature columns to use (default: all)
             random_state: Random seed for reproducibility
             memory_size: Memory limit for algorithms that support it
+            architecture: GNN architecture when embedding_algorithm == "gnn"
+                ("GCN", "GraphSAGE", or "GIN"); ignored otherwise
 
         Returns:
             Embeddings: Embeddings object containing computed embeddings
         """
         self.logger.info(f"Computing graph embeddings using {embedding_algorithm}")
 
-        graph_embeddings = GraphEmbeddings(
-            graph_collection=graph_collection,
-            features=features,
-            embedding_algorithm=embedding_algorithm,
-            embedding_dimension=embedding_dimension,
-            feature_columns=feature_columns,
-            random_state=random_state,
-            memory_size=memory_size,
-        )
+        if embedding_algorithm == "gnn":
+            gnn_embeddings = GNNEmbeddings(
+                graph_collection=graph_collection,
+                features=features,
+                architecture=architecture,
+                embedding_dimension=embedding_dimension,
+                random_state=random_state,
+            )
+            embeddings = gnn_embeddings.compute()
+        else:
+            graph_embeddings = GraphEmbeddings(
+                graph_collection=graph_collection,
+                features=features,
+                embedding_algorithm=embedding_algorithm,
+                embedding_dimension=embedding_dimension,
+                feature_columns=feature_columns,
+                random_state=random_state,
+                memory_size=memory_size,
+            )
+            embeddings = graph_embeddings.compute()
 
-        embeddings = graph_embeddings.compute()
         self.logger.info(f"Computed embeddings for {len(embeddings.embeddings_df)} graphs")
 
         return embeddings
@@ -497,122 +511,3 @@ class NEExT:
 
         self.logger.info(f"Generated {len(graphs)} synthetic graphs")
         return self.load_from_networkx(graphs)
-
-    def compute_gnn_embeddings(
-        self,
-        graph_collection: GraphCollection,
-        features: Features,
-        architecture: str = "GCN",
-        hidden_dims: Optional[List[int]] = None,
-        output_dim: int = 16,
-        epochs: int = 200,
-        learning_rate: float = 0.01,
-        device: str = "cpu",
-        pooling_method: str = "mean",
-        **kwargs,
-    ) -> Embeddings:
-        """
-        Compute GNN-based graph embeddings using DGL.
-
-        This method uses Graph Neural Networks to learn embeddings from the graph
-        structure and node features. Multiple architectures are supported including
-        GCN, GAT, GraphSAGE, and GIN.
-
-        Args:
-            graph_collection: Collection of graphs
-            features: Node features computed using compute_node_features
-            architecture: GNN architecture to use ("GCN", "GAT", "GraphSAGE", "GIN")
-            hidden_dims: Hidden layer dimensions (default: [64, 32])
-            output_dim: Final embedding dimension (default: 16)
-            epochs: Number of training epochs (default: 200)
-            learning_rate: Learning rate for optimization (default: 0.01)
-            device: Device to use for computation ("cpu" or "cuda")
-            pooling_method: Method for aggregating node embeddings to graph level
-                          ("mean", "sum", or "max")
-            **kwargs: Additional architecture-specific parameters:
-                - dropout: Dropout rate (default: 0.0)
-                - weight_decay: Weight decay for regularization (default: 5e-4)
-                - gat_num_heads: Number of attention heads for GAT (default: 4)
-                - graphsage_aggregator: Aggregator for GraphSAGE (default: "mean")
-                - gin_eps: Initial epsilon for GIN (default: 0.0)
-
-        Returns:
-            Embeddings: GNN-based graph embeddings
-
-        Raises:
-            ImportError: If DGL is not installed
-            ValueError: If invalid architecture is specified
-
-        Example:
-            >>> nxt = NEExT()
-            >>> graphs = nxt.read_from_csv(edges, mapping, labels)
-            >>> features = nxt.compute_node_features(graphs, ["pagerank", "degree"])
-            >>> gnn_embeddings = nxt.compute_gnn_embeddings(
-            ...     graphs, features,
-            ...     architecture="GAT",
-            ...     hidden_dims=[128, 64],
-            ...     output_dim=32,
-            ...     device="cuda"
-            ... )
-        """
-        try:
-            from NEExT.converters.dgl_converter import DGLConverterConfig
-            from NEExT.embeddings.dgl_embeddings import GNNArchitectureConfig, GNNEmbeddingConfig, GNNEmbeddings, GNNTrainingConfig
-        except ImportError:
-            self.logger.error("DGL is not installed. Install with: pip install 'NEExT[dgl]'")
-            raise ImportError("DGL is required for GNN embeddings. Install with: pip install 'NEExT[dgl]'")
-
-        self.logger.info(f"Computing GNN embeddings using {architecture}")
-
-        # Set default hidden dimensions if not provided
-        if hidden_dims is None:
-            hidden_dims = [64, 32]
-
-        # Build architecture configuration
-        arch_config_params = {
-            "architecture": architecture,
-            "hidden_dims": hidden_dims,
-            "output_dim": output_dim,
-            "dropout": kwargs.get("dropout", 0.0),
-            "activation": kwargs.get("activation", "relu"),
-        }
-
-        # Add architecture-specific parameters
-        if architecture == "GAT":
-            arch_config_params["gat_num_heads"] = kwargs.get("gat_num_heads", 4)
-            arch_config_params["gat_attn_dropout"] = kwargs.get("gat_attn_dropout", 0.0)
-        elif architecture == "GraphSAGE":
-            arch_config_params["graphsage_aggregator"] = kwargs.get("graphsage_aggregator", "mean")
-        elif architecture == "GIN":
-            arch_config_params["gin_eps"] = kwargs.get("gin_eps", 0.0)
-
-        arch_config = GNNArchitectureConfig(**arch_config_params)
-
-        # Build training configuration
-        train_config = GNNTrainingConfig(
-            epochs=epochs,
-            learning_rate=learning_rate,
-            weight_decay=kwargs.get("weight_decay", 5e-4),
-            early_stopping_patience=kwargs.get("early_stopping_patience", 10),
-            train_ratio=kwargs.get("train_ratio", 0.8),
-            val_ratio=kwargs.get("val_ratio", 0.1),
-            random_state=kwargs.get("random_state", 42),
-            verbose=kwargs.get("verbose", True),
-        )
-
-        # Build main configuration
-        gnn_config = GNNEmbeddingConfig(
-            architecture=arch_config, training=train_config, device=device, task_type="graph_embedding", pooling_method=pooling_method
-        )
-
-        # Build converter configuration
-        converter_config = DGLConverterConfig(device=device, dtype=kwargs.get("dtype", "float32"))
-
-        # Compute embeddings
-        gnn_embeddings = GNNEmbeddings(graph_collection=graph_collection, features=features, config=gnn_config, converter_config=converter_config)
-
-        embeddings = gnn_embeddings.compute()
-
-        self.logger.info(f"Computed GNN embeddings using {architecture} with output dimension {output_dim}")
-
-        return embeddings

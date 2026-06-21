@@ -8,11 +8,14 @@ import {
   type EmbeddingCatalogEntry,
   type EmbeddingCreatePayload,
   type EmbeddingManifest,
-  type FeatureManifest
+  type FeatureManifest,
+  type GnnArchitecture
 } from "../../api";
 import { EmptyState } from "../../components/primitives/EmptyState";
 import { FcIcon } from "../../components/primitives/FcIcon";
 import { AnalysisCommandCenter } from "../../components/viz/AnalysisCommandCenter";
+
+const GNN_ARCHITECTURES: GnnArchitecture[] = ["GCN", "GraphSAGE", "GIN"];
 
 interface EmbeddingLibraryViewProps {
   activeProjectId: string;
@@ -204,6 +207,8 @@ export function ConfigureEmbeddingView({
   const queryClient = useQueryClient();
   const [selectedFeatureIds, setSelectedFeatureIds] = useState<string[]>([]);
   const [embeddingDimension, setEmbeddingDimension] = useState(3);
+  const [architecture, setArchitecture] = useState<GnnArchitecture>("GCN");
+  const isGnn = embedding?.id === "gnn";
   const initialFeatureId = initialSelectedFeatureId && features.some((feature) => feature.id === initialSelectedFeatureId)
     ? initialSelectedFeatureId
     : "";
@@ -211,6 +216,7 @@ export function ConfigureEmbeddingView({
   useEffect(() => {
     setSelectedFeatureIds(initialFeatureId ? [initialFeatureId] : []);
     setEmbeddingDimension(3);
+    setArchitecture("GCN");
   }, [activeProjectId, embedding?.id, dataset?.id, initialFeatureId]);
 
   useEffect(() => {
@@ -222,6 +228,10 @@ export function ConfigureEmbeddingView({
     }
     const nextDimension = draftNumber(draft, "embedding_dimension");
     if (nextDimension !== undefined) setEmbeddingDimension(nextDimension);
+    const nextArchitecture = draft["architecture"];
+    if (GNN_ARCHITECTURES.includes(nextArchitecture as GnnArchitecture)) {
+      setArchitecture(nextArchitecture as GnnArchitecture);
+    }
   }, [activeProjectId, embedding?.id, dataset?.id, features, draft]);
 
   useEffect(() => {
@@ -291,7 +301,8 @@ export function ConfigureEmbeddingView({
           source_embedding_id: embedding.id,
           source_feature_ids: selectedFeatureIds,
           params: {
-            embedding_dimension: embeddingDimension
+            embedding_dimension: embeddingDimension,
+            ...(isGnn ? { architecture } : {})
           }
         });
       }}
@@ -314,6 +325,18 @@ export function ConfigureEmbeddingView({
             <span>Algorithm</span>
             <span className="readonly-value mono">{embedding.id}</span>
           </label>
+          {isGnn ? (
+            <label className="field">
+              <span>Architecture</span>
+              <select value={architecture} onChange={(event) => setArchitecture(event.target.value as GnnArchitecture)}>
+                {GNN_ARCHITECTURES.map((option) => (
+                  <option key={option} value={option}>
+                    {option}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : null}
           <label className="field">
             <span>Embedding Dimension</span>
             <input

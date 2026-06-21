@@ -1533,6 +1533,7 @@ class WorkbenchStore:
             operation_params = {
                 "embedding_algorithm": catalog.id,
                 "embedding_dimension": params["embedding_dimension"],
+                "architecture": params["architecture"],
                 "random_state": 42,
                 "memory_size": "4G",
                 "feature_ids": feature_ids,
@@ -2972,6 +2973,19 @@ class WorkbenchStore:
         return merged_features
 
     def _compute_graph_embeddings(self, collection, features, params: dict[str, Any]):
+        if params["embedding_algorithm"] == "gnn":
+            from NEExT.embeddings import GNNEmbeddings
+
+            # A GNN learns an arbitrary output dimension independent of the input
+            # feature count, so the feature-column cap below does not apply here.
+            return GNNEmbeddings(
+                graph_collection=collection,
+                features=features,
+                architecture=params["architecture"],
+                embedding_dimension=params["embedding_dimension"],
+                random_state=params["random_state"],
+            ).compute()
+
         from NEExT.embeddings import GraphEmbeddings
 
         available_columns = len(features.feature_columns)

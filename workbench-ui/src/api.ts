@@ -854,11 +854,14 @@ export interface CustomFeatureValidationResponse {
   columns: string[];
 }
 
+export type GnnArchitecture = "GCN" | "GraphSAGE" | "GIN";
+
 export interface EmbeddingCreatePayload {
   source_embedding_id: string;
   source_feature_ids: string[];
   params: {
     embedding_dimension: number;
+    architecture?: GnnArchitecture;
   };
 }
 

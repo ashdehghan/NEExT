@@ -39,7 +39,7 @@ Core subsystems:
 - `NEExT/io.py`: CSV, DataFrame, URL, and NetworkX loading into graph collections.
 - `NEExT/graphs/` and `NEExT/collections/`: graph wrappers, graph collections, egonets, and k-hop decomposition.
 - `NEExT/features/`: structural node feature computation and custom feature registration.
-- `NEExT/embeddings/` and `NEExT/builders/`: graph embedding computation, including Wasserstein-style embeddings.
+- `NEExT/embeddings/` and `NEExT/builders/`: graph embedding computation, including Wasserstein-style embeddings (`graph_embeddings.py`) and pure-PyTorch GNN embeddings (`gnn_embeddings.py`).
 - `NEExT/ml_models/` and `NEExT/datasets/`: sklearn-compatible datasets, model training, and feature importance.
 - `NEExT/generators/`: synthetic graph generation, attributes, anomalies, adapters, presets, and fluent graph building.
 - `NEExT/outliers/`: outlier detection utilities and benchmark helpers.
@@ -179,6 +179,7 @@ Approved Workbench project foundation:
 - Dataset artifacts are Draft compute graph nodes until Dataset preparation runs. Dataset preparation uses NEExT graph construction and normalization semantics, writes a raw Parquet snapshot, prepared NEExT-ready graph Parquet files, complete source-to-internal mapping Parquet files, summary stats, and status/error metadata.
 - Feature artifacts define compute graph nodes and may execute once their Dataset input is prepared. One Feature artifact targets one Dataset artifact and records one dataset input. Built-in Feature Library artifacts reference one built-in structural node feature method and are added from the active Dataset context. Custom Python Feature Create artifacts store trusted local Python source under the feature artifact, use the artifact UUID as the runtime feature key, require a `compute_feature(graph)` function, support advisory validation before Create, validate again on Create against the first prepared graph of a completed dataset, and write feature output Parquet only on successful execution.
 - Embedding Library entries are built-in graph embedding algorithm templates, not executable project artifacts. A catalog row must be added from the active Dataset context into a project Embedding artifact before it can participate in the compute graph.
+- The built-in embedding catalog has four approved, implemented entries: `approx_wasserstein`, `wasserstein`, `sinkhornvectorizer`, and `gnn` (Graph Neural Network). The `gnn` entry exposes an Architecture choice (GCN/GraphSAGE/GIN) plus Embedding Dimension; all other GNN settings use fixed defaults. It is the only embedding catalog entry with an extra parameter. Adding a new embedding catalog entry is allowed (it is a built-in template, not the deferred "Embedding Create" workflow); adding new tunable parameters or a new algorithm family still requires a planning decision.
 - Built-in Embedding Add-to-Project is dataset-first: it uses the active Dataset context, lists only Feature artifacts from that Dataset, and preselects the active Feature when the selected Feature belongs to the active Dataset branch.
 - Embedding artifacts define compute graph nodes downstream of one or more Feature artifacts. All selected Feature inputs must reference the same Dataset. Embedding execution can auto-run Draft or failed upstream Dataset preparation and Feature computation before computing graph-level embeddings.
 - Workbench persists Embedding manifests, graph embedding Parquet outputs, jobs, readable job logs, preview metadata, and output file metadata.
@@ -302,7 +303,7 @@ Temporary artifacts from Workbench development, including screenshots, traces, l
 
 - Package version is sourced from `NEExT/__init__.py` via Hatch dynamic versioning. Update `__version__` there for release work; do not add a static `version = ...` field back to `pyproject.toml`.
 - `CLAUDE.md` is useful context, but it underemphasizes the current `generators` and `outliers` packages. Inspect those modules directly for related work.
-- `pyproject.toml` defines `dev`, `docs`, `experiments`, `advanced`, `dgl`, `all`, and `all-dl` extras. Do not assume a separate `test` extra exists.
+- `pyproject.toml` defines `dev`, `docs`, `experiments`, `advanced`, `gnn`, `workbench`, `workbench-mcp`, and `all` extras. Do not assume a separate `test` extra exists. The `gnn` extra provides `torch` for the pure-PyTorch GNN graph embeddings; `workbench` and `workbench-mcp` include it. There is no longer a `dgl`/`all-dl` extra.
 - The root `Makefile` includes documentation and direct PyPI release targets. Quality commands are configured in `pyproject.toml`, not as Makefile targets.
 - PyPI publication is direct/local only. Use `make release-check` plus `make deploy` for the full push/tag/publish flow, or `make publish-only` after `main` has already been pushed. Do not publish packages, create release tags, or push to remotes unless explicitly requested.
 

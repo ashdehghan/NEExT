@@ -63,6 +63,15 @@ EMBEDDING_CATALOG: tuple[EmbeddingCatalogItem, ...] = (
         name="Sinkhorn Vectorizer",
         description="Sinkhorn vectorizer graph embeddings computed from configured node feature artifacts.",
     ),
+    EmbeddingCatalogItem(
+        id="gnn",
+        name="Graph Neural Network",
+        description=(
+            "Graph neural network embeddings learned from configured node feature artifacts. "
+            "Choose an architecture (GCN, GraphSAGE, or GIN); the model is trained unsupervised "
+            "to reconstruct node features and pooled to graph-level vectors."
+        ),
+    ),
 )
 
 

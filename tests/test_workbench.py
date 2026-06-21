@@ -2283,12 +2283,16 @@ def test_embedding_library_catalog_endpoint_exposes_built_ins_without_paths_or_c
 
         assert response.status_code == 200
         catalog = response.json()
-        assert {entry["id"] for entry in catalog} == {"approx_wasserstein", "wasserstein", "sinkhornvectorizer"}
-        assert len(catalog) == 3
+        assert {entry["id"] for entry in catalog} == {"approx_wasserstein", "wasserstein", "sinkhornvectorizer", "gnn"}
+        assert len(catalog) == 4
         approx = next(entry for entry in catalog if entry["id"] == "approx_wasserstein")
         assert approx["name"] == "Approx Wasserstein"
         assert approx["operation_id"] == "neext.compute_graph_embeddings"
         assert approx["operation_version"] == "1"
+        gnn = next(entry for entry in catalog if entry["id"] == "gnn")
+        assert gnn["name"] == "Graph Neural Network"
+        assert gnn["operation_id"] == "neext.compute_graph_embeddings"
+        assert gnn["operation_version"] == "1"
         for entry in catalog:
             payload = json.dumps(entry)
             assert "files" not in entry
@@ -2396,6 +2400,7 @@ def test_create_embedding_artifacts_validate_source_features_and_dataset_lineage
             "params": {
                 "embedding_algorithm": "approx_wasserstein",
                 "embedding_dimension": 2,
+                "architecture": "GCN",
                 "random_state": 42,
                 "memory_size": "4G",
                 "feature_ids": first_feature_ids,
@@ -2535,6 +2540,176 @@ def test_run_embedding_auto_runs_planned_dataset_and_features_and_writes_preview
         assert preview.json()["columns"] == ["graph_id", "emb_0", "emb_1"]
         assert preview.json()["total_rows"] == 2
         assert len(preview.json()["rows"]) == 1
+
+
+def test_create_gnn_embedding_records_architecture_and_allows_high_dimension(monkeypatch):
+    pytest.importorskip("fastapi")
+    pytest.importorskip("pyarrow")
+
+    from fastapi.testclient import TestClient
+
+    import NEExT.workbench.dataset_library as dataset_library
+    from NEExT.workbench.app import create_app
+    from NEExT.workbench.dataset_library import CatalogDataset
+
+    with TemporaryDirectory() as tmpdir:
+        source_files = write_dataset_source_bundle(Path(tmpdir) / "source")
+        monkeypatch.setattr(
+            dataset_library,
+            "DATASET_CATALOG",
+            (
+                CatalogDataset(
+                    id="TINY",
+                    name="Tiny Dataset",
+                    description="local test bundle",
+                    domain="Tests",
+                    files=source_files,
+                    graph_count=2,
+                    node_count=4,
+                    edge_count=2,
+                    source="Test catalog",
+                ),
+            ),
+        )
+
+        client = TestClient(create_app(tmpdir))
+        project_id = client.post("/api/projects", json={"name": "GNN Project"}).json()["id"]
+        dataset = client.post(f"/api/projects/{project_id}/datasets", json={"catalog_id": "TINY"}).json()
+        feature = client.post(
+            f"/api/projects/{project_id}/features",
+            json={
+                "source_dataset_id": dataset["id"],
+                "source_feature_id": "page_rank",
+                "params": {
+                    "feature_vector_length": 2,
+                    "normalize_features": False,
+                    "n_jobs": 1,
+                    "parallel_backend": "threading",
+                },
+            },
+        ).json()
+
+        created = client.post(
+            f"/api/projects/{project_id}/embeddings",
+            json={
+                "source_embedding_id": "gnn",
+                "source_feature_ids": [feature["id"]],
+                # Dimension (4) deliberately exceeds the feature-column count (2).
+                "params": {"embedding_dimension": 4, "architecture": "GIN"},
+            },
+        )
+        assert created.status_code == 200
+        embedding = created.json()
+        assert embedding["name"] == "Tiny Dataset - Graph Neural Network Embedding"
+        assert embedding["source_embedding_id"] == "gnn"
+        assert embedding["operation"]["params"]["embedding_algorithm"] == "gnn"
+        assert embedding["operation"]["params"]["architecture"] == "GIN"
+        assert embedding["expected_output"]["columns"] == ["emb_0", "emb_1", "emb_2", "emb_3"]
+
+        # A vectorizer algorithm still rejects a dimension larger than the feature count.
+        too_large = client.post(
+            f"/api/projects/{project_id}/embeddings",
+            json={
+                "source_embedding_id": "approx_wasserstein",
+                "source_feature_ids": [feature["id"]],
+                "params": {"embedding_dimension": 4},
+            },
+        ).json()
+        run = client.post(f"/api/projects/{project_id}/embeddings/{too_large['id']}/run")
+        job = wait_for_job(client, project_id, run.json()["id"])
+        assert job["status"] == "failed"
+        assert "cannot exceed" in " ".join(job["log"]).lower()
+
+
+def test_run_gnn_embedding_completes_and_writes_output(monkeypatch):
+    pytest.importorskip("fastapi")
+    pytest.importorskip("pyarrow")
+    pytest.importorskip("torch")
+
+    import pandas as pd
+    from fastapi.testclient import TestClient
+
+    import NEExT.workbench.dataset_library as dataset_library
+    from NEExT.workbench.app import create_app
+    from NEExT.workbench.dataset_library import CatalogDataset
+
+    with TemporaryDirectory() as tmpdir:
+        source_files = write_dataset_source_bundle(Path(tmpdir) / "source")
+        monkeypatch.setattr(
+            dataset_library,
+            "DATASET_CATALOG",
+            (
+                CatalogDataset(
+                    id="TINY",
+                    name="Tiny Dataset",
+                    description="local test bundle",
+                    domain="Tests",
+                    files=source_files,
+                    graph_count=2,
+                    node_count=4,
+                    edge_count=2,
+                    source="Test catalog",
+                ),
+            ),
+        )
+
+        client = TestClient(create_app(tmpdir))
+        project_id = client.post("/api/projects", json={"name": "GNN Run Project"}).json()["id"]
+        dataset = client.post(f"/api/projects/{project_id}/datasets", json={"catalog_id": "TINY"}).json()
+        feature_ids = []
+        for source_feature_id in ["page_rank", "degree_centrality"]:
+            feature = client.post(
+                f"/api/projects/{project_id}/features",
+                json={
+                    "source_dataset_id": dataset["id"],
+                    "source_feature_id": source_feature_id,
+                    "params": {
+                        "feature_vector_length": 2,
+                        "normalize_features": False,
+                        "n_jobs": 1,
+                        "parallel_backend": "threading",
+                    },
+                },
+            ).json()
+            feature_ids.append(feature["id"])
+
+        embedding = client.post(
+            f"/api/projects/{project_id}/embeddings",
+            json={
+                "source_embedding_id": "gnn",
+                "source_feature_ids": feature_ids,
+                "params": {"embedding_dimension": 3, "architecture": "GCN"},
+            },
+        ).json()
+
+        run = client.post(f"/api/projects/{project_id}/embeddings/{embedding['id']}/run")
+        assert run.status_code == 200
+        job = wait_for_job(client, project_id, run.json()["id"])
+        assert job["status"] == "completed"
+        assert f"Computing embedding {embedding['name']} with gnn" in job["log"]
+
+        completed = client.get(f"/api/projects/{project_id}/embeddings/{embedding['id']}").json()
+        assert completed["status"] == "completed"
+        assert completed["output_stats"] == {"row_count": 2, "column_count": 4}
+        assert completed["error"] is None
+
+        output_path = (
+            Path(tmpdir)
+            / "projects"
+            / project_id
+            / "artifacts"
+            / "embeddings"
+            / embedding["id"]
+            / "output"
+            / "embeddings.parquet"
+        )
+        output_df = pd.read_parquet(output_path)
+        assert list(output_df.columns) == ["graph_id", "emb_0", "emb_1", "emb_2"]
+        assert len(output_df) == 2
+
+        # Downstream analysis (PCA/clustering) works on GNN output too.
+        analysis = client.get(f"/api/projects/{project_id}/embeddings/{embedding['id']}/analysis")
+        assert analysis.status_code == 200
 
 
 def test_embedding_batch_run_completes_selected_outputs_in_one_job(monkeypatch):

@@ -665,6 +665,9 @@ class EmbeddingManifest(BaseModel):
 
 class EmbeddingCreateParams(BaseModel):
     embedding_dimension: int = Field(default=3, ge=1, le=128)
+    # Only used when the selected embedding is the GNN catalog entry; ignored by
+    # the Wasserstein/Sinkhorn algorithms.
+    architecture: Literal["GCN", "GraphSAGE", "GIN"] = "GCN"
 
 
 class EmbeddingCreateRequest(BaseModel):

@@ -264,6 +264,7 @@ Approved Workbench project foundation:
 - Dataset artifacts are Draft compute graph nodes until Dataset preparation runs. Dataset preparation uses NEExT graph construction and normalization semantics, writes a raw Parquet snapshot, prepared NEExT-ready graph Parquet files, complete source-to-internal mapping Parquet files, summary stats, and status/error metadata.
 - Feature artifacts define compute graph nodes and may execute once their Dataset input is prepared. One Feature artifact targets one Dataset artifact and records one dataset input. Built-in Feature Library artifacts reference one built-in structural node feature method and are added from the active Dataset context. Custom Python Feature Create artifacts store trusted local Python source under the feature artifact, use the artifact UUID as the runtime feature key, require a `compute_feature(graph)` function, support advisory validation before Create, validate again on Create against the first prepared graph of a completed dataset, and write feature output Parquet only on successful execution.
 - Embedding Library entries are built-in graph embedding algorithm templates, not executable project artifacts. A catalog row must be added from the active Dataset context into a project Embedding artifact before it can participate in the compute graph.
+- The built-in embedding catalog has four approved, implemented entries: `approx_wasserstein`, `wasserstein`, `sinkhornvectorizer`, and `gnn` (Graph Neural Network). The `gnn` entry exposes an Architecture choice (GCN/GraphSAGE/GIN) plus Embedding Dimension; all other GNN settings use fixed defaults. It is the only embedding catalog entry with an extra parameter. Adding a new embedding catalog entry is allowed (it is a built-in template, not the deferred "Embedding Create" workflow); adding new tunable parameters or a new algorithm family still requires a planning decision.
 - Built-in Embedding Add-to-Project is dataset-first: it uses the active Dataset context, lists only Feature artifacts from that Dataset, and preselects the active Feature when the selected Feature belongs to the active Dataset branch.
 - Embedding artifacts define compute graph nodes downstream of one or more Feature artifacts. All selected Feature inputs must reference the same Dataset. Embedding execution can auto-run Draft or failed upstream Dataset preparation and Feature computation before computing graph-level embeddings.
 - Workbench persists Embedding manifests, graph embedding Parquet outputs, jobs, readable job logs, preview metadata, and output file metadata.
@@ -300,6 +301,7 @@ Approved Workbench project foundation:
   - Wasserstein distance-based embeddings (approximate/exact)
   - Sinkhorn vectorizer
   - Distribution-based approaches preserving structural properties
+- **GNNEmbeddings** (`embeddings/gnn_embeddings.py`): pure-PyTorch graph neural network embeddings (GCN/GraphSAGE/GIN) trained unsupervised (node-feature reconstruction) and pooled to graph level. Selected via `compute_graph_embeddings(..., embedding_algorithm="gnn", architecture=...)`. Requires the `gnn` extra (`torch`); no DGL/PyG. Pins torch to a single thread during compute to avoid OpenMP conflicts with NEExT's other native libraries on macOS.
 - Works on both GraphCollection and EgonetCollection
 
 #### 4. **ML Pipeline** (`ml_models/`, `datasets/`)
@@ -345,6 +347,7 @@ Approved Workbench project foundation:
 - `NEExT/collections/egonet_collection.py`: Core egonet decomposition logic
 - `NEExT/features/structural_node_features.py`: Feature computation engine
 - `NEExT/embeddings/graph_embeddings.py`: Wasserstein embedding implementation
+- `NEExT/embeddings/gnn_embeddings.py`: pure-PyTorch GNN embedding implementation (GCN/GraphSAGE/GIN)
 - `NEExT/helper_functions.py`: Utility functions for graph operations
 
 #### Configuration

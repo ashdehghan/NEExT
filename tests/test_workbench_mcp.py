@@ -869,6 +869,66 @@ def test_mcp_service_configures_runs_previews_and_analyzes_pipeline(monkeypatch)
         assert str(Path(tmpdir).resolve()) not in payload
 
 
+def test_mcp_service_exposes_gnn_catalog_and_configures_and_runs_it(monkeypatch):
+    pytest.importorskip("pyarrow")
+    pytest.importorskip("torch")
+
+    import NEExT.workbench.dataset_library as dataset_library
+    from NEExT.workbench.dataset_library import CatalogDataset
+    from NEExT.workbench.mcp_service import WorkbenchMcpService
+    from NEExT.workbench.storage import WorkbenchStore
+
+    with TemporaryDirectory() as tmpdir:
+        source_files = write_labeled_graph_source_bundle(Path(tmpdir) / "source")
+        monkeypatch.setattr(
+            dataset_library,
+            "DATASET_CATALOG",
+            (
+                CatalogDataset(
+                    id="LABELED_MCP",
+                    name="Labeled MCP Dataset",
+                    description="local labeled bundle",
+                    domain="Tests",
+                    files=source_files,
+                    graph_count=8,
+                    node_count=24,
+                    edge_count=16,
+                    source="Test catalog",
+                ),
+            ),
+        )
+
+        store = WorkbenchStore(Path(tmpdir))
+        service = WorkbenchMcpService(store)
+
+        catalog_ids = {entry["id"] for entry in service.list_catalog("embeddings")}
+        assert "gnn" in catalog_ids
+
+        project_id = service.create_project("MCP GNN", "gnn coverage")["id"]
+        dataset = service.configure_dataset(
+            project_id, "LABELED_MCP", {"graph_type": "networkx", "filter_largest_component": False}
+        )
+        feature = service.configure_feature(
+            project_id,
+            dataset["id"],
+            "page_rank",
+            {"feature_vector_length": 2, "normalize_features": False, "n_jobs": 1, "parallel_backend": "threading"},
+        )
+        embedding = service.configure_embedding(
+            project_id,
+            "gnn",
+            [feature["id"]],
+            {"embedding_dimension": 3, "architecture": "GraphSAGE"},
+        )
+        assert embedding["operation"]["params"]["embedding_algorithm"] == "gnn"
+        assert embedding["operation"]["params"]["architecture"] == "GraphSAGE"
+
+        run = service.run_artifacts(project_id, "embeddings", [embedding["id"]])
+        job = wait_for_store_job(store, project_id, run["jobs"][0]["id"])
+        assert job["status"] == "completed"
+        assert service.get_artifact(project_id, "embeddings", embedding["id"])["status"] == "completed"
+
+
 def test_stdio_launch_command_uses_running_interpreter(tmp_path):
     from NEExT.workbench import mcp_server
 
