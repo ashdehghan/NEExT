@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Literal, Optional, Union
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class WorkspaceInfo(BaseModel):
@@ -665,9 +665,25 @@ class EmbeddingManifest(BaseModel):
 
 class EmbeddingCreateParams(BaseModel):
     embedding_dimension: int = Field(default=3, ge=1, le=128)
-    # Only used when the selected embedding is the GNN catalog entry; ignored by
-    # the Wasserstein/Sinkhorn algorithms.
+    # The following are used only when the selected embedding is the GNN catalog
+    # entry; they are ignored by the Wasserstein/Sinkhorn algorithms.
     architecture: Literal["GCN", "GraphSAGE", "GIN"] = "GCN"
+    hidden_dims: list[int] = Field(default_factory=lambda: [64, 32])
+    epochs: int = Field(default=100, ge=1, le=1000)
+    learning_rate: float = Field(default=0.01, gt=0, le=1.0)
+    weight_decay: float = Field(default=5e-4, ge=0, le=1.0)
+    dropout: float = Field(default=0.0, ge=0, le=1.0)
+    pooling: Literal["mean", "sum", "max"] = "mean"
+    early_stopping_patience: int = Field(default=10, ge=1, le=1000)
+
+    @field_validator("hidden_dims")
+    @classmethod
+    def _validate_hidden_dims(cls, value: list[int]) -> list[int]:
+        if not 1 <= len(value) <= 8:
+            raise ValueError("hidden_dims must have between 1 and 8 layers")
+        if any(dim < 1 or dim > 4096 for dim in value):
+            raise ValueError("each hidden dimension must be between 1 and 4096")
+        return value
 
 
 class EmbeddingCreateRequest(BaseModel):

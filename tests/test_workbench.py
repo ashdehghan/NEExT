@@ -2400,7 +2400,6 @@ def test_create_embedding_artifacts_validate_source_features_and_dataset_lineage
             "params": {
                 "embedding_algorithm": "approx_wasserstein",
                 "embedding_dimension": 2,
-                "architecture": "GCN",
                 "random_state": 42,
                 "memory_size": "4G",
                 "feature_ids": first_feature_ids,
@@ -2595,15 +2594,33 @@ def test_create_gnn_embedding_records_architecture_and_allows_high_dimension(mon
                 "source_embedding_id": "gnn",
                 "source_feature_ids": [feature["id"]],
                 # Dimension (4) deliberately exceeds the feature-column count (2).
-                "params": {"embedding_dimension": 4, "architecture": "GIN"},
+                "params": {
+                    "embedding_dimension": 4,
+                    "architecture": "GIN",
+                    "hidden_dims": [32, 16],
+                    "epochs": 50,
+                    "learning_rate": 0.005,
+                    "weight_decay": 0.001,
+                    "dropout": 0.1,
+                    "pooling": "sum",
+                    "early_stopping_patience": 5,
+                },
             },
         )
         assert created.status_code == 200
         embedding = created.json()
         assert embedding["name"] == "Tiny Dataset - Graph Neural Network Embedding"
         assert embedding["source_embedding_id"] == "gnn"
-        assert embedding["operation"]["params"]["embedding_algorithm"] == "gnn"
-        assert embedding["operation"]["params"]["architecture"] == "GIN"
+        gnn_params = embedding["operation"]["params"]
+        assert gnn_params["embedding_algorithm"] == "gnn"
+        assert gnn_params["architecture"] == "GIN"
+        assert gnn_params["hidden_dims"] == [32, 16]
+        assert gnn_params["epochs"] == 50
+        assert gnn_params["learning_rate"] == 0.005
+        assert gnn_params["weight_decay"] == 0.001
+        assert gnn_params["dropout"] == 0.1
+        assert gnn_params["pooling"] == "sum"
+        assert gnn_params["early_stopping_patience"] == 5
         assert embedding["expected_output"]["columns"] == ["emb_0", "emb_1", "emb_2", "emb_3"]
 
         # A vectorizer algorithm still rejects a dimension larger than the feature count.
@@ -2678,7 +2695,15 @@ def test_run_gnn_embedding_completes_and_writes_output(monkeypatch):
             json={
                 "source_embedding_id": "gnn",
                 "source_feature_ids": feature_ids,
-                "params": {"embedding_dimension": 3, "architecture": "GCN"},
+                # Exercise non-default GNN hyperparameters end-to-end.
+                "params": {
+                    "embedding_dimension": 3,
+                    "architecture": "GraphSAGE",
+                    "hidden_dims": [16],
+                    "epochs": 20,
+                    "dropout": 0.1,
+                    "pooling": "max",
+                },
             },
         ).json()
 
@@ -2693,16 +2718,7 @@ def test_run_gnn_embedding_completes_and_writes_output(monkeypatch):
         assert completed["output_stats"] == {"row_count": 2, "column_count": 4}
         assert completed["error"] is None
 
-        output_path = (
-            Path(tmpdir)
-            / "projects"
-            / project_id
-            / "artifacts"
-            / "embeddings"
-            / embedding["id"]
-            / "output"
-            / "embeddings.parquet"
-        )
+        output_path = Path(tmpdir) / "projects" / project_id / "artifacts" / "embeddings" / embedding["id"] / "output" / "embeddings.parquet"
         output_df = pd.read_parquet(output_path)
         assert list(output_df.columns) == ["graph_id", "emb_0", "emb_1", "emb_2"]
         assert len(output_df) == 2

@@ -21,8 +21,9 @@ from typing import Any, Callable
 from pydantic import ValidationError
 
 from .dataset_library import get_catalog_dataset, list_catalog_entries
-from .embedding_library import get_embedding_catalog_item, list_embedding_catalog_entries
+from .embedding_library import get_embedding_catalog_item
 from .embedding_library import get_operation_definition as get_embedding_operation_definition
+from .embedding_library import list_embedding_catalog_entries
 from .feature_library import (
     NODE_FEATURE_OPERATION_ID,
     NODE_FEATURE_OPERATION_VERSION,
@@ -30,9 +31,11 @@ from .feature_library import (
     get_operation_definition,
     list_feature_catalog_entries,
 )
-from .model_library import get_model_catalog_item, list_model_catalog_entries
+from .model_library import get_model_catalog_item
 from .model_library import get_operation_definition as get_model_operation_definition
+from .model_library import list_model_catalog_entries
 from .schemas import (
+    AnalysisClusterSummary,
     ArtifactDeletionBundleManifest,
     ArtifactDeletionPlan,
     ArtifactDeletionSummary,
@@ -77,7 +80,6 @@ from .schemas import (
     EmbeddingManifest,
     EmbeddingOutputFiles,
     EmbeddingOutputStats,
-    AnalysisClusterSummary,
     EmbeddingPcaPayload,
     EmbeddingPcaPoint,
     EmbeddingRunBatchRequest,
@@ -117,10 +119,10 @@ from .schemas import (
     ModelCreateParams,
     ModelCreateRequest,
     ModelExpectedOutput,
-    ModelManifest,
-    ModelMetricPoint,
     ModelFeatureImportanceItem,
     ModelFeatureImportancePayload,
+    ModelManifest,
+    ModelMetricPoint,
     ModelMetricSeries,
     ModelOutputFiles,
     ModelOutputStats,
@@ -1116,9 +1118,7 @@ class WorkbenchStore:
             validation=validation,
         )
 
-    def create_dataset_intake_session(
-        self, project_id: str, request: DatasetIntakeSessionCreateRequest
-    ) -> DatasetIntakeSessionResponse:
+    def create_dataset_intake_session(self, project_id: str, request: DatasetIntakeSessionCreateRequest) -> DatasetIntakeSessionResponse:
         project = self.read_project(project_id)
         now = datetime.now(timezone.utc)
         session_id = str(uuid.uuid4())
@@ -1533,12 +1533,26 @@ class WorkbenchStore:
             operation_params = {
                 "embedding_algorithm": catalog.id,
                 "embedding_dimension": params["embedding_dimension"],
-                "architecture": params["architecture"],
                 "random_state": 42,
                 "memory_size": "4G",
                 "feature_ids": feature_ids,
                 "feature_columns": "all",
             }
+            # GNN-only tunables are recorded only for the GNN catalog entry so
+            # vectorizer manifests stay clean.
+            if catalog.id == "gnn":
+                operation_params.update(
+                    {
+                        "architecture": params["architecture"],
+                        "hidden_dims": params["hidden_dims"],
+                        "epochs": params["epochs"],
+                        "learning_rate": params["learning_rate"],
+                        "weight_decay": params["weight_decay"],
+                        "dropout": params["dropout"],
+                        "pooling": params["pooling"],
+                        "early_stopping_patience": params["early_stopping_patience"],
+                    }
+                )
             now = utc_now()
             manifest = EmbeddingManifest(
                 id=embedding_id,
@@ -2808,14 +2822,10 @@ class WorkbenchStore:
             output_dir = self.model_path(project_id, model_id) / "output"
             output_dir.mkdir(parents=True, exist_ok=True)
             self._write_json(output_dir / "feature_importance.json", payload)
-            self._update_model_feature_importance_status(
-                project_id, model_id, status="completed", file="output/feature_importance.json", error=None
-            )
+            self._update_model_feature_importance_status(project_id, model_id, status="completed", file="output/feature_importance.json", error=None)
             self._log_job(project_id, job_id, f"Feature importance for model {model.name} completed ({len(ranking)} features)")
         except Exception as exc:
-            self._update_model_feature_importance_status(
-                project_id, model_id, status="failed", error=ArtifactError(message=str(exc), job_id=job_id)
-            )
+            self._update_model_feature_importance_status(project_id, model_id, status="failed", error=ArtifactError(message=str(exc), job_id=job_id))
             self._log_job(project_id, job_id, f"Feature importance for model {model.name} failed: {exc}")
             raise
 
@@ -2984,6 +2994,13 @@ class WorkbenchStore:
                 architecture=params["architecture"],
                 embedding_dimension=params["embedding_dimension"],
                 random_state=params["random_state"],
+                hidden_dims=params["hidden_dims"],
+                epochs=params["epochs"],
+                learning_rate=params["learning_rate"],
+                weight_decay=params["weight_decay"],
+                dropout=params["dropout"],
+                pooling=params["pooling"],
+                early_stopping_patience=params["early_stopping_patience"],
             ).compute()
 
         from NEExT.embeddings import GraphEmbeddings
@@ -4067,8 +4084,12 @@ class WorkbenchStore:
         )
 
         coordinates, x_label, y_label, explained_variance_ratio, error_reason = self._project_points_2d(
-            fit_matrix, point_matrix, projection_method,
-            perplexity=perplexity, n_neighbors=n_neighbors, min_dist=min_dist,
+            fit_matrix,
+            point_matrix,
+            projection_method,
+            perplexity=perplexity,
+            n_neighbors=n_neighbors,
+            min_dist=min_dist,
         )
         if error_reason is not None:
             return FeaturePcaPayload(available=False, reason=error_reason, **base_payload)
@@ -4212,7 +4233,9 @@ class WorkbenchStore:
             chosen_perplexity = max(2.0, min(chosen_perplexity, float(n_points - 1)))
             coordinates = np.nan_to_num(
                 TSNE(n_components=2, perplexity=chosen_perplexity, random_state=0, init="pca").fit_transform(point_matrix),
-                nan=0.0, posinf=0.0, neginf=0.0,
+                nan=0.0,
+                posinf=0.0,
+                neginf=0.0,
             )
             return coordinates, "t-SNE 1", "t-SNE 2", [], None
 
@@ -4341,8 +4364,12 @@ class WorkbenchStore:
         )
 
         coordinates, x_label, y_label, explained_variance_ratio, error_reason = self._project_points_2d(
-            fit_matrix, point_matrix, projection_method,
-            perplexity=perplexity, n_neighbors=n_neighbors, min_dist=min_dist,
+            fit_matrix,
+            point_matrix,
+            projection_method,
+            perplexity=perplexity,
+            n_neighbors=n_neighbors,
+            min_dist=min_dist,
         )
         if error_reason is not None:
             return EmbeddingPcaPayload(available=False, reason=error_reason, **base_payload)
@@ -4781,11 +4808,11 @@ class WorkbenchStore:
             raise ValueError("Embedding manifest operation must match its catalog entry")
         if get_embedding_operation_definition(manifest.operation.operation_id, manifest.operation.operation_version) is None:
             raise ValueError("Embedding manifest references an unsupported operation")
-        EmbeddingCreateParams.model_validate(
-            {
-                "embedding_dimension": manifest.operation.params.get("embedding_dimension"),
-            }
-        )
+        validated_params = {"embedding_dimension": manifest.operation.params.get("embedding_dimension")}
+        if manifest.source_embedding_id == "gnn":
+            for key in ("architecture", "hidden_dims", "epochs", "learning_rate", "weight_decay", "dropout", "pooling", "early_stopping_patience"):
+                validated_params[key] = manifest.operation.params.get(key)
+        EmbeddingCreateParams.model_validate(validated_params)
         if manifest.operation.params.get("embedding_algorithm") != manifest.source_embedding_id:
             raise ValueError("Embedding manifest operation must target its source embedding algorithm")
         if manifest.operation.params.get("random_state") != 42:

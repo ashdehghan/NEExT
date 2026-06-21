@@ -68,6 +68,7 @@ class GNNEmbeddings:
         epochs: int = 100,
         learning_rate: float = 0.01,
         weight_decay: float = 5e-4,
+        dropout: float = 0.0,
         early_stopping_patience: int = 10,
         train_ratio: float = 0.8,
         val_ratio: float = 0.1,
@@ -81,6 +82,8 @@ class GNNEmbeddings:
             raise ValueError(f"Unknown pooling method '{pooling}'.")
         if int(embedding_dimension) < 1:
             raise ValueError("embedding_dimension must be >= 1")
+        if not 0.0 <= float(dropout) <= 1.0:
+            raise ValueError("dropout must be between 0 and 1")
 
         self.graph_collection = graph_collection
         self.features = features
@@ -91,6 +94,7 @@ class GNNEmbeddings:
         self.epochs = int(epochs)
         self.learning_rate = float(learning_rate)
         self.weight_decay = float(weight_decay)
+        self.dropout = float(dropout)
         self.early_stopping_patience = int(early_stopping_patience)
         self.train_ratio = float(train_ratio)
         self.val_ratio = float(val_ratio)
@@ -182,12 +186,14 @@ class GNNEmbeddings:
     def _build_model(self, input_dim: int):
         torch, nn = self._torch, self._nn
         architecture = self.architecture
+        dropout = self.dropout
         dims = [input_dim] + self.hidden_dims + [self.embedding_dimension]
 
         class _GNN(nn.Module):
             def __init__(self):
                 super().__init__()
                 self.architecture = architecture
+                self.dropout_layer = nn.Dropout(dropout)
                 if architecture == "GIN":
                     self.eps = nn.ParameterList([nn.Parameter(torch.zeros(1)) for _ in range(len(dims) - 1)])
                     self.layers = nn.ModuleList(
@@ -225,6 +231,7 @@ class GNNEmbeddings:
                         h = self.norms[i](self.layers[i](agg))
                     if i < n_layers - 1:
                         h = torch.relu(h)
+                        h = self.dropout_layer(h)
                 return h
 
         return _GNN().to(self.device)

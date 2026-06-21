@@ -247,6 +247,13 @@ class NEExT:
         random_state: int = 42,
         memory_size: str = "4G",
         architecture: str = "GCN",
+        hidden_dims: Optional[List[int]] = None,
+        epochs: int = 100,
+        learning_rate: float = 0.01,
+        weight_decay: float = 5e-4,
+        dropout: float = 0.0,
+        pooling: str = "mean",
+        early_stopping_patience: int = 10,
     ) -> Embeddings:
         """
         Compute graph embeddings based on node features.
@@ -260,8 +267,17 @@ class NEExT:
             feature_columns: Specific feature columns to use (default: all)
             random_state: Random seed for reproducibility
             memory_size: Memory limit for algorithms that support it
-            architecture: GNN architecture when embedding_algorithm == "gnn"
-                ("GCN", "GraphSAGE", or "GIN"); ignored otherwise
+
+        The remaining arguments apply only when embedding_algorithm == "gnn"
+        (ignored otherwise):
+            architecture: GNN architecture ("GCN", "GraphSAGE", or "GIN")
+            hidden_dims: Hidden layer dimensions (default [64, 32])
+            epochs: Training epochs
+            learning_rate: Adam learning rate
+            weight_decay: Adam weight decay
+            dropout: Dropout rate between layers (0-1)
+            pooling: Node-to-graph pooling ("mean", "sum", "max")
+            early_stopping_patience: Epochs without val improvement before stopping
 
         Returns:
             Embeddings: Embeddings object containing computed embeddings
@@ -275,6 +291,13 @@ class NEExT:
                 architecture=architecture,
                 embedding_dimension=embedding_dimension,
                 random_state=random_state,
+                hidden_dims=hidden_dims,
+                epochs=epochs,
+                learning_rate=learning_rate,
+                weight_decay=weight_decay,
+                dropout=dropout,
+                pooling=pooling,
+                early_stopping_patience=early_stopping_patience,
             )
             embeddings = gnn_embeddings.compute()
         else:

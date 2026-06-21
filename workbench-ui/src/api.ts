@@ -855,6 +855,7 @@ export interface CustomFeatureValidationResponse {
 }
 
 export type GnnArchitecture = "GCN" | "GraphSAGE" | "GIN";
+export type GnnPooling = "mean" | "sum" | "max";
 
 export interface EmbeddingCreatePayload {
   source_embedding_id: string;
@@ -862,6 +863,13 @@ export interface EmbeddingCreatePayload {
   params: {
     embedding_dimension: number;
     architecture?: GnnArchitecture;
+    hidden_dims?: number[];
+    epochs?: number;
+    learning_rate?: number;
+    weight_decay?: number;
+    dropout?: number;
+    pooling?: GnnPooling;
+    early_stopping_patience?: number;
   };
 }
 

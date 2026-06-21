@@ -905,9 +905,7 @@ def test_mcp_service_exposes_gnn_catalog_and_configures_and_runs_it(monkeypatch)
         assert "gnn" in catalog_ids
 
         project_id = service.create_project("MCP GNN", "gnn coverage")["id"]
-        dataset = service.configure_dataset(
-            project_id, "LABELED_MCP", {"graph_type": "networkx", "filter_largest_component": False}
-        )
+        dataset = service.configure_dataset(project_id, "LABELED_MCP", {"graph_type": "networkx", "filter_largest_component": False})
         feature = service.configure_feature(
             project_id,
             dataset["id"],
@@ -918,10 +916,22 @@ def test_mcp_service_exposes_gnn_catalog_and_configures_and_runs_it(monkeypatch)
             project_id,
             "gnn",
             [feature["id"]],
-            {"embedding_dimension": 3, "architecture": "GraphSAGE"},
+            {
+                "embedding_dimension": 3,
+                "architecture": "GraphSAGE",
+                "hidden_dims": [32, 16],
+                "epochs": 25,
+                "dropout": 0.2,
+                "pooling": "sum",
+            },
         )
-        assert embedding["operation"]["params"]["embedding_algorithm"] == "gnn"
-        assert embedding["operation"]["params"]["architecture"] == "GraphSAGE"
+        gnn_params = embedding["operation"]["params"]
+        assert gnn_params["embedding_algorithm"] == "gnn"
+        assert gnn_params["architecture"] == "GraphSAGE"
+        assert gnn_params["hidden_dims"] == [32, 16]
+        assert gnn_params["epochs"] == 25
+        assert gnn_params["dropout"] == 0.2
+        assert gnn_params["pooling"] == "sum"
 
         run = service.run_artifacts(project_id, "embeddings", [embedding["id"]])
         job = wait_for_store_job(store, project_id, run["jobs"][0]["id"])

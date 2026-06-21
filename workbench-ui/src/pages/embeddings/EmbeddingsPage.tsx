@@ -9,13 +9,24 @@ import {
   type EmbeddingCreatePayload,
   type EmbeddingManifest,
   type FeatureManifest,
-  type GnnArchitecture
+  type GnnArchitecture,
+  type GnnPooling
 } from "../../api";
 import { EmptyState } from "../../components/primitives/EmptyState";
 import { FcIcon } from "../../components/primitives/FcIcon";
 import { AnalysisCommandCenter } from "../../components/viz/AnalysisCommandCenter";
 
 const GNN_ARCHITECTURES: GnnArchitecture[] = ["GCN", "GraphSAGE", "GIN"];
+const GNN_POOLINGS: GnnPooling[] = ["mean", "sum", "max"];
+const DEFAULT_HIDDEN_DIMS = "64, 32";
+
+function parseHiddenDims(text: string): number[] | null {
+  const parts = text.split(",").map((part) => part.trim()).filter((part) => part.length > 0);
+  if (parts.length < 1 || parts.length > 8) return null;
+  const dims = parts.map(Number);
+  if (dims.some((dim) => !Number.isInteger(dim) || dim < 1 || dim > 4096)) return null;
+  return dims;
+}
 
 interface EmbeddingLibraryViewProps {
   activeProjectId: string;
@@ -208,6 +219,13 @@ export function ConfigureEmbeddingView({
   const [selectedFeatureIds, setSelectedFeatureIds] = useState<string[]>([]);
   const [embeddingDimension, setEmbeddingDimension] = useState(3);
   const [architecture, setArchitecture] = useState<GnnArchitecture>("GCN");
+  const [hiddenDimsText, setHiddenDimsText] = useState(DEFAULT_HIDDEN_DIMS);
+  const [epochs, setEpochs] = useState(100);
+  const [learningRate, setLearningRate] = useState(0.01);
+  const [weightDecay, setWeightDecay] = useState(0.0005);
+  const [dropout, setDropout] = useState(0);
+  const [pooling, setPooling] = useState<GnnPooling>("mean");
+  const [earlyStoppingPatience, setEarlyStoppingPatience] = useState(10);
   const isGnn = embedding?.id === "gnn";
   const initialFeatureId = initialSelectedFeatureId && features.some((feature) => feature.id === initialSelectedFeatureId)
     ? initialSelectedFeatureId
@@ -217,6 +235,13 @@ export function ConfigureEmbeddingView({
     setSelectedFeatureIds(initialFeatureId ? [initialFeatureId] : []);
     setEmbeddingDimension(3);
     setArchitecture("GCN");
+    setHiddenDimsText(DEFAULT_HIDDEN_DIMS);
+    setEpochs(100);
+    setLearningRate(0.01);
+    setWeightDecay(0.0005);
+    setDropout(0);
+    setPooling("mean");
+    setEarlyStoppingPatience(10);
   }, [activeProjectId, embedding?.id, dataset?.id, initialFeatureId]);
 
   useEffect(() => {
@@ -232,6 +257,20 @@ export function ConfigureEmbeddingView({
     if (GNN_ARCHITECTURES.includes(nextArchitecture as GnnArchitecture)) {
       setArchitecture(nextArchitecture as GnnArchitecture);
     }
+    const nextHiddenDims = draftStringArray(draft, "hidden_dims");
+    if (nextHiddenDims) setHiddenDimsText(nextHiddenDims.join(", "));
+    const nextEpochs = draftNumber(draft, "epochs");
+    if (nextEpochs !== undefined) setEpochs(nextEpochs);
+    const nextLearningRate = draftNumber(draft, "learning_rate");
+    if (nextLearningRate !== undefined) setLearningRate(nextLearningRate);
+    const nextWeightDecay = draftNumber(draft, "weight_decay");
+    if (nextWeightDecay !== undefined) setWeightDecay(nextWeightDecay);
+    const nextDropout = draftNumber(draft, "dropout");
+    if (nextDropout !== undefined) setDropout(nextDropout);
+    const nextPooling = draft["pooling"];
+    if (GNN_POOLINGS.includes(nextPooling as GnnPooling)) setPooling(nextPooling as GnnPooling);
+    const nextPatience = draftNumber(draft, "early_stopping_patience");
+    if (nextPatience !== undefined) setEarlyStoppingPatience(nextPatience);
   }, [activeProjectId, embedding?.id, dataset?.id, features, draft]);
 
   useEffect(() => {
@@ -250,7 +289,17 @@ export function ConfigureEmbeddingView({
     () => selectedFeatureIds.map((featureId) => features.find((feature) => feature.id === featureId)).filter(Boolean) as FeatureManifest[],
     [features, selectedFeatureIds]
   );
-  const paramsValid = Number.isInteger(embeddingDimension) && embeddingDimension >= 1 && embeddingDimension <= 128;
+  const parsedHiddenDims = parseHiddenDims(hiddenDimsText);
+  const dimensionValid = Number.isInteger(embeddingDimension) && embeddingDimension >= 1 && embeddingDimension <= 128;
+  const gnnParamsValid =
+    !isGnn ||
+    (parsedHiddenDims !== null &&
+      Number.isInteger(epochs) && epochs >= 1 && epochs <= 1000 &&
+      learningRate > 0 && learningRate <= 1 &&
+      weightDecay >= 0 && weightDecay <= 1 &&
+      dropout >= 0 && dropout <= 1 &&
+      Number.isInteger(earlyStoppingPatience) && earlyStoppingPatience >= 1 && earlyStoppingPatience <= 1000);
+  const paramsValid = dimensionValid && gnnParamsValid;
   const selectedFeaturesInDataset = selectedFeatures.every((feature) => dataset?.id && featureDatasetId(feature) === dataset.id);
   const canSave = Boolean(activeProjectId && embedding && dataset?.id && selectedFeatureIds.length > 0 && selectedFeaturesInDataset && paramsValid);
   const saveBlockedMessage = !activeProjectId
@@ -263,9 +312,11 @@ export function ConfigureEmbeddingView({
           ? "Select at least one feature."
           : !selectedFeaturesInDataset
             ? "Selected features must belong to the active dataset."
-            : !paramsValid
+            : !dimensionValid
               ? "Embedding dimension must be 1-128."
-              : "";
+              : !gnnParamsValid
+                ? "Check the GNN settings: hidden layers must be 1-8 positive integers (e.g. 64, 32) and the numeric fields must be in range."
+                : "";
 
   const createEmbedding = useMutation({
     mutationFn: (payload: EmbeddingCreatePayload) => api.createEmbedding(activeProjectId, payload),
@@ -302,7 +353,18 @@ export function ConfigureEmbeddingView({
           source_feature_ids: selectedFeatureIds,
           params: {
             embedding_dimension: embeddingDimension,
-            ...(isGnn ? { architecture } : {})
+            ...(isGnn
+              ? {
+                  architecture,
+                  hidden_dims: parsedHiddenDims ?? undefined,
+                  epochs,
+                  learning_rate: learningRate,
+                  weight_decay: weightDecay,
+                  dropout,
+                  pooling,
+                  early_stopping_patience: earlyStoppingPatience
+                }
+              : {})
           }
         });
       }}
@@ -347,6 +409,70 @@ export function ConfigureEmbeddingView({
               onChange={(event) => setEmbeddingDimension(Number(event.target.value))}
             />
           </label>
+          {isGnn ? (
+            <>
+              <label className="field">
+                <span>Hidden Layers</span>
+                <input
+                  type="text"
+                  value={hiddenDimsText}
+                  placeholder="64, 32"
+                  aria-invalid={parsedHiddenDims === null}
+                  onChange={(event) => setHiddenDimsText(event.target.value)}
+                />
+              </label>
+              <label className="field">
+                <span>Epochs</span>
+                <input type="number" min={1} max={1000} value={epochs} onChange={(event) => setEpochs(Number(event.target.value))} />
+              </label>
+              <label className="field">
+                <span>Learning Rate</span>
+                <input
+                  type="number"
+                  min={0.0001}
+                  max={1}
+                  step="any"
+                  value={learningRate}
+                  onChange={(event) => setLearningRate(Number(event.target.value))}
+                />
+              </label>
+              <label className="field">
+                <span>Weight Decay</span>
+                <input
+                  type="number"
+                  min={0}
+                  max={1}
+                  step="any"
+                  value={weightDecay}
+                  onChange={(event) => setWeightDecay(Number(event.target.value))}
+                />
+              </label>
+              <label className="field">
+                <span>Dropout</span>
+                <input type="number" min={0} max={1} step="any" value={dropout} onChange={(event) => setDropout(Number(event.target.value))} />
+              </label>
+              <label className="field">
+                <span>Pooling</span>
+                <select value={pooling} onChange={(event) => setPooling(event.target.value as GnnPooling)}>
+                  {GNN_POOLINGS.map((option) => (
+                    <option key={option} value={option}>
+                      {option}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="field">
+                <span>Early-Stopping Patience</span>
+                <input
+                  type="number"
+                  min={1}
+                  max={1000}
+                  value={earlyStoppingPatience}
+                  onChange={(event) => setEarlyStoppingPatience(Number(event.target.value))}
+                />
+              </label>
+            </>
+          ) : null}
         </div>
         <div className="feature-picker" aria-label="Feature artifacts">
           <table className="tbl">
