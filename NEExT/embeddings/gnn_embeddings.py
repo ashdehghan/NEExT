@@ -200,6 +200,12 @@ class GNNEmbeddings:
                             for i in range(len(dims) - 1)
                         ]
                     )
+                    # GIN's unnormalized sum aggregation otherwise blows up
+                    # magnitudes and collapses the embeddings under the
+                    # reconstruction objective. LayerNorm after each layer is the
+                    # variable-size-graph-safe analogue of the BatchNorm the
+                    # original GIN paper uses, and restores healthy variance.
+                    self.norms = nn.ModuleList([nn.LayerNorm(dims[i + 1]) for i in range(len(dims) - 1)])
                 elif architecture == "GraphSAGE":
                     self.self_lin = nn.ModuleList([nn.Linear(dims[i], dims[i + 1]) for i in range(len(dims) - 1)])
                     self.neigh_lin = nn.ModuleList([nn.Linear(dims[i], dims[i + 1]) for i in range(len(dims) - 1)])
@@ -216,7 +222,7 @@ class GNNEmbeddings:
                         h = self.self_lin[i](h) + self.neigh_lin[i](torch.matmul(op, h))
                     else:  # GIN
                         agg = (1.0 + self.eps[i]) * h + torch.matmul(op, h)
-                        h = self.layers[i](agg)
+                        h = self.norms[i](self.layers[i](agg))
                     if i < n_layers - 1:
                         h = torch.relu(h)
                 return h

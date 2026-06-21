@@ -121,6 +121,26 @@ def test_gnn_embeddings_single_graph_with_isolated_node(architecture):
     assert np.isfinite(df[embeddings.embedding_columns].to_numpy()).all()
 
 
+def test_gnn_embeddings_are_deterministic_for_fixed_seed():
+    """Same random_state must reproduce identical embedding values (not just shape)."""
+    _, collection, features = _tiny_collection_and_features()
+
+    def run():
+        return GNNEmbeddings(
+            graph_collection=collection,
+            features=features,
+            architecture="GCN",
+            embedding_dimension=4,
+            random_state=123,
+        ).compute()
+
+    first = run().embeddings_df
+    second = run().embeddings_df
+    assert first["graph_id"].tolist() == second["graph_id"].tolist()
+    cols = [f"emb_{i}" for i in range(4)]
+    assert np.array_equal(first[cols].to_numpy(), second[cols].to_numpy())
+
+
 def test_gnn_embeddings_rejects_unknown_architecture():
     _, collection, features = _tiny_collection_and_features(n_graphs=2)
     with pytest.raises(ValueError):
