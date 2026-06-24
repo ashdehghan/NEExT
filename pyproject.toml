@@ -88,16 +88,6 @@ dev = [
     "pre-commit>=3.0.0",
 ]
 
-# Documentation building
-docs = [
-    "sphinx>=7.0.0",
-    "sphinx-rtd-theme>=1.3.0",
-    "sphinx-autodoc-typehints>=1.25.0",
-    "sphinx-copybutton>=0.5.0",
-    "myst-parser>=2.0.0",
-    "nbsphinx>=0.9.0",
-]
-
 # For running experiments and notebooks
 experiments = [
     "jupyter>=1.0.0",
@@ -128,7 +118,7 @@ workbench-mcp = [
 
 # All extras combined
 all = [
-    "NEExT[advanced,dev,docs,experiments,workbench,gnn]",
+    "NEExT[advanced,dev,experiments,workbench,gnn]",
 ]
 
 [project.urls]

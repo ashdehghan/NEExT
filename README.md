@@ -316,12 +316,6 @@ pytest --cov=NEExT
 pytest tests/test_node_sampling.py
 ```
 
-### Building Documentation
-```bash
-cd docs
-make html
-```
-
 ### Code Style
 The project uses several tools for code quality:
 ```bash

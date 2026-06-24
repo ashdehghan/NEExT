@@ -67,9 +67,6 @@ htmlcov/
 coverage.xml
 *.cover
 
-# Documentation
-docs/_build/
-
 # Jupyter Notebook
 .ipynb_checkpoints
 
@@ -118,9 +115,6 @@ instance/
 
 # Scrapy stuff:
 .scrapy
-
-# Sphinx documentation
-docs/_build/
 
 # PyBuilder
 .pybuilder/
@@ -207,8 +201,6 @@ test.ipynb
 local
 mlruns
 mlartifacts
-# uv lock file (development only)
-uv.lock
 
 # Test and debug directory for optimization testing
 test_and_debug/

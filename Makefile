@@ -1,10 +1,4 @@
-.PHONY: docs clean neext-workbench release-check deploy publish-only
-
-docs:
-	cd docs && make html
-
-clean:
-	cd docs && make clean
+.PHONY: neext-workbench release-check deploy publish-only
 
 neext-workbench:
 	npm --prefix workbench-ui install
