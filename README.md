@@ -4,8 +4,7 @@
 
 **Network Embedding Experimentation Toolkit**
 
-An open-source Python framework for network science and graph machine learning —
-one coherent pipeline from graph data to research evidence.
+An open-source Python framework for network science and graph machine learning.
 
 [![PyPI version](https://img.shields.io/pypi/v/NEExT?color=1062a2)](https://pypi.org/project/NEExT/)
 [![Python versions](https://img.shields.io/pypi/pyversions/NEExT?color=1062a2)](https://pypi.org/project/NEExT/)
@@ -21,24 +20,25 @@ one coherent pipeline from graph data to research evidence.
 
 ## What is NEExT?
 
-NEExT turns graph-structured data into machine-learning-ready evidence through one
-transparent, reproducible pipeline:
+NEExT is an experimentation framework for graph and network data. It takes you from a
+collection of graphs to predictive and scientific results through one pipeline you can
+inspect and reproduce at every step:
 
 > **Graphs → Features → Embeddings → Evidence**
 
 Load graphs from CSV, pandas, or NetworkX into a unified `GraphCollection`; compute
-structural node features (or your own in plain Python); generate graph-level
-embeddings via Wasserstein optimal transport or graph neural networks; then train
-classifiers/regressors and extract feature importance. It runs on trusted Python
-libraries (NumPy, pandas, scikit-learn, XGBoost, NetworkX, iGraph) and works the same
-way in a script, a notebook, or the Workbench.
+structural node features (or write your own in plain Python); turn them into graph-level
+embeddings with Wasserstein/Sinkhorn optimal transport or a GNN; then train classifiers
+or regressors and read feature importance to see which structure drives the result. It's
+built on the standard scientific Python stack — NumPy, pandas, scikit-learn, XGBoost,
+NetworkX, iGraph — and works the same in a script, a notebook, or the Workbench.
 
 There are two ways to use NEExT:
 
 - **The Library** — a lightweight Python package for scripting and notebook workflows.
-- **The Workbench** — a local, desktop-style GUI over real NEExT workflows, with
+- **The Workbench** — a local, desktop-style GUI over the same NEExT workflows, with
   versioned artifacts and job tracking. It runs entirely on your machine (`127.0.0.1`,
-  no accounts, no uploads) and is **MCP-native**, so agents like Claude can drive it.
+  no accounts, no uploads) and is **MCP-native**, so an agent like Claude can drive it.
 
 ## Installation
 
@@ -83,9 +83,9 @@ API are covered in the [documentation](https://www.neext.app/docs).
 ## The Workbench
 
 The NEExT Workbench is a local, single-user FastAPI + React application that exposes
-real NEExT workflows — datasets, features, embeddings, models, and analysis — as a
-desktop-style UI. Everything stays on your machine, and it speaks MCP so you can drive
-it from agentic clients.
+the NEExT workflows — datasets, features, embeddings, models, and analysis — as a
+desktop-style UI. Everything stays on your machine, and it speaks MCP, so you can drive
+the whole pipeline from an MCP client.
 
 ```bash
 neext-workbench          # installed package
