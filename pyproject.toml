@@ -158,6 +158,20 @@ exclude = [
     "uv.lock",
     ".gitignore",
     "pyproject.toml.backup",
+    # Dev-only files and bloat: keep them out of the source distribution.
+    # (The wheel only packs the NEExT package + declared artifacts, so these
+    # never reach a wheel regardless.)
+    "/workbench-ui",
+    "/Makefile",
+    "/CLAUDE.md",
+    "/AGENTS.md",
+    "/experiments",
+    "/sandbox",
+    "/examples",
+    "/development-lifecycle",
+    "/benchmark_embeddings.py",
+    "/test.py",
+    "/test_networkx.py",
 ]
 
 [tool.hatch.build.targets.wheel]

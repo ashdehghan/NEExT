@@ -393,7 +393,6 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 ## 📧 Contact
 
 For questions and support:
-- Email: ash@anomalypoint.com
 - GitHub Issues: [NEExT Issues](https://github.com/ashdehghan/NEExT/issues)
 
 ## 🔄 Version History

@@ -203,11 +203,7 @@ test.ipynb
 #.idea/
 
 # Experiments directory (research experiments, kept locally)
-/experiments/*
-!/experiments/perf/
-!/experiments/perf/*.py
-!/experiments/perf/*.md
-/experiments/perf/results/
+/experiments/
 local
 mlruns
 mlartifacts
@@ -229,10 +225,8 @@ paper_experiments/
 # Development lifecycle dashboard: local-only planning artifact, never published.
 /development-lifecycle/
 
-# Sandbox directory: local scratch artifacts, except shareable Workbench mockups.
-sandbox/*
-!sandbox/workbench-mockups/
-!sandbox/workbench-mockups/**
+# Sandbox directory: local scratch artifacts, kept local only.
+/sandbox/
 
 # Personal experiments and research notes (kept locally)
 ash_experiments/
@@ -240,3 +234,10 @@ ash_experiments/
 # Demo / presentation material (kept locally)
 /demo/
 notes/
+
+# Internal agent operating-rule docs: kept local, not published.
+/CLAUDE.md
+/AGENTS.md
+
+# Reference/example scripts: kept local.
+/examples/
