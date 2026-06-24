@@ -133,7 +133,7 @@ all = [
 
 [project.urls]
 Homepage = "https://github.com/ashdehghan/NEExT"
-Documentation = "https://neext.readthedocs.io"
+Documentation = "https://www.neext.app/docs"
 Repository = "https://github.com/ashdehghan/NEExT"
 Issues = "https://github.com/ashdehghan/NEExT/issues"
 

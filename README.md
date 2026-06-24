@@ -4,7 +4,7 @@ NEExT is a powerful Python framework for graph analysis, embedding computation, 
 
 ## 📚 Documentation
 
-Detailed documentation is available in the `docs` directory. Build it locally or visit the online documentation at [NEExT Documentation](https://neext.readthedocs.io/en/latest/).
+Full documentation — guides, API reference, and the NEExT Workbench — is available at **[neext.app/docs](https://www.neext.app/docs)**.
 
 ## 🌟 Features
 
@@ -22,7 +22,10 @@ Detailed documentation is available in the `docs` directory. Build it locally or
   - Eigenvector Centrality
   - Clustering Coefficient
   - Local Efficiency
-  - LSME (Local Structural Motif Embeddings)
+  - LSME (Local Spectral Method Embedding)
+  - Load Centrality
+  - Basic Expansion
+  - βstar (community-aware metric)
 
 - **Graph Embeddings**
   - Approximate Wasserstein
