@@ -2,7 +2,7 @@
 # Add any imports or code that should be available when someone imports NEExT
 
 # Version of the package
-__version__ = "0.3.5"
+__version__ = "0.3.6"
 
 # Make the class directly available when someone does NEExT()
 from .framework import NEExT
