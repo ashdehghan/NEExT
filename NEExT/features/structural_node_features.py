@@ -557,9 +557,13 @@ class StructuralNodeFeatures:
 
     def _compute_betastar(self, graph) -> pd.DataFrame:
         """
-        Betastar community aware node feature
+        Betastar community-aware node feature.
 
-        https://arxiv.org/pdf/2311.04730
+        Based on: Kamiński, Prałat, Théberge, and Zając,
+        "Predicting Properties of Nodes via Community-Aware Features,"
+        Social Network Analysis and Mining 14(1), 2024.
+        arXiv:2311.04730 (https://arxiv.org/abs/2311.04730),
+        doi:10.1007/s13278-024-01281-2
         """
         n_hops = self.config.feature_vector_length
         G = graph.G

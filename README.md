@@ -103,7 +103,53 @@ The full Workbench tour, including MCP client setup, lives in the
 - 🌐 **Website** — [neext.app](https://www.neext.app)
 - 🐛 **Issues & support** — [github.com/ashdehghan/NEExT/issues](https://github.com/ashdehghan/NEExT/issues)
 
+## Citing NEExT
+
+If you use NEExT in your research, please cite it. The primary, open-access reference is
+the arXiv paper:
+
+```bibtex
+@article{dehghan2025neext,
+  title   = {Network Embedding Exploration Tool (NEExT)},
+  author  = {Dehghan, Ashkan and Pra{\l}at, Pawe{\l} and Th{\'e}berge, Fran{\c{c}}ois},
+  journal = {arXiv preprint arXiv:2503.15853},
+  year    = {2025},
+  url     = {https://arxiv.org/abs/2503.15853}
+}
+```
+
+A peer-reviewed version appeared at the 19th Workshop on Algorithms and Models for the
+Web Graph (WAW 2024):
+
+```bibtex
+@inproceedings{dehghan2024neext,
+  title     = {Network Embedding Exploration Tool (NEExT)},
+  author    = {Dehghan, Ashkan and Pra{\l}at, Pawe{\l} and Th{\'e}berge, Fran{\c{c}}ois},
+  booktitle = {Modelling and Mining Networks (WAW 2024)},
+  series    = {Lecture Notes in Computer Science},
+  pages     = {65--79},
+  year      = {2024},
+  publisher = {Springer},
+  doi       = {10.1007/978-3-031-59205-8_5}
+}
+```
+
+- 📄 arXiv (open access): [arxiv.org/abs/2503.15853](https://arxiv.org/abs/2503.15853)
+- 📄 Springer (peer-reviewed): [doi.org/10.1007/978-3-031-59205-8_5](https://doi.org/10.1007/978-3-031-59205-8_5)
+
+## Acknowledgements
+
+NEExT is created, maintained, and owned by
+[Ashkan Dehghan](mailto:ash.dehghan@gmail.com). The NEExT paper is co-authored with
+Paweł Prałat and François Théberge. Thanks to the contributors who have helped build
+NEExT, including Kamil Kulesza and Lourens Touwen.
+
+The community-aware βstar feature is based on Kamiński, Prałat, Théberge, and Zając,
+*"Predicting Properties of Nodes via Community-Aware Features"*
+([arXiv:2311.04730](https://arxiv.org/abs/2311.04730),
+[doi:10.1007/s13278-024-01281-2](https://doi.org/10.1007/s13278-024-01281-2)).
+
 ## License
 
 NEExT is released under the [MIT License](LICENSE). Created and maintained by
-[Ash Dehghan](mailto:ash.dehghan@gmail.com).
+[Ashkan Dehghan](mailto:ash.dehghan@gmail.com).

@@ -126,6 +126,7 @@ Homepage = "https://github.com/ashdehghan/NEExT"
 Documentation = "https://www.neext.app/docs"
 Repository = "https://github.com/ashdehghan/NEExT"
 Issues = "https://github.com/ashdehghan/NEExT/issues"
+Paper = "https://arxiv.org/abs/2503.15853"
 
 [project.scripts]
 neext-workbench = "NEExT.workbench.cli:main"

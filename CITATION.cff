@@ -1,0 +1,34 @@
+cff-version: 1.2.0
+message: "If you use NEExT in your research, please cite it using the metadata below."
+title: "NEExT: Network Embedding Experimentation Toolkit"
+type: software
+authors:
+  - family-names: Dehghan
+    given-names: Ashkan
+license: MIT
+repository-code: "https://github.com/ashdehghan/NEExT"
+url: "https://www.neext.app"
+keywords:
+  - graph machine learning
+  - network science
+  - graph embeddings
+  - structural node features
+preferred-citation:
+  type: article
+  title: "Network Embedding Exploration Tool (NEExT)"
+  authors:
+    - family-names: Dehghan
+      given-names: Ashkan
+    - family-names: Prałat
+      given-names: Paweł
+    - family-names: Théberge
+      given-names: François
+  year: 2025
+  url: "https://arxiv.org/abs/2503.15853"
+  identifiers:
+    - type: other
+      value: "arXiv:2503.15853"
+      description: "arXiv preprint (open access, CC BY 4.0)"
+    - type: doi
+      value: "10.1007/978-3-031-59205-8_5"
+      description: "Peer-reviewed version, WAW 2024 (Springer), pp. 65-79"
