@@ -103,6 +103,14 @@ The full Workbench tour, including MCP client setup, lives in the
 - 🌐 **Website** — [neext.app](https://www.neext.app)
 - 🐛 **Issues & support** — [github.com/ashdehghan/NEExT/issues](https://github.com/ashdehghan/NEExT/issues)
 
+## Supporting NEExT
+
+NEExT is free and open source, and stays that way. If it's useful to your work, the best
+support is free: star the repo, [cite the paper](#citing-neext), and tell colleagues. You
+can also [contribute](CONTRIBUTING.md) or help fund maintenance — see
+[neext.app/support](https://www.neext.app/support). Universities and organizations can
+also invite a talk or workshop there.
+
 ## Citing NEExT
 
 If you use NEExT in your research, please cite it. The primary, open-access reference is
@@ -140,7 +148,7 @@ Web Graph (WAW 2024):
 ## Acknowledgements
 
 NEExT is created, maintained, and owned by
-[Ashkan Dehghan](mailto:ash.dehghan@gmail.com). The NEExT paper is co-authored with
+[Ash Dehghan](mailto:ash.dehghan@gmail.com). The NEExT paper is co-authored with
 Paweł Prałat and François Théberge. Thanks to the contributors who have helped build
 NEExT, including Kamil Kulesza and Lourens Touwen.
 
@@ -152,4 +160,4 @@ The community-aware βstar feature is based on Kamiński, Prałat, Théberge, an
 ## License
 
 NEExT is released under the [MIT License](LICENSE). Created and maintained by
-[Ashkan Dehghan](mailto:ash.dehghan@gmail.com).
+[Ash Dehghan](mailto:ash.dehghan@gmail.com).

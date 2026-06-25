@@ -4,7 +4,7 @@ title: "NEExT: Network Embedding Experimentation Toolkit"
 type: software
 authors:
   - family-names: Dehghan
-    given-names: Ashkan
+    given-names: Ash
 license: MIT
 repository-code: "https://github.com/ashdehghan/NEExT"
 url: "https://www.neext.app"
