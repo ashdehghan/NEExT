@@ -175,11 +175,13 @@ class WorkbenchMcpService:
         name: str,
         tables: dict[str, Any],
         description: str = "",
+        source_graph_shape: str = "graph_collection",
         params: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         request = DatasetIntakeRequest(
             name=name,
             description=description,
+            source_graph_shape=source_graph_shape,
             tables=self._dataset_intake_tables(tables),
             params=DatasetPrepareParams.model_validate(params or {}),
         )
@@ -188,7 +190,12 @@ class WorkbenchMcpService:
             "tool_call",
             "Validated Dataset Intake tables",
             tool_name="neext_validate_dataset_intake",
-            details={"project_id": project_id, "valid": result.valid, "tables": sorted(tables)},
+            details={
+                "project_id": project_id,
+                "valid": result.valid,
+                "tables": sorted(tables),
+                "source_graph_shape": source_graph_shape,
+            },
         )
         return self._dump(result)
 
@@ -197,11 +204,13 @@ class WorkbenchMcpService:
         project_id: str,
         name: str,
         description: str = "",
+        source_graph_shape: str = "graph_collection",
         params: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         request = DatasetIntakeSessionCreateRequest(
             name=name,
             description=description,
+            source_graph_shape=source_graph_shape,
             params=DatasetPrepareParams.model_validate(params or {}),
         )
         result = self.store.create_dataset_intake_session(project_id, request)
@@ -209,7 +218,7 @@ class WorkbenchMcpService:
             "tool_call",
             f'Created Dataset Intake session "{result.name}"',
             tool_name="neext_create_dataset_intake_session",
-            details={"project_id": project_id, "session_id": result.id},
+            details={"project_id": project_id, "session_id": result.id, "source_graph_shape": source_graph_shape},
         )
         return self._dump(result)
 
@@ -387,9 +396,7 @@ class WorkbenchMcpService:
     def compute_model_feature_importance(
         self, project_id: str, model_id: str, algorithm: str = "supervised_fast", n_iterations: int = 3
     ) -> dict[str, Any]:
-        job = self.store.run_model_feature_importance(
-            project_id, model_id, {"algorithm": algorithm, "n_iterations": n_iterations}
-        )
+        job = self.store.run_model_feature_importance(project_id, model_id, {"algorithm": algorithm, "n_iterations": n_iterations})
         self.store.record_mcp_activity(
             "tool_call",
             "Started feature importance for model",
@@ -503,10 +510,7 @@ class WorkbenchMcpService:
         """KMeans-cluster a completed embedding; return assignments + label overlap."""
         analysis = self.store.analyze_embedding(project_id, embedding_id, cluster_k=int(k))
         pca = analysis.pca
-        assignments = [
-            {"graph_id": point.graph_id, "cluster": point.cluster, "graph_label": point.graph_label}
-            for point in pca.points
-        ]
+        assignments = [{"graph_id": point.graph_id, "cluster": point.cluster, "graph_label": point.graph_label} for point in pca.points]
         return {
             "embedding_id": embedding_id,
             "available": pca.available,

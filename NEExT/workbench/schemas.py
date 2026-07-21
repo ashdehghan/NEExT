@@ -305,6 +305,7 @@ class DatasetIntakeTablePayload(BaseModel):
 class DatasetIntakeRequest(BaseModel):
     name: str = Field(min_length=1, max_length=120)
     description: str = ""
+    source_graph_shape: Literal["graph_collection", "single_graph"] = "graph_collection"
     tables: dict[str, DatasetIntakeTablePayload] = Field(default_factory=dict)
     params: DatasetPrepareParams = Field(default_factory=DatasetPrepareParams)
 
@@ -312,6 +313,7 @@ class DatasetIntakeRequest(BaseModel):
 class DatasetIntakeSessionCreateRequest(BaseModel):
     name: str = Field(min_length=1, max_length=120)
     description: str = ""
+    source_graph_shape: Literal["graph_collection", "single_graph"] = "graph_collection"
     params: DatasetPrepareParams = Field(default_factory=DatasetPrepareParams)
 
 
@@ -340,6 +342,7 @@ class DatasetIntakeSessionResponse(BaseModel):
     project_id: str
     name: str
     description: str = ""
+    source_graph_shape: Literal["graph_collection", "single_graph"] = "graph_collection"
     created_at: str
     updated_at: str
     expires_at: str

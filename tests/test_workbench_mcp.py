@@ -677,6 +677,88 @@ def test_mcp_service_creates_dataset_from_intake_session():
         assert prepared.prepared_stats.graph_count == 1
 
 
+def test_mcp_service_creates_single_graph_egonet_dataset_from_intake_session():
+    pytest.importorskip("pyarrow")
+
+    from NEExT.workbench.mcp_service import WorkbenchMcpService
+    from NEExT.workbench.storage import WorkbenchStore
+
+    with TemporaryDirectory() as tmpdir:
+        store = WorkbenchStore(Path(tmpdir))
+        service = WorkbenchMcpService(store)
+        project = service.create_project("Agent Single Graph", "mcp")
+        project_id = project["id"]
+
+        session = service.create_dataset_intake_session(
+            project_id,
+            "Agent Graph",
+            "One graph for egonets",
+            source_graph_shape="single_graph",
+            params={"k_hop": 1, "node_selection": "all_nodes", "target_node_attribute": "role"},
+        )
+        assert session["source_graph_shape"] == "single_graph"
+        session_id = session["id"]
+
+        with pytest.raises(ValueError, match="Unsupported dataset intake table"):
+            service.append_dataset_intake_table(
+                project_id,
+                session_id,
+                "node_graph_mapping",
+                {"format": "records", "records": [{"node_id": 1, "graph_id": "g1"}]},
+                replace=True,
+            )
+
+        service.append_dataset_intake_table(
+            project_id,
+            session_id,
+            "edges",
+            {
+                "format": "records",
+                "records": [
+                    {"src_node_id": 1, "dest_node_id": 2},
+                    {"src_node_id": 2, "dest_node_id": 3},
+                    {"src_node_id": 3, "dest_node_id": 4},
+                ],
+            },
+            replace=True,
+        )
+        service.append_dataset_intake_table(
+            project_id,
+            session_id,
+            "nodes",
+            {
+                "format": "records",
+                "records": [
+                    {"node_id": 1, "role": "left"},
+                    {"node_id": 2, "role": "right"},
+                    {"node_id": 3, "role": "left"},
+                    {"node_id": 4, "role": "right"},
+                ],
+            },
+            replace=True,
+        )
+
+        validation = service.validate_dataset_intake_session(project_id, session_id)
+        assert validation["validation"]["valid"] is True
+        assert validation["validation"]["stats"]["graph_count"] == 1
+        assert validation["validation"]["stats"]["node_count"] == 4
+
+        created = service.create_dataset_from_intake(project_id, session_id)
+        assert created["source_type"] == "uploaded_neext_tables"
+        assert created["source_graph_shape"] == "single_graph"
+        assert created["operation"]["operation_id"] == "neext.prepare_single_graph_egonets"
+        assert created["operation"]["params"]["k_hop"] == 1
+        assert created["operation"]["params"]["target_node_attribute"] == "role"
+
+        job = store.run_dataset_preparation(project_id, created["id"])
+        completed = wait_for_store_job(store, project_id, job.id)
+        assert completed["status"] == "completed"
+        prepared = store.read_dataset(project_id, created["id"])
+        assert prepared.status == "completed"
+        assert prepared.prepared_stats.graph_count == 4
+        assert prepared.prepared_stats.has_graph_labels is True
+
+
 def test_mcp_service_dataset_intake_validation_errors_and_append_semantics():
     from NEExT.workbench.mcp_service import WorkbenchMcpService
     from NEExT.workbench.storage import WorkbenchStore

@@ -76,6 +76,7 @@ TOOL_SCHEMAS: dict[str, dict[str, Any]] = {
             "project_id": {"type": "string"},
             "name": {"type": "string", "minLength": 1, "maxLength": 120},
             "description": {"type": "string", "default": ""},
+            "source_graph_shape": {"type": "string", "enum": ["graph_collection", "single_graph"], "default": "graph_collection"},
             "tables": {"type": "object", "additionalProperties": DATASET_INTAKE_TABLE_PAYLOAD_SCHEMA},
             "params": {"type": "object", "additionalProperties": True, "default": {}},
         },
@@ -86,6 +87,7 @@ TOOL_SCHEMAS: dict[str, dict[str, Any]] = {
             "project_id": {"type": "string"},
             "name": {"type": "string", "minLength": 1, "maxLength": 120},
             "description": {"type": "string", "default": ""},
+            "source_graph_shape": {"type": "string", "enum": ["graph_collection", "single_graph"], "default": "graph_collection"},
             "params": {"type": "object", "additionalProperties": True, "default": {}},
         },
         ["project_id", "name"],
@@ -360,18 +362,23 @@ TOOL_DESCRIPTIONS = {
     "neext_configure_dataset": "Add a Dataset Library catalog entry to the project as a Draft Dataset artifact.",
     "neext_validate_dataset_intake": (
         "Validate NEExT Dataset Intake tables without creating an artifact. tables maps table names to "
-        '{"format": "records"|"csv", "records": [...] | "csv": "..."}. Required tables: edges '
-        "(src_node_id, dest_node_id) and node_graph_mapping (node_id, graph_id); node IDs must be integer-compatible. "
+        '{"format": "records"|"csv", "records": [...] | "csv": "..."}. With source_graph_shape="graph_collection" '
+        "(default), required tables are edges (src_node_id, dest_node_id) and node_graph_mapping (node_id, graph_id). "
+        'With source_graph_shape="single_graph", required table is edges plus an optional nodes table (node_id + '
+        "attribute columns); params may carry egonet settings (k_hop, node_selection, sample_fraction, random_seed, "
+        "source_node_ids, target_node_attribute). Node IDs must be integer-compatible. "
         "See the neext://docs/dataset-intake resource for the full contract."
     ),
     "neext_create_dataset_intake_session": (
         "Create a temporary Dataset Intake session for agent-supplied NEExT table data. Step 1 of the session flow: "
-        "create session, append tables, validate session, then create the dataset."
+        'create session, append tables, validate session, then create the dataset. Set source_graph_shape="single_graph" '
+        "with egonet params to import one graph that preparation breaks into a k-hop egonet graph collection."
     ),
     "neext_append_dataset_intake_table": (
         "Append or replace one NEExT table in a Dataset Intake session. table is "
         '{"format": "records"|"csv", "records": [...] | "csv": "..."}; table_name is one of edges, node_graph_mapping, '
-        "graph_labels, node_features, edge_features. Call once per table before validating."
+        "graph_labels, node_features, edge_features for graph-collection sessions, or edges, nodes for single-graph "
+        "sessions. Call once per table before validating."
     ),
     "neext_validate_dataset_intake_session": "Validate the current tables in a Dataset Intake session without creating an artifact. Run before create.",
     "neext_create_dataset_from_intake": (
@@ -677,12 +684,14 @@ def _tool_handlers(service: WorkbenchMcpService) -> dict[str, Callable[[dict[str
             args["name"],
             args["tables"],
             args.get("description", ""),
+            args.get("source_graph_shape", "graph_collection"),
             args.get("params"),
         ),
         "neext_create_dataset_intake_session": lambda args: service.create_dataset_intake_session(
             args["project_id"],
             args["name"],
             args.get("description", ""),
+            args.get("source_graph_shape", "graph_collection"),
             args.get("params"),
         ),
         "neext_append_dataset_intake_table": lambda args: service.append_dataset_intake_table(

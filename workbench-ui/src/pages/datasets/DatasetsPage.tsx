@@ -145,14 +145,19 @@ const DATASET_TABLE_LABELS: Record<DatasetPreviewTable, string> = {
 
 const DATASET_INTAKE_TABLES = ["edges", "node_graph_mapping", "graph_labels", "node_features", "edge_features"] as const;
 const REQUIRED_DATASET_INTAKE_TABLES = new Set<string>(["edges", "node_graph_mapping"]);
+const DATASET_SINGLE_GRAPH_INTAKE_TABLES = ["edges", "nodes"] as const;
+const REQUIRED_SINGLE_GRAPH_INTAKE_TABLES = new Set<string>(["edges"]);
 type DatasetIntakeTableName = (typeof DATASET_INTAKE_TABLES)[number];
+type DatasetImportTableName = DatasetIntakeTableName | "nodes";
+type DatasetImportMode = "graph_collection" | "single_graph";
 
-const DATASET_INTAKE_LABELS: Record<DatasetIntakeTableName, string> = {
+const DATASET_INTAKE_LABELS: Record<DatasetImportTableName, string> = {
   edges: "edges.csv",
   node_graph_mapping: "node_graph_mapping.csv",
   graph_labels: "graph_labels.csv",
   node_features: "node_features.csv",
-  edge_features: "edge_features.csv"
+  edge_features: "edge_features.csv",
+  nodes: "nodes.csv"
 };
 
 const GRAPH_LABEL_COLORS = [
@@ -164,11 +169,11 @@ const GRAPH_LABEL_COLORS = [
   { background: "#eaf7f6", borderColor: "#7fc7c1", color: "#1e6d67" }
 ];
 
-function intakeTableNameFromPath(path: string): DatasetIntakeTableName | null {
+function intakeTableNameFromPath(path: string, allowedTables: readonly DatasetImportTableName[]): DatasetImportTableName | null {
   const fileName = path.split(/[\\/]/).pop()?.trim().toLowerCase() || "";
   if (!fileName.endsWith(".csv")) return null;
   const stem = fileName.replace(/\.csv$/, "");
-  return DATASET_INTAKE_TABLES.includes(stem as DatasetIntakeTableName) ? (stem as DatasetIntakeTableName) : null;
+  return allowedTables.includes(stem as DatasetImportTableName) ? (stem as DatasetImportTableName) : null;
 }
 
 function graphLabelStyle(label: unknown): CSSProperties {
@@ -197,18 +202,40 @@ export function DatasetImportView({ activeProjectId, onCreated }: DatasetImportV
   const queryClient = useQueryClient();
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
+  const [importMode, setImportMode] = useState<DatasetImportMode>("graph_collection");
   const [graphType, setGraphType] = useState<"networkx" | "igraph">("networkx");
   const [filterLargestComponent, setFilterLargestComponent] = useState(true);
-  const [tables, setTables] = useState<Partial<Record<DatasetIntakeTableName, string>>>({});
+  const [kHop, setKHop] = useState(1);
+  const [nodeSelection, setNodeSelection] = useState<"all_nodes" | "sample_fraction" | "specific_node_ids">("all_nodes");
+  const [sampleFraction, setSampleFraction] = useState(1);
+  const [randomSeed, setRandomSeed] = useState(13);
+  const [sourceNodeIdsText, setSourceNodeIdsText] = useState("");
+  const [targetNodeAttribute, setTargetNodeAttribute] = useState("");
+  const [tables, setTables] = useState<Partial<Record<DatasetImportTableName, string>>>({});
   const [fileError, setFileError] = useState("");
   const [validation, setValidation] = useState<DatasetIntakeValidationResponse | null>(null);
 
-  const missingRequiredTables = DATASET_INTAKE_TABLES.filter((table) => REQUIRED_DATASET_INTAKE_TABLES.has(table) && !tables[table]);
+  const isSingleGraph = importMode === "single_graph";
+  const activeTables = isSingleGraph ? DATASET_SINGLE_GRAPH_INTAKE_TABLES : DATASET_INTAKE_TABLES;
+  const requiredTables = isSingleGraph ? REQUIRED_SINGLE_GRAPH_INTAKE_TABLES : REQUIRED_DATASET_INTAKE_TABLES;
+  const missingRequiredTables = activeTables.filter((table) => requiredTables.has(table) && !tables[table]);
   const hasRequiredTables = missingRequiredTables.length === 0;
+  const sourceNodeIds = parseSourceNodeIds(sourceNodeIdsText);
+
+  const nodeAttributeColumns = useMemo(() => {
+    const csv = tables.nodes;
+    if (!csv) return [] as string[];
+    const firstLine = csv.split(/\r?\n/, 1)[0] || "";
+    return firstLine
+      .split(",")
+      .map((column) => column.trim().replace(/^"|"$/g, ""))
+      .filter((column) => column && column !== "node_id");
+  }, [tables]);
 
   const buildPayload = (): DatasetIntakePayload => ({
     name: name.trim(),
     description,
+    source_graph_shape: importMode,
     tables: Object.fromEntries(
       Object.entries(tables).map(([table, csv]) => [
         table,
@@ -218,10 +245,21 @@ export function DatasetImportView({ activeProjectId, onCreated }: DatasetImportV
         }
       ])
     ) as DatasetIntakePayload["tables"],
-    params: {
-      graph_type: graphType,
-      filter_largest_component: filterLargestComponent
-    }
+    params: isSingleGraph
+      ? {
+          graph_type: "networkx",
+          filter_largest_component: false,
+          k_hop: kHop,
+          node_selection: nodeSelection,
+          sample_fraction: nodeSelection === "sample_fraction" ? sampleFraction : 1,
+          random_seed: randomSeed,
+          source_node_ids: nodeSelection === "specific_node_ids" ? sourceNodeIds : [],
+          target_node_attribute: targetNodeAttribute || null
+        }
+      : {
+          graph_type: graphType,
+          filter_largest_component: filterLargestComponent
+        }
   });
 
   const validateImport = useMutation({
@@ -245,19 +283,20 @@ export function DatasetImportView({ activeProjectId, onCreated }: DatasetImportV
   const parseFiles = async (files: FileList | null) => {
     resetValidation();
     setFileError("");
+    setTargetNodeAttribute("");
     if (!files?.length) {
       setTables({});
       return;
     }
 
-    const nextTables: Partial<Record<DatasetIntakeTableName, string>> = {};
+    const nextTables: Partial<Record<DatasetImportTableName, string>> = {};
     const rejected: string[] = [];
     for (const file of Array.from(files)) {
       if (file.name.toLowerCase().endsWith(".zip")) {
         const zip = await JSZip.loadAsync(file);
         for (const [path, entry] of Object.entries(zip.files)) {
           if (entry.dir) continue;
-          const tableName = intakeTableNameFromPath(path);
+          const tableName = intakeTableNameFromPath(path, activeTables);
           if (!tableName) {
             if (path.toLowerCase().endsWith(".csv")) rejected.push(path);
             continue;
@@ -267,7 +306,7 @@ export function DatasetImportView({ activeProjectId, onCreated }: DatasetImportV
         continue;
       }
 
-      const tableName = intakeTableNameFromPath(file.name);
+      const tableName = intakeTableNameFromPath(file.name, activeTables);
       if (!tableName) {
         rejected.push(file.name);
         continue;
@@ -283,7 +322,14 @@ export function DatasetImportView({ activeProjectId, onCreated }: DatasetImportV
     }
   };
 
-  const canValidate = Boolean(activeProjectId && name.trim() && hasRequiredTables && !validateImport.isPending && !createDataset.isPending);
+  const canValidate = Boolean(
+    activeProjectId &&
+      name.trim() &&
+      hasRequiredTables &&
+      (!isSingleGraph || nodeSelection !== "specific_node_ids" || sourceNodeIds.length > 0) &&
+      !validateImport.isPending &&
+      !createDataset.isPending
+  );
   const canCreate = Boolean(canValidate && validation?.valid && !createDataset.isPending);
 
   return (
@@ -319,18 +365,36 @@ export function DatasetImportView({ activeProjectId, onCreated }: DatasetImportV
             />
           </label>
           <label className="field">
-            <span>Graph Backend</span>
+            <span>Import Mode</span>
             <select
-              value={graphType}
+              value={importMode}
               onChange={(event) => {
-                setGraphType(event.target.value as "networkx" | "igraph");
+                setImportMode(event.target.value as DatasetImportMode);
+                setTables({});
+                setFileError("");
+                setTargetNodeAttribute("");
                 resetValidation();
               }}
             >
-              <option value="networkx">networkx</option>
-              <option value="igraph">igraph</option>
+              <option value="graph_collection">Graph collection</option>
+              <option value="single_graph">Single graph</option>
             </select>
           </label>
+          {!isSingleGraph ? (
+            <label className="field">
+              <span>Graph Backend</span>
+              <select
+                value={graphType}
+                onChange={(event) => {
+                  setGraphType(event.target.value as "networkx" | "igraph");
+                  resetValidation();
+                }}
+              >
+                <option value="networkx">networkx</option>
+                <option value="igraph">igraph</option>
+              </select>
+            </label>
+          ) : null}
           <label className="field field-wide">
             <span>Description</span>
             <textarea
@@ -357,32 +421,130 @@ export function DatasetImportView({ activeProjectId, onCreated }: DatasetImportV
               }}
             />
           </label>
-          <label className="checkbox-field">
-            <input
-              type="checkbox"
-              checked={filterLargestComponent}
-              onChange={(event) => {
-                setFilterLargestComponent(event.target.checked);
-                resetValidation();
-              }}
-            />
-            <span>Filter Largest Component</span>
-          </label>
-          <label className="checkbox-field">
-            <input type="checkbox" checked readOnly />
-            <span>Reindex Nodes</span>
-          </label>
+          {isSingleGraph ? (
+            <>
+              <label className="field">
+                <span>K-Hop</span>
+                <input
+                  type="number"
+                  min={0}
+                  max={10}
+                  value={kHop}
+                  onChange={(event) => {
+                    setKHop(Number(event.target.value));
+                    resetValidation();
+                  }}
+                />
+              </label>
+              <label className="field">
+                <span>Node Selection</span>
+                <select
+                  value={nodeSelection}
+                  onChange={(event) => {
+                    setNodeSelection(event.target.value as "all_nodes" | "sample_fraction" | "specific_node_ids");
+                    resetValidation();
+                  }}
+                >
+                  <option value="all_nodes">All nodes</option>
+                  <option value="sample_fraction">Sample fraction</option>
+                  <option value="specific_node_ids">Specific node IDs</option>
+                </select>
+              </label>
+              <label className="field">
+                <span>Target Attribute</span>
+                <select
+                  value={targetNodeAttribute}
+                  onChange={(event) => {
+                    setTargetNodeAttribute(event.target.value);
+                    resetValidation();
+                  }}
+                >
+                  <option value="">None</option>
+                  {nodeAttributeColumns.map((column) => (
+                    <option key={column} value={column}>
+                      {column}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              {nodeSelection === "sample_fraction" ? (
+                <>
+                  <label className="field">
+                    <span>Sample Fraction</span>
+                    <input
+                      type="number"
+                      min={0.01}
+                      max={1}
+                      step={0.01}
+                      value={sampleFraction}
+                      onChange={(event) => {
+                        setSampleFraction(Number(event.target.value));
+                        resetValidation();
+                      }}
+                    />
+                  </label>
+                  <label className="field">
+                    <span>Random Seed</span>
+                    <input
+                      type="number"
+                      min={0}
+                      value={randomSeed}
+                      onChange={(event) => {
+                        setRandomSeed(Number(event.target.value));
+                        resetValidation();
+                      }}
+                    />
+                  </label>
+                </>
+              ) : null}
+              {nodeSelection === "specific_node_ids" ? (
+                <label className="field field-wide">
+                  <span>Source Node IDs</span>
+                  <textarea
+                    value={sourceNodeIdsText}
+                    rows={4}
+                    onChange={(event) => {
+                      setSourceNodeIdsText(event.target.value);
+                      resetValidation();
+                    }}
+                  />
+                </label>
+              ) : null}
+            </>
+          ) : (
+            <>
+              <label className="checkbox-field">
+                <input
+                  type="checkbox"
+                  checked={filterLargestComponent}
+                  onChange={(event) => {
+                    setFilterLargestComponent(event.target.checked);
+                    resetValidation();
+                  }}
+                />
+                <span>Filter Largest Component</span>
+              </label>
+              <label className="checkbox-field">
+                <input type="checkbox" checked readOnly />
+                <span>Reindex Nodes</span>
+              </label>
+            </>
+          )}
         </div>
 
         <section className="dataset-intake-contract">
           <header>
             <strong>NEExT Tables</strong>
-            <span className="muted">Node IDs must be integer-compatible; graph labels use graph_label.</span>
+            <span className="muted">
+              {isSingleGraph
+                ? "All nodes belong to one graph; extra nodes.csv columns become node attributes; isolated nodes require nodes.csv."
+                : "Node IDs must be integer-compatible; graph labels use graph_label."}
+            </span>
           </header>
           <div className="dataset-intake-table-list">
-            {DATASET_INTAKE_TABLES.map((table) => {
+            {activeTables.map((table) => {
               const loaded = Boolean(tables[table]);
-              const required = REQUIRED_DATASET_INTAKE_TABLES.has(table);
+              const required = requiredTables.has(table);
               return (
                 <div className="dataset-intake-table-row" key={table}>
                   <span className="mono">{DATASET_INTAKE_LABELS[table]}</span>

@@ -767,6 +767,312 @@ def test_dataset_intake_validates_creates_and_prepares_uploaded_neext_tables():
         assert "integer-compatible node IDs" in invalid.json()["errors"][0]["message"]
 
 
+SINGLE_GRAPH_INTAKE_NODES_CSV = (
+    "node_id,role,score\n"
+    "101,left,1.0\n"
+    "102,right,2.0\n"
+    "103,left,3.0\n"
+    "104,right,4.0\n"
+    "105,left,5.0\n"
+    "106,right,6.0\n"
+    "107,left,7.0\n"
+    "108,right,8.0\n"
+)
+SINGLE_GRAPH_INTAKE_EDGES_CSV = "src_node_id,dest_node_id\n" "101,102\n" "102,103\n" "103,104\n" "104,105\n" "105,106\n" "106,107\n" "107,108\n"
+
+
+def single_graph_intake_payload(**overrides) -> dict:
+    payload = {
+        "name": "Imported Graph",
+        "description": "Single graph import",
+        "source_graph_shape": "single_graph",
+        "tables": {
+            "nodes": {"format": "csv", "csv": SINGLE_GRAPH_INTAKE_NODES_CSV},
+            "edges": {"format": "csv", "csv": SINGLE_GRAPH_INTAKE_EDGES_CSV},
+        },
+        "params": {
+            "k_hop": 1,
+            "node_selection": "all_nodes",
+            "target_node_attribute": "role",
+        },
+    }
+    payload.update(overrides)
+    return payload
+
+
+def test_single_graph_dataset_intake_validates_creates_prepares_and_feeds_downstream():
+    pytest.importorskip("fastapi")
+    pytest.importorskip("pyarrow")
+
+    import pandas as pd
+    from fastapi.testclient import TestClient
+
+    from NEExT.workbench.app import create_app
+
+    payload = single_graph_intake_payload()
+
+    with TemporaryDirectory() as tmpdir:
+        client = TestClient(create_app(tmpdir))
+        project = client.post("/api/projects", json={"name": "Single Graph Intake Project"}).json()
+        project_id = project["id"]
+
+        validation = client.post(f"/api/projects/{project_id}/dataset-intake/validate", json=payload)
+        assert validation.status_code == 200
+        validation_payload = validation.json()
+        assert validation_payload["valid"] is True
+        assert validation_payload["errors"] == []
+        assert validation_payload["stats"] == {
+            "graph_count": 1,
+            "node_count": 8,
+            "edge_count": 7,
+            "has_graph_labels": False,
+            "has_node_features": True,
+            "has_edge_features": False,
+        }
+
+        created = client.post(f"/api/projects/{project_id}/dataset-intake/create", json=payload)
+        assert created.status_code == 200
+        dataset = created.json()
+        dataset_id = dataset["id"]
+        assert_uuid4(dataset_id)
+        assert dataset["status"] == "planned"
+        assert dataset["source_type"] == "uploaded_neext_tables"
+        assert dataset["source_catalog_id"] == "dataset-intake"
+        assert dataset["source_graph_shape"] == "single_graph"
+        assert dataset["operation"] == {
+            "operation_id": "neext.prepare_single_graph_egonets",
+            "operation_version": "1",
+            "params": {
+                "graph_type": "networkx",
+                "reindex_nodes": True,
+                "filter_largest_component": False,
+                "k_hop": 1,
+                "node_selection": "all_nodes",
+                "sample_fraction": 1.0,
+                "random_seed": 13,
+                "source_node_ids": [],
+                "target_node_attribute": "role",
+            },
+        }
+        assert dataset["raw_data_files"]["nodes"] == "source/nodes.parquet"
+        assert dataset["raw_data_files"]["edges"] == "source/edges.parquet"
+        assert "path" not in json.dumps(dataset)
+
+        artifact_path = Path(tmpdir) / "projects" / project_id / "artifacts" / "datasets" / dataset_id
+        assert (artifact_path / "source" / "nodes.parquet").is_file()
+
+        run = client.post(f"/api/projects/{project_id}/datasets/{dataset_id}/run")
+        assert run.status_code == 200
+        job = wait_for_job(client, project_id, run.json()["id"])
+        assert job["status"] == "completed"
+        assert "Computing 1-hop egonets for Imported Graph" in job["log"]
+
+        dataset = client.get(f"/api/projects/{project_id}/datasets/{dataset_id}").json()
+        assert dataset["status"] == "completed"
+        assert dataset["prepared_stats"]["graph_count"] == 8
+        assert dataset["prepared_stats"]["has_graph_labels"] is True
+
+        graph_labels = pd.read_parquet(artifact_path / "prepared" / "graph_labels.parquet")
+        node_features = pd.read_parquet(artifact_path / "prepared" / "node_features.parquet")
+        node_mapping = pd.read_parquet(artifact_path / "mappings" / "node_mapping.parquet")
+        graph_mapping = pd.read_parquet(artifact_path / "mappings" / "graph_mapping.parquet")
+        assert len(graph_labels) == 8
+        assert set(graph_labels["graph_label"]) == {"left", "right"}
+        assert "role" not in node_features.columns
+        assert "score" in node_features.columns
+        assert set(node_mapping["source_graph_id"]) == {"Imported Graph"}
+        assert graph_mapping["source_node_id"].tolist() == [101, 102, 103, 104, 105, 106, 107, 108]
+        assert graph_mapping["internal_graph_id"].tolist() == list(range(8))
+
+        analysis = client.get(f"/api/projects/{project_id}/datasets/{dataset_id}/analysis")
+        assert analysis.status_code == 200
+        analysis_payload = analysis.json()
+        assert analysis_payload["egonet_metadata"] == {
+            "source_graph_shape": "single_graph",
+            "operation_id": "neext.prepare_single_graph_egonets",
+            "operation_version": "1",
+            "k_hop": 1,
+            "node_selection": "all_nodes",
+            "sample_fraction": 1.0,
+            "random_seed": 13,
+            "target_node_attribute": "role",
+        }
+        assert analysis_payload["graph_label_distribution"] == {"left": 4, "right": 4}
+
+        feature = client.post(
+            f"/api/projects/{project_id}/features",
+            json={
+                "source_dataset_id": dataset_id,
+                "source_feature_id": "page_rank",
+                "params": {
+                    "feature_vector_length": 2,
+                    "normalize_features": False,
+                    "n_jobs": 1,
+                    "parallel_backend": "loky",
+                },
+            },
+        )
+        assert feature.status_code == 200
+        feature_id = feature.json()["id"]
+        feature_run = client.post(f"/api/projects/{project_id}/features/{feature_id}/run")
+        assert feature_run.status_code == 200
+        assert wait_for_job(client, project_id, feature_run.json()["id"], timeout_s=20.0)["status"] == "completed"
+
+        embedding = client.post(
+            f"/api/projects/{project_id}/embeddings",
+            json={
+                "source_embedding_id": "approx_wasserstein",
+                "source_feature_ids": [feature_id],
+                "params": {"embedding_dimension": 2},
+            },
+        )
+        assert embedding.status_code == 200
+        embedding_id = embedding.json()["id"]
+        embedding_run = client.post(f"/api/projects/{project_id}/embeddings/{embedding_id}/run")
+        assert embedding_run.status_code == 200
+        assert wait_for_job(client, project_id, embedding_run.json()["id"], timeout_s=20.0)["status"] == "completed"
+
+        model = client.post(
+            f"/api/projects/{project_id}/models",
+            json={
+                "source_model_id": "random_forest",
+                "source_embedding_ids": [embedding_id],
+                "params": {
+                    "task_type": "classifier",
+                    "sample_size": 1,
+                    "test_size": 0.5,
+                    "balance_dataset": False,
+                    "n_jobs": 1,
+                    "parallel_backend": "thread",
+                },
+            },
+        )
+        assert model.status_code == 200
+        model_run = client.post(f"/api/projects/{project_id}/models/{model.json()['id']}/run")
+        assert model_run.status_code == 200
+        assert wait_for_job(client, project_id, model_run.json()["id"], timeout_s=20.0)["status"] == "completed"
+
+
+def test_single_graph_dataset_intake_rejects_collection_tables_and_bad_params():
+    pytest.importorskip("fastapi")
+    pytest.importorskip("pyarrow")
+
+    from fastapi.testclient import TestClient
+
+    from NEExT.workbench.app import create_app
+
+    with TemporaryDirectory() as tmpdir:
+        client = TestClient(create_app(tmpdir))
+        project = client.post("/api/projects", json={"name": "Single Graph Rejections"}).json()
+        project_id = project["id"]
+
+        def validate(payload):
+            response = client.post(f"/api/projects/{project_id}/dataset-intake/validate", json=payload)
+            assert response.status_code == 200
+            return response.json()
+
+        collection_table = single_graph_intake_payload()
+        collection_table["tables"]["node_graph_mapping"] = {"format": "csv", "csv": "node_id,graph_id\n101,g1\n"}
+        result = validate(collection_table)
+        assert result["valid"] is False
+        assert any(error["table"] == "node_graph_mapping" and "single-graph import mode" in error["message"] for error in result["errors"])
+
+        unknown_target = single_graph_intake_payload(params={"k_hop": 1, "node_selection": "all_nodes", "target_node_attribute": "missing"})
+        result = validate(unknown_target)
+        assert result["valid"] is False
+        assert "Unknown target node attribute: missing" in result["errors"][0]["message"]
+
+        unknown_ids = single_graph_intake_payload(
+            params={"k_hop": 1, "node_selection": "specific_node_ids", "source_node_ids": ["999"], "target_node_attribute": None}
+        )
+        result = validate(unknown_ids)
+        assert result["valid"] is False
+        assert "Unknown source node IDs: 999" in result["errors"][0]["message"]
+
+        non_integer = single_graph_intake_payload()
+        non_integer["tables"]["edges"] = {"format": "csv", "csv": "src_node_id,dest_node_id\nnode-a,102\n"}
+        result = validate(non_integer)
+        assert result["valid"] is False
+        assert "integer-compatible node IDs" in result["errors"][0]["message"]
+
+        edges_only = single_graph_intake_payload(
+            tables={"edges": {"format": "csv", "csv": SINGLE_GRAPH_INTAKE_EDGES_CSV}},
+            params={"k_hop": 1, "node_selection": "all_nodes", "target_node_attribute": None},
+        )
+        result = validate(edges_only)
+        assert result["valid"] is True
+        assert result["stats"]["node_count"] == 8
+        assert result["stats"]["has_node_features"] is False
+
+        created = client.post(f"/api/projects/{project_id}/dataset-intake/create", json=edges_only)
+        assert created.status_code == 200
+        dataset_id = created.json()["id"]
+        run = client.post(f"/api/projects/{project_id}/datasets/{dataset_id}/run")
+        assert run.status_code == 200
+        assert wait_for_job(client, project_id, run.json()["id"])["status"] == "completed"
+        prepared = client.get(f"/api/projects/{project_id}/datasets/{dataset_id}").json()
+        assert prepared["prepared_stats"]["graph_count"] == 8
+        assert prepared["prepared_stats"]["has_graph_labels"] is False
+
+
+def test_single_graph_dataset_intake_session_flow_creates_egonet_draft():
+    pytest.importorskip("fastapi")
+    pytest.importorskip("pyarrow")
+
+    from fastapi.testclient import TestClient
+
+    from NEExT.workbench.app import create_app
+
+    with TemporaryDirectory() as tmpdir:
+        client = TestClient(create_app(tmpdir))
+        project = client.post("/api/projects", json={"name": "Single Graph Session"}).json()
+        project_id = project["id"]
+
+        session = client.post(
+            f"/api/projects/{project_id}/dataset-intake/sessions",
+            json={
+                "name": "Session Graph",
+                "source_graph_shape": "single_graph",
+                "params": {"k_hop": 2, "node_selection": "all_nodes", "target_node_attribute": "role"},
+            },
+        )
+        assert session.status_code == 200
+        assert session.json()["source_graph_shape"] == "single_graph"
+        session_id = session.json()["id"]
+
+        appended = client.post(
+            f"/api/projects/{project_id}/dataset-intake/sessions/{session_id}/tables/edges",
+            json={"table": {"format": "csv", "csv": SINGLE_GRAPH_INTAKE_EDGES_CSV}},
+        )
+        assert appended.status_code == 200
+
+        rejected = client.post(
+            f"/api/projects/{project_id}/dataset-intake/sessions/{session_id}/tables/node_graph_mapping",
+            json={"table": {"format": "csv", "csv": "node_id,graph_id\n101,g1\n"}},
+        )
+        assert rejected.status_code == 400
+        assert "Unsupported dataset intake table" in rejected.json()["detail"]
+
+        appended = client.post(
+            f"/api/projects/{project_id}/dataset-intake/sessions/{session_id}/tables/nodes",
+            json={"table": {"format": "csv", "csv": SINGLE_GRAPH_INTAKE_NODES_CSV}},
+        )
+        assert appended.status_code == 200
+        assert appended.json()["validation"]["valid"] is True
+
+        validated = client.post(f"/api/projects/{project_id}/dataset-intake/sessions/{session_id}/validate")
+        assert validated.status_code == 200
+        assert validated.json()["validation"]["valid"] is True
+
+        created = client.post(f"/api/projects/{project_id}/dataset-intake/sessions/{session_id}/create")
+        assert created.status_code == 200
+        dataset = created.json()
+        assert dataset["source_graph_shape"] == "single_graph"
+        assert dataset["operation"]["operation_id"] == "neext.prepare_single_graph_egonets"
+        assert dataset["operation"]["params"]["k_hop"] == 2
+        assert dataset["operation"]["params"]["target_node_attribute"] == "role"
+
+
 def test_configure_and_run_dataset_writes_prepared_outputs_and_mapping(monkeypatch):
     pytest.importorskip("fastapi")
     pytest.importorskip("pyarrow")

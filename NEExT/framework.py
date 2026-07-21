@@ -166,6 +166,62 @@ class NEExT:
             self.logger.error(f"Failed to load NetworkX graphs: {str(e)}")
             raise
 
+    def load_single_graph_from_dfs(
+        self,
+        edges_df: pd.DataFrame,
+        nodes_df: Optional[pd.DataFrame] = None,
+        graph_id: Union[int, str] = 0,
+        graph_type: str = "networkx",
+        reindex_nodes: bool = True,
+        filter_largest_component: bool = True,
+        node_sample_rate: float = 1.0,
+    ) -> GraphCollection:
+        """
+        Load a single graph from DataFrames without a node-graph mapping.
+
+        All nodes belong to one graph. The node set comes from nodes_df when
+        provided, otherwise from the unique edge endpoints (isolated nodes
+        therefore require nodes_df).
+
+        Args:
+            edges_df: Edge list with 'src_node_id' and 'dest_node_id' columns;
+                extra columns are treated as edge features
+            nodes_df: Optional node table with a unique 'node_id' column; extra
+                columns are treated as node features
+            graph_id: Identifier assigned to the single graph (default: 0)
+            graph_type: Backend to use ("networkx" or "igraph"). Defaults to "networkx"
+            reindex_nodes: Whether to reindex nodes to start from 0 (default: True)
+            filter_largest_component: Whether to keep only the largest connected
+                                    component of the graph (default: True)
+            node_sample_rate: Rate at which to sample nodes (default: 1.0).
+                            Must be between 0 and 1.
+
+        Returns:
+            GraphCollection: Collection containing the single graph
+        """
+        self.logger.info("Loading single graph from DataFrames")
+        self.logger.debug(f"Graph type: {graph_type}")
+        self.logger.debug(f"Reindex nodes: {reindex_nodes}")
+        self.logger.debug(f"Filter largest component: {filter_largest_component}")
+        self.logger.debug(f"Node sample rate: {node_sample_rate}")
+
+        try:
+            graph_collection = self.graph_io.load_single_graph_from_dfs(
+                edges_df=edges_df,
+                nodes_df=nodes_df,
+                graph_id=graph_id,
+                graph_type=graph_type,
+                reindex_nodes=reindex_nodes,
+                filter_largest_component=filter_largest_component,
+                node_sample_rate=node_sample_rate,
+            )
+            self.logger.info("Successfully loaded single graph into collection")
+            self.logger.debug(f"Loaded {len(graph_collection.graphs)} graphs")
+            return graph_collection
+        except Exception as e:
+            self.logger.error(f"Failed to load single graph: {str(e)}")
+            raise
+
     def get_collection_info(self, graph_collection: GraphCollection) -> dict:
         """
         Get basic information about a graph collection.

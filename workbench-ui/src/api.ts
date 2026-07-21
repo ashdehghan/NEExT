@@ -765,10 +765,17 @@ export interface DatasetIntakeTablePayload {
 export interface DatasetIntakePayload {
   name: string;
   description: string;
+  source_graph_shape?: "graph_collection" | "single_graph";
   tables: Record<string, DatasetIntakeTablePayload>;
   params: {
     graph_type: "networkx" | "igraph";
     filter_largest_component: boolean;
+    k_hop?: number;
+    node_selection?: "all_nodes" | "sample_fraction" | "specific_node_ids";
+    sample_fraction?: number;
+    random_seed?: number;
+    source_node_ids?: string[];
+    target_node_attribute?: string | null;
   };
 }
 

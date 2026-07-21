@@ -98,7 +98,7 @@ DOC_TOPICS: list[dict[str, Any]] = [
         "summary": "Dataset Import creates a Draft Dataset artifact from a set of NEExT tables supplied as CSV files (browser) or records/CSV text (MCP).",
         "sections": [
             {
-                "heading": "Required and Optional Tables",
+                "heading": "Graph Collection Mode (default)",
                 "bullets": [
                     "Required: 'edges' with columns src_node_id, dest_node_id.",
                     "Required: 'node_graph_mapping' with columns node_id, graph_id.",
@@ -106,6 +106,18 @@ DOC_TOPICS: list[dict[str, Any]] = [
                     "Optional: 'node_features' beginning with node_id, then one or more feature columns.",
                     "Optional: 'edge_features' beginning with src_node_id, dest_node_id, then one or more feature columns.",
                     "Unknown table names are rejected. Valid names are edges, node_graph_mapping, graph_labels, node_features, edge_features.",
+                ],
+            },
+            {
+                "heading": "Single-Graph Mode",
+                "bullets": [
+                    'Set source_graph_shape="single_graph" to import one graph that Dataset preparation breaks into a k-hop egonet graph collection.',
+                    "Required: 'edges' with columns src_node_id, dest_node_id; extra columns become edge features.",
+                    "Optional: 'nodes' with a unique node_id column; extra columns become node attributes. Without a nodes table the node set is inferred from edge endpoints, so isolated nodes require a nodes table.",
+                    "Other table names (node_graph_mapping, graph_labels, node_features, edge_features) are rejected in single-graph mode.",
+                    "Egonet settings are supplied in params at import time: k_hop, node_selection (all_nodes, sample_fraction, specific_node_ids), sample_fraction, random_seed, source_node_ids, target_node_attribute.",
+                    "target_node_attribute promotes one nodes-table attribute column to each egonet's graph label; it must exist and have no missing values.",
+                    "Preparation computes one egonet per selected node and the resulting egonet collection flows through Features, Embeddings, and Models like any other prepared dataset.",
                 ],
             },
             {
@@ -129,6 +141,7 @@ DOC_TOPICS: list[dict[str, Any]] = [
                     "Session flow: neext_create_dataset_intake_session, then neext_append_dataset_intake_table for each table, then neext_validate_dataset_intake_session, then neext_create_dataset_from_intake.",
                     'Each table payload is {"format": "records"|"csv", "records": [...]} or {"format": "csv", "csv": "..."}. The default format is records.',
                     "Always validate before create. Create returns a Draft Dataset artifact with source_type uploaded_neext_tables; run it with neext_run_artifacts to prepare it.",
+                    'Single-graph sessions pass source_graph_shape="single_graph" plus egonet params at session creation and append only edges and nodes tables.',
                 ],
                 "code": (
                     'neext_create_dataset_intake_session(project_id, name="My Graphs")\n'
@@ -139,6 +152,20 @@ DOC_TOPICS: list[dict[str, Any]] = [
                     'neext_append_dataset_intake_table(project_id, session_id, table_name="node_graph_mapping", table={\n'
                     '    "format": "records",\n'
                     '    "records": [{"node_id": 0, "graph_id": 0}, {"node_id": 1, "graph_id": 0}, {"node_id": 2, "graph_id": 0}],\n'
+                    "})\n"
+                    "neext_validate_dataset_intake_session(project_id, session_id)\n"
+                    "neext_create_dataset_from_intake(project_id, session_id)\n"
+                    "\n"
+                    "# Single graph -> k-hop egonet collection\n"
+                    'neext_create_dataset_intake_session(project_id, name="My Graph", source_graph_shape="single_graph",\n'
+                    '    params={"k_hop": 2, "node_selection": "all_nodes", "target_node_attribute": "role"})\n'
+                    'neext_append_dataset_intake_table(project_id, session_id, table_name="edges", table={\n'
+                    '    "format": "records",\n'
+                    '    "records": [{"src_node_id": 0, "dest_node_id": 1}, {"src_node_id": 1, "dest_node_id": 2}],\n'
+                    "})\n"
+                    'neext_append_dataset_intake_table(project_id, session_id, table_name="nodes", table={\n'
+                    '    "format": "records",\n'
+                    '    "records": [{"node_id": 0, "role": 1}, {"node_id": 1, "role": 0}, {"node_id": 2, "role": 1}],\n'
                     "})\n"
                     "neext_validate_dataset_intake_session(project_id, session_id)\n"
                     "neext_create_dataset_from_intake(project_id, session_id)"
@@ -326,10 +353,14 @@ RECIPES: list[dict[str, Any]] = [
         ],
         "steps": [
             "Confirm or create the target project with neext_list_projects / neext_create_project.",
-            "Create an intake session with neext_create_dataset_intake_session(project_id, name).",
+            "Create an intake session with neext_create_dataset_intake_session(project_id, name). For one graph that should become "
+            "a k-hop egonet collection, pass source_graph_shape='single_graph' plus egonet params (k_hop, node_selection, "
+            "sample_fraction, random_seed, source_node_ids, target_node_attribute).",
             "Append the required 'edges' table (columns src_node_id, dest_node_id) with neext_append_dataset_intake_table.",
-            "Append the required 'node_graph_mapping' table (columns node_id, graph_id). Node IDs must be integer-compatible.",
-            "Optionally append 'graph_labels', 'node_features', and/or 'edge_features'.",
+            "Graph-collection sessions: append the required 'node_graph_mapping' table (columns node_id, graph_id) and optionally "
+            "'graph_labels', 'node_features', and/or 'edge_features'. Node IDs must be integer-compatible.",
+            "Single-graph sessions: optionally append a 'nodes' table (unique node_id plus attribute columns). Without it the node "
+            "set is inferred from edge endpoints; target_node_attribute requires a matching nodes column.",
             "Validate with neext_validate_dataset_intake_session and fix any reported errors.",
             "Create the Draft Dataset with neext_create_dataset_from_intake.",
             "Prepare it with neext_run_artifacts(kind='dataset', ids=[dataset_id]) and poll neext_get_job until completed.",
@@ -385,8 +416,10 @@ SERVER_INSTRUCTIONS = (
     "neext_run_artifacts, which returns jobs immediately -- poll neext_get_job / neext_list_jobs until they finish. "
     "Running an artifact can auto-run Draft or failed upstream artifacts.\n\n"
     "Dataset import: supply NEExT tables ('edges' and 'node_graph_mapping' required; 'graph_labels', 'node_features', "
-    "'edge_features' optional). Node IDs must be integer-compatible. Always validate before create. See the "
-    "neext://docs/dataset-intake resource for the exact column contract and an example.\n\n"
+    "'edge_features' optional). For a single graph, pass source_graph_shape='single_graph' ('edges' required, 'nodes' "
+    "optional) with egonet params so preparation breaks it into a k-hop egonet graph collection. Node IDs must be "
+    "integer-compatible. Always validate before create. See the neext://docs/dataset-intake resource for the exact "
+    "column contract and examples.\n\n"
     "Inspecting results: prefer neext_search_graphs and neext_get_graph_detail over listing everything; use "
     "neext_preview_artifact (paginated) and neext_analyze_artifact (bounded sampling) for outputs.\n\n"
     "Driving the UI: neext_set_workbench_view requests the open Workbench to navigate to a Space, Center View, "
