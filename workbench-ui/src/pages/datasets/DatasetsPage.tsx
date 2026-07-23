@@ -1,16 +1,13 @@
-import { useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import * as echarts from "echarts";
-import type { EChartsOption } from "echarts";
 import JSZip from "jszip";
-import { ChevronLeft, ChevronRight, Database, Download, Eye, Play, Plus, RotateCcw, Search, Trash2, Upload } from "lucide-react";
+import { ChevronLeft, Database, Download, Eye, Play, Plus, RotateCcw, Trash2, Upload } from "lucide-react";
 import {
   api,
   type DatasetCatalogEntry,
   type DatasetCreatePayload,
   type DatasetGraphSearchResult,
   type DatasetGraphSummary,
-  type DatasetGraphVisual,
   type DatasetIntakePayload,
   type DatasetIntakeValidationResponse,
   type DatasetManifest,
@@ -19,6 +16,7 @@ import {
 } from "../../api";
 import { EmptyState } from "../../components/primitives/EmptyState";
 import { FcIcon } from "../../components/primitives/FcIcon";
+import { DatasetGraphTab, formatCount, formatValue } from "./DatasetGraphTab";
 
 interface DatasetLibraryViewProps {
   activeProjectId: string;
@@ -68,10 +66,6 @@ interface DatasetExploreViewProps {
   onExploreNodeVisualStateChange: (visible: boolean | null) => void;
 }
 
-function formatCount(value: number): string {
-  return new Intl.NumberFormat("en-US").format(value);
-}
-
 function catalogSize(entry: DatasetCatalogEntry): string {
   return `${formatCount(entry.graph_count)} graphs, ${formatCount(entry.node_count)} nodes, ${formatCount(entry.edge_count)} edges`;
 }
@@ -89,11 +83,6 @@ function parseSourceNodeIds(value: string): string[] {
     .split(/[\s,]+/)
     .map((item) => item.trim())
     .filter(Boolean);
-}
-
-function formatValue(value: unknown): string {
-  if (value == null) return "None";
-  return String(value);
 }
 
 function formatAverage(total: number, count: number): string {
@@ -160,29 +149,11 @@ const DATASET_INTAKE_LABELS: Record<DatasetImportTableName, string> = {
   nodes: "nodes.csv"
 };
 
-const GRAPH_LABEL_COLORS = [
-  { background: "#e9f5ff", borderColor: "#87bde8", color: "#155f8e" },
-  { background: "#eaf7ef", borderColor: "#82c89a", color: "#236f3b" },
-  { background: "#fff3d6", borderColor: "#e3b85f", color: "#7a5510" },
-  { background: "#f0e9ff", borderColor: "#ad93e5", color: "#5c3ea0" },
-  { background: "#ffe9ef", borderColor: "#e99aae", color: "#8f2d49" },
-  { background: "#eaf7f6", borderColor: "#7fc7c1", color: "#1e6d67" }
-];
-
 function intakeTableNameFromPath(path: string, allowedTables: readonly DatasetImportTableName[]): DatasetImportTableName | null {
   const fileName = path.split(/[\\/]/).pop()?.trim().toLowerCase() || "";
   if (!fileName.endsWith(".csv")) return null;
   const stem = fileName.replace(/\.csv$/, "");
   return allowedTables.includes(stem as DatasetImportTableName) ? (stem as DatasetImportTableName) : null;
-}
-
-function graphLabelStyle(label: unknown): CSSProperties {
-  const text = formatValue(label);
-  let hash = 0;
-  for (let index = 0; index < text.length; index += 1) {
-    hash = (hash * 31 + text.charCodeAt(index)) >>> 0;
-  }
-  return GRAPH_LABEL_COLORS[hash % GRAPH_LABEL_COLORS.length];
 }
 
 function availableDatasetTables(dataset: DatasetManifest): { id: DatasetPreviewTable; label: string }[] {
@@ -248,7 +219,7 @@ export function DatasetImportView({ activeProjectId, onCreated }: DatasetImportV
     params: isSingleGraph
       ? {
           graph_type: "networkx",
-          filter_largest_component: false,
+          filter_largest_component: filterLargestComponent,
           k_hop: kHop,
           node_selection: nodeSelection,
           sample_fraction: nodeSelection === "sample_fraction" ? sampleFraction : 1,
@@ -510,6 +481,17 @@ export function DatasetImportView({ activeProjectId, onCreated }: DatasetImportV
                   />
                 </label>
               ) : null}
+              <label className="checkbox-field">
+                <input
+                  type="checkbox"
+                  checked={filterLargestComponent}
+                  onChange={(event) => {
+                    setFilterLargestComponent(event.target.checked);
+                    resetValidation();
+                  }}
+                />
+                <span>Filter Largest Component</span>
+              </label>
             </>
           ) : (
             <>
@@ -759,7 +741,7 @@ export function ConfigureDatasetView({ activeProjectId, entry, draft, onBack, on
             catalog_id: entry.id,
             params: {
               graph_type: "networkx",
-              filter_largest_component: false,
+              filter_largest_component: filterLargestComponent,
               k_hop: kHop,
               node_selection: nodeSelection,
               sample_fraction: nodeSelection === "sample_fraction" ? sampleFraction : 1,
@@ -877,6 +859,14 @@ export function ConfigureDatasetView({ activeProjectId, entry, draft, onBack, on
                   />
                 </label>
               ) : null}
+              <label className="checkbox-field">
+                <input
+                  type="checkbox"
+                  checked={filterLargestComponent}
+                  onChange={(event) => setFilterLargestComponent(event.target.checked)}
+                />
+                <span>Filter Largest Component</span>
+              </label>
             </div>
           </>
         ) : (
@@ -1050,137 +1040,6 @@ export function ProjectDatasetsView({
   );
 }
 
-function DatasetGraphChart({
-  visual,
-  selectedNodeId,
-  onSelectNode
-}: {
-  visual: DatasetGraphVisual;
-  selectedNodeId: string;
-  onSelectNode: (nodeId: string) => void;
-}) {
-  const containerRef = useRef<HTMLDivElement | null>(null);
-  const chartRef = useRef<ReturnType<typeof echarts.init> | null>(null);
-  const onSelectNodeRef = useRef(onSelectNode);
-  const previousSelectedNodeRef = useRef("");
-
-  useEffect(() => {
-    onSelectNodeRef.current = onSelectNode;
-  }, [onSelectNode]);
-
-  useEffect(() => {
-    if (!containerRef.current) return;
-
-    const chart = echarts.init(containerRef.current);
-    chartRef.current = chart;
-    const handleClick = (params: { dataType?: string; data?: unknown; name?: string }) => {
-      if (params.dataType !== "node") return;
-      const data = params.data as { id?: string } | undefined;
-      onSelectNodeRef.current(String(data?.id || params.name || ""));
-    };
-    chart.on("click", handleClick);
-    const resizeObserver = new ResizeObserver(() => chart.resize());
-    resizeObserver.observe(containerRef.current);
-
-    return () => {
-      chart.off("click", handleClick);
-      resizeObserver.disconnect();
-      chart.dispose();
-      chartRef.current = null;
-    };
-  }, []);
-
-  useEffect(() => {
-    const chart = chartRef.current;
-    if (!chart) return;
-
-    const maxDegree = Math.max(1, ...visual.nodes.map((node) => node.degree));
-    const option: EChartsOption = {
-      tooltip: {
-        trigger: "item",
-        formatter: (params) => {
-          const item = Array.isArray(params) ? params[0] : params;
-          const data = item.data as { name?: string; value?: number; sourceNodeId?: string | null; isCenter?: boolean | null };
-          if (!data.name) return "";
-          const sourceLine = data.sourceNodeId && !data.isCenter ? `<br/>Source node: ${data.sourceNodeId}` : "";
-          const centerLine = data.isCenter ? `<br/>Center source node: ${data.sourceNodeId || data.name}` : "";
-          return `${data.name}<br/>Degree: ${data.value ?? 0}${sourceLine}${centerLine}`;
-        }
-      },
-      series: [
-        {
-          type: "graph",
-          layout: "force",
-          roam: true,
-          animation: false,
-          label: {
-            show: visual.nodes.length <= 40,
-            position: "right",
-            color: "#34424c",
-            fontSize: 10
-          },
-          data: visual.nodes.map((node) => {
-            const isCenter = Boolean(node.is_center);
-            return {
-              id: node.id,
-              name: node.label,
-              value: node.degree,
-              sourceNodeId: node.source_node_id,
-              isCenter,
-              symbolSize: 9 + (node.degree / maxDegree) * 18 + (isCenter ? 8 : 0),
-              itemStyle: {
-                color: isCenter ? "#f28c28" : "#176ea9",
-                borderColor: isCenter ? "#8f3e00" : "#ffffff",
-                borderWidth: isCenter ? 2.5 : 1
-              }
-            };
-          }),
-          links: visual.edges.map((edge) => ({ source: edge.source, target: edge.target })),
-          lineStyle: {
-            color: "#8a98a6",
-            opacity: 0.72,
-            width: 1.2
-          },
-          emphasis: {
-            focus: "adjacency",
-            itemStyle: { color: "#f28c28", borderColor: "#7a3300", borderWidth: 3 },
-            lineStyle: { width: 2 }
-          },
-          force: {
-            repulsion: 80,
-            edgeLength: [28, 90]
-          }
-        }
-      ]
-    };
-
-    chart.setOption(option, { notMerge: true });
-    previousSelectedNodeRef.current = "";
-  }, [visual]);
-
-  useEffect(() => {
-    const chart = chartRef.current;
-    if (!chart) return;
-
-    const previousSelectedNodeId = previousSelectedNodeRef.current;
-    if (previousSelectedNodeId) {
-      const previousIndex = visual.nodes.findIndex((node) => node.id === previousSelectedNodeId);
-      if (previousIndex >= 0) {
-        chart.dispatchAction({ type: "downplay", seriesIndex: 0, dataIndex: previousIndex });
-      }
-    }
-    previousSelectedNodeRef.current = "";
-
-    if (!selectedNodeId) return;
-    const selectedIndex = visual.nodes.findIndex((node) => node.id === selectedNodeId);
-    if (selectedIndex < 0) return;
-
-    chart.dispatchAction({ type: "highlight", seriesIndex: 0, dataIndex: selectedIndex });
-    previousSelectedNodeRef.current = selectedNodeId;
-  }, [selectedNodeId, visual]);
-
-  return <div ref={containerRef} className="dataset-graph-chart" role="img" aria-label={`Graph ${visual.graph_id}`} tabIndex={0} />;
-}
 
 function DatasetPreviewTable({ preview }: { preview: TabularPreview }) {
   return (
@@ -1344,12 +1203,6 @@ export function DatasetExploreView({
       }),
     enabled: Boolean(activeProjectId && dataset?.id && dataset.status === "completed")
   });
-  const trimmedGraphSearch = graphSearchQuery.trim();
-  const graphSearch = useQuery({
-    queryKey: ["projects", activeProjectId, "datasets", dataset?.id, "analysis", "search", trimmedGraphSearch],
-    queryFn: () => api.datasetGraphSearch(activeProjectId, dataset!.id, trimmedGraphSearch, 25),
-    enabled: Boolean(activeProjectId && dataset?.id && dataset.status === "completed" && tab === "graph" && trimmedGraphSearch)
-  });
   const graphSummaries = analysis.data?.graph_summaries || [];
   const graphCounts = graphSummaries.map((summary) => summary.node_count);
   const edgeCounts = graphSummaries.map((summary) => summary.edge_count);
@@ -1385,19 +1238,6 @@ export function DatasetExploreView({
     onExploreGraphChange(result.graph_id, summary, { clearNode: result.kind === "graph" });
     if (result.kind === "node" && result.node_id) {
       onExploreNodeChange(result.node_id);
-    }
-  };
-
-  const handleGraphKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
-    const target = event.target as HTMLElement;
-    if (["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName)) return;
-    if (event.key === "ArrowLeft" && selectedGraphIndex > 0) {
-      event.preventDefault();
-      selectGraphByIndex(selectedGraphIndex - 1);
-    }
-    if (event.key === "ArrowRight" && selectedGraphIndex >= 0 && selectedGraphIndex < graphSummaries.length - 1) {
-      event.preventDefault();
-      selectGraphByIndex(selectedGraphIndex + 1);
     }
   };
 
@@ -1728,124 +1568,22 @@ export function DatasetExploreView({
           </div>
         ) : null}
         {tab === "graph" && analysis.data ? (
-          <div className="dataset-tab-panel graph-tab-panel" tabIndex={0} onKeyDown={handleGraphKeyDown} aria-label="Dataset graph view">
-            <div className="dataset-graph-header">
-              <div className="graph-nav-group">
-                <button
-                  type="button"
-                  className="icon-btn graph-nav-btn"
-                  aria-label="Previous graph"
-                  title="Previous graph"
-                  onClick={() => selectGraphByIndex(selectedGraphIndex - 1)}
-                  disabled={selectedGraphIndex <= 0}
-                >
-                  <ChevronLeft />
-                </button>
-                <button
-                  type="button"
-                  className="icon-btn graph-nav-btn"
-                  aria-label="Next graph"
-                  title="Next graph"
-                  onClick={() => selectGraphByIndex(selectedGraphIndex + 1)}
-                  disabled={selectedGraphIndex < 0 || selectedGraphIndex >= graphSummaries.length - 1}
-                >
-                  <ChevronRight />
-                </button>
-                <span className="graph-position">
-                  {selectedGraphIndex >= 0 ? `${selectedGraphIndex + 1} / ${formatCount(graphSummaries.length)}` : ""}
-                </span>
-              </div>
-              <div className="graph-summary-band">
-                {selectedSummary ? (
-                  <>
-                    <span className="graph-id-badge mono">Graph {selectedSummary.graph_id}</span>
-                    <span className="graph-meta-badge">{formatCount(selectedSummary.node_count)} nodes</span>
-                    <span className="graph-meta-badge">{formatCount(selectedSummary.edge_count)} edges</span>
-                    {selectedSummary.graph_label != null ? (
-                      <span className="graph-label-badge" style={graphLabelStyle(selectedSummary.graph_label)}>
-                        Label {formatValue(selectedSummary.graph_label)}
-                      </span>
-                    ) : null}
-                    {selectedSummary.source_node_id ? (
-                      <span className="graph-center-badge">Center Source Node {selectedSummary.source_node_id}</span>
-                    ) : null}
-                    {analysis.data.egonet_metadata ? (
-                      <span className="graph-meta-badge">{formatCount(analysis.data.egonet_metadata.k_hop)}-hop egonet</span>
-                    ) : null}
-                    {analysis.data.egonet_metadata?.target_node_attribute ? (
-                      <span className="graph-meta-badge">Target {analysis.data.egonet_metadata.target_node_attribute}</span>
-                    ) : null}
-                  </>
-                ) : null}
-                {analysis.data.visual.sampled ? <span className="status-pill is-idle">sampled</span> : null}
-              </div>
-              <label className="field graph-search-field">
-                <span>Search</span>
-                <div className="graph-search-input">
-                  <Search />
-                  <input
-                    aria-label="Search graphs and nodes"
-                    value={graphSearchQuery}
-                    placeholder="Graph or node ID"
-                    onChange={(event) => setGraphSearchQuery(event.target.value)}
-                  />
-                </div>
-              </label>
-            </div>
-            {trimmedGraphSearch ? (
-              <div className="graph-search-results" role="listbox" aria-label="Graph search results">
-                {graphSearch.isLoading ? <span className="muted">Searching.</span> : null}
-                {graphSearch.error ? <span className="table-error inline-error">{graphSearch.error.message}</span> : null}
-                {graphSearch.data ? (
-                  <>
-                    <span className="muted">
-                      {formatCount(graphSearch.data.total_matches)} {graphSearch.data.total_matches === 1 ? "match" : "matches"}
-                    </span>
-                    {graphSearch.data.results.length ? (
-                      graphSearch.data.results.map((result) => (
-                        <button
-                          type="button"
-                          key={`${result.kind}-${result.graph_id}-${result.node_id || ""}`}
-                          className={`graph-search-result ${
-                            result.graph_id === analysis.data?.selected_graph_id && (!result.node_id || result.node_id === exploreNodeId)
-                              ? "is-selected"
-                              : ""
-                          }`}
-                          onClick={() => selectSearchResult(result)}
-                        >
-                          <span className="status-pill is-idle">{result.kind}</span>
-                          <strong>{result.kind === "node" ? result.node_id : result.graph_id}</strong>
-                          <span className="muted">
-                            {result.kind === "node" ? `graph ${result.graph_id} · ` : ""}
-                            {formatCount(result.node_count)} nodes · {formatCount(result.edge_count)} edges
-                            {result.graph_label != null ? (
-                              <span className="graph-label-badge inline-label-badge" style={graphLabelStyle(result.graph_label)}>
-                                Label {formatValue(result.graph_label)}
-                              </span>
-                            ) : null}
-                          </span>
-                        </button>
-                      ))
-                    ) : (
-                      <span className="muted">No graph or node matches.</span>
-                    )}
-                  </>
-                ) : null}
-              </div>
-            ) : null}
-            {analysis.data.visual.sampled ? (
-              <p className="table-note">
-                Showing {formatCount(analysis.data.visual.nodes.length)} nodes and {formatCount(analysis.data.visual.edges.length)} edges (
-                {analysis.data.visual.sample_reason}).
-              </p>
-            ) : null}
-            {selectedNodeOutsideSample ? (
-              <p className="table-note">
-                Selected node {exploreNodeId} is outside the sampled visual. Inspector details are shown in the Right Panel.
-              </p>
-            ) : null}
-            <DatasetGraphChart visual={analysis.data.visual} selectedNodeId={exploreNodeId} onSelectNode={onExploreNodeChange} />
-          </div>
+          <DatasetGraphTab
+            activeProjectId={activeProjectId}
+            datasetId={dataset.id}
+            analysis={analysis.data}
+            graphSummaries={graphSummaries}
+            selectedGraphIndex={selectedGraphIndex}
+            selectedSummary={selectedSummary}
+            exploreNodeId={exploreNodeId}
+            selectedNodeOutsideSample={selectedNodeOutsideSample}
+            graphSearchQuery={graphSearchQuery}
+            onGraphSearchQueryChange={setGraphSearchQuery}
+            onSelectGraphByIndex={selectGraphByIndex}
+            onSelectSearchResult={selectSearchResult}
+            onExploreGraphChange={onExploreGraphChange}
+            onExploreNodeChange={onExploreNodeChange}
+          />
         ) : null}
         {tab === "data" ? <DatasetDataTab activeProjectId={activeProjectId} dataset={dataset} /> : null}
       </section>

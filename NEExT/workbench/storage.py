@@ -50,9 +50,11 @@ from .schemas import (
     DatasetCreateRequest,
     DatasetDataFiles,
     DatasetEgonetMetadata,
+    DatasetGraphGrid,
     DatasetGraphSearchResponse,
     DatasetGraphSearchResult,
     DatasetGraphSummary,
+    DatasetGraphTile,
     DatasetGraphVisual,
     DatasetIntakeRequest,
     DatasetIntakeSessionCreateRequest,
@@ -65,6 +67,7 @@ from .schemas import (
     DatasetMappingFiles,
     DatasetNodeDetail,
     DatasetPrepareParams,
+    DatasetSourceGraphOverview,
     DatasetStats,
     DatasetVisualEdge,
     DatasetVisualNode,
@@ -1321,7 +1324,7 @@ class WorkbenchStore:
                 params={
                     "graph_type": "networkx",
                     "reindex_nodes": True,
-                    "filter_largest_component": False,
+                    "filter_largest_component": request.params.filter_largest_component,
                     "k_hop": request.params.k_hop,
                     "node_selection": request.params.node_selection,
                     "sample_fraction": request.params.sample_fraction,
@@ -1809,7 +1812,7 @@ class WorkbenchStore:
                     params={
                         "graph_type": "networkx",
                         "reindex_nodes": True,
-                        "filter_largest_component": False,
+                        "filter_largest_component": params.filter_largest_component,
                         "k_hop": params.k_hop,
                         "node_selection": params.node_selection,
                         "sample_fraction": params.sample_fraction,
@@ -2240,7 +2243,7 @@ class WorkbenchStore:
             node_features_df=node_features_df,
             edge_features_df=edge_features_df,
             graph_type=str(params["graph_type"]),
-            filter_largest_component=False,
+            filter_largest_component=bool(params["filter_largest_component"]),
         )
         if len(source_collection.graphs) != 1:
             raise ValueError("Single-graph dataset source must load exactly one graph")
@@ -2478,6 +2481,15 @@ class WorkbenchStore:
         }
         unknown_ids = [source_node_id for source_node_id in requested_ids if source_node_id not in internal_by_source_text]
         if unknown_ids:
+            dropped_by_filter = {
+                str(self._json_scalar(source_node_id)) for source_node_id in getattr(source_graph, "dropped_source_node_ids", []) or []
+            }
+            filtered_ids = [source_node_id for source_node_id in unknown_ids if source_node_id in dropped_by_filter]
+            if filtered_ids:
+                raise ValueError(
+                    f"Source node IDs outside the largest connected component: {', '.join(filtered_ids)} "
+                    "(disable filter_largest_component to include them)"
+                )
             raise ValueError(f"Unknown source node IDs: {', '.join(unknown_ids)}")
 
         selected_internal_nodes = [internal_by_source_text[source_node_id] for source_node_id in requested_ids]
@@ -2531,6 +2543,22 @@ class WorkbenchStore:
                     "internal_node_count": len(egonet.nodes),
                     "internal_edge_count": len(egonet.edges),
                     "k_hop": k_hop,
+                }
+            )
+
+        drop_reasons = getattr(source_graph, "drop_reasons_by_source_node_id", None) or {}
+        for dropped_source_node_id in sorted(
+            getattr(source_graph, "dropped_source_node_ids", None) or [], key=lambda value: (type(value).__name__, repr(value))
+        ):
+            node_records.append(
+                {
+                    "source_graph_id": source_graph_id,
+                    "source_node_id": self._json_scalar(dropped_source_node_id),
+                    "internal_graph_id": None,
+                    "internal_node_id": None,
+                    "center_source_node_id": None,
+                    "included": False,
+                    "drop_reason": drop_reasons.get(dropped_source_node_id),
                 }
             )
 
@@ -3400,20 +3428,12 @@ class WorkbenchStore:
             [] if edge_features is None else [column for column in edge_features.columns if column not in {"graph_id", "src_node_id", "dest_node_id"}]
         )
 
-        node_counts = nodes.assign(_graph_id=nodes["graph_id"].astype("string")).groupby("_graph_id").size().to_dict()
-        edge_counts = edges.assign(_graph_id=edges["graph_id"].astype("string")).groupby("_graph_id").size().to_dict() if not edges.empty else {}
-        graph_ids = set(node_counts) | set(edge_counts)
-        graph_summaries = [
-            DatasetGraphSummary(
-                graph_id=str(current_graph_id),
-                node_count=int(node_counts.get(current_graph_id, 0)),
-                edge_count=int(edge_counts.get(current_graph_id, 0)),
-                graph_label=label_by_graph.get(str(current_graph_id)),
-                source_node_id=source_node_by_graph.get(str(current_graph_id)),
-            )
-            for current_graph_id in graph_ids
-        ]
-        graph_summaries.sort(key=lambda item: (-item.node_count, -item.edge_count, item.graph_id))
+        graph_summaries = self._dataset_graph_summaries(
+            nodes=nodes,
+            edges=edges,
+            label_by_graph=label_by_graph,
+            source_node_by_graph=source_node_by_graph,
+        )
         if not graph_summaries:
             raise ValueError("Dataset has no prepared graph data")
 
@@ -3609,18 +3629,190 @@ class WorkbenchStore:
             feature_values=feature_values,
         )
 
+    def dataset_source_graph_visual(
+        self,
+        project_id: str,
+        dataset_id: str,
+        *,
+        max_nodes: int = 500,
+        max_edges: int = 1500,
+    ) -> DatasetSourceGraphOverview:
+        import pandas as pd
+
+        if max_nodes < 1 or max_nodes > 2000:
+            raise ValueError("Source graph overview max_nodes must be between 1 and 2000")
+        if max_edges < 1 or max_edges > 6000:
+            raise ValueError("Source graph overview max_edges must be between 1 and 6000")
+
+        dataset = self.read_dataset(project_id, dataset_id)
+        if dataset.status != "completed" or dataset.prepared_data_files is None or dataset.prepared_stats is None:
+            raise ValueError("Dataset analysis is available only after preparation completes")
+        if dataset.source_graph_shape != "single_graph":
+            raise ValueError("Source graph overview is available only for single-graph datasets")
+        if dataset.raw_data_files is None:
+            raise ValueError("Dataset source graph files are not available")
+
+        artifact_path = self.dataset_path(project_id, dataset.id)
+        raw_nodes_path = artifact_path / dataset.raw_data_files.nodes
+        raw_edges_path = artifact_path / dataset.raw_data_files.edges
+        if not raw_nodes_path.exists() or not raw_edges_path.exists():
+            raise ValueError("Dataset source graph files are not available")
+        raw_nodes = pd.read_parquet(raw_nodes_path)
+        raw_edges = pd.read_parquet(raw_edges_path)
+
+        centroid_ids: set[str] = set()
+        if dataset.mapping_files is not None and dataset.mapping_files.graph_mapping:
+            graph_mapping_path = artifact_path / dataset.mapping_files.graph_mapping
+            if graph_mapping_path.exists():
+                graph_mapping = pd.read_parquet(graph_mapping_path)
+                if "source_node_id" in graph_mapping.columns:
+                    centroid_ids = {str(self._json_scalar(value)) for value in graph_mapping["source_node_id"].tolist()}
+
+        visual = self._dataset_graph_visual(
+            nodes=raw_nodes,
+            edges=raw_edges,
+            graph_id=None,
+            max_nodes=max_nodes,
+            max_edges=max_edges,
+            center_node_ids=centroid_ids,
+        )
+        return DatasetSourceGraphOverview(
+            dataset_id=dataset.id,
+            node_count=visual.node_count,
+            edge_count=visual.edge_count,
+            centroid_count=len(centroid_ids),
+            sampled=visual.sampled,
+            sample_reason=visual.sample_reason,
+            nodes=visual.nodes,
+            edges=visual.edges,
+        )
+
+    def dataset_graph_grid(
+        self,
+        project_id: str,
+        dataset_id: str,
+        *,
+        offset: int = 0,
+        limit: int = 12,
+        max_nodes: int = 40,
+        max_edges: int = 80,
+        query: str = "",
+    ) -> DatasetGraphGrid:
+        import pandas as pd
+
+        if limit < 1 or limit > 24:
+            raise ValueError("Dataset graph grid limit must be between 1 and 24")
+        if offset < 0:
+            raise ValueError("Dataset graph grid offset must be non-negative")
+        if max_nodes < 1 or max_nodes > 60:
+            raise ValueError("Dataset graph grid max_nodes must be between 1 and 60")
+        if max_edges < 1 or max_edges > 120:
+            raise ValueError("Dataset graph grid max_edges must be between 1 and 120")
+
+        dataset = self.read_dataset(project_id, dataset_id)
+        if dataset.status != "completed" or dataset.prepared_data_files is None or dataset.prepared_stats is None:
+            raise ValueError("Dataset analysis is available only after preparation completes")
+
+        artifact_path = self.dataset_path(project_id, dataset.id)
+        nodes = pd.read_parquet(artifact_path / dataset.prepared_data_files.nodes)
+        edges = pd.read_parquet(artifact_path / dataset.prepared_data_files.edges)
+        graph_labels = None
+        if dataset.prepared_data_files.graph_labels:
+            graph_labels = pd.read_parquet(artifact_path / dataset.prepared_data_files.graph_labels)
+
+        node_mapping = None
+        graph_mapping = None
+        if dataset.mapping_files is not None:
+            node_mapping_path = artifact_path / dataset.mapping_files.node_mapping
+            if node_mapping_path.exists():
+                node_mapping = pd.read_parquet(node_mapping_path)
+            if dataset.mapping_files.graph_mapping:
+                graph_mapping_path = artifact_path / dataset.mapping_files.graph_mapping
+                if graph_mapping_path.exists():
+                    graph_mapping = pd.read_parquet(graph_mapping_path)
+
+        label_by_graph: dict[str, object] = {}
+        if graph_labels is not None and not graph_labels.empty:
+            for row in graph_labels.to_dict(orient="records"):
+                label_by_graph[str(row["graph_id"])] = self._json_scalar(row["graph_label"])
+
+        source_node_by_graph: dict[str, str] = {}
+        if graph_mapping is not None and {"internal_graph_id", "source_node_id"}.issubset(graph_mapping.columns):
+            for row in graph_mapping.to_dict(orient="records"):
+                source_node_by_graph[str(row["internal_graph_id"])] = str(self._json_scalar(row["source_node_id"]))
+
+        graph_summaries = self._dataset_graph_summaries(
+            nodes=nodes,
+            edges=edges,
+            label_by_graph=label_by_graph,
+            source_node_by_graph=source_node_by_graph,
+        )
+        query_text = query.strip()
+        if query_text:
+            query_lower = query_text.lower()
+            graph_summaries = [summary for summary in graph_summaries if query_lower in summary.graph_id.lower()]
+
+        page = graph_summaries[offset : offset + limit]
+        tiles = [
+            DatasetGraphTile(
+                graph_id=summary.graph_id,
+                node_count=summary.node_count,
+                edge_count=summary.edge_count,
+                graph_label=summary.graph_label,
+                source_node_id=summary.source_node_id,
+                visual=self._dataset_graph_visual(
+                    nodes=nodes,
+                    edges=edges,
+                    graph_id=summary.graph_id,
+                    max_nodes=max_nodes,
+                    max_edges=max_edges,
+                    node_mapping=node_mapping if dataset.source_graph_shape == "single_graph" else None,
+                ),
+            )
+            for summary in page
+        ]
+        return DatasetGraphGrid(
+            total_graphs=len(graph_summaries),
+            offset=offset,
+            limit=limit,
+            query=query_text or None,
+            tiles=tiles,
+        )
+
+    def _dataset_graph_summaries(self, *, nodes, edges, label_by_graph, source_node_by_graph) -> list[DatasetGraphSummary]:
+        node_counts = nodes.assign(_graph_id=nodes["graph_id"].astype("string")).groupby("_graph_id").size().to_dict()
+        edge_counts = edges.assign(_graph_id=edges["graph_id"].astype("string")).groupby("_graph_id").size().to_dict() if not edges.empty else {}
+        graph_ids = set(node_counts) | set(edge_counts)
+        graph_summaries = [
+            DatasetGraphSummary(
+                graph_id=str(current_graph_id),
+                node_count=int(node_counts.get(current_graph_id, 0)),
+                edge_count=int(edge_counts.get(current_graph_id, 0)),
+                graph_label=label_by_graph.get(str(current_graph_id)),
+                source_node_id=source_node_by_graph.get(str(current_graph_id)),
+            )
+            for current_graph_id in graph_ids
+        ]
+        graph_summaries.sort(key=lambda item: (-item.node_count, -item.edge_count, item.graph_id))
+        return graph_summaries
+
     def _dataset_graph_visual(
         self,
         *,
         nodes,
         edges,
-        graph_id: str,
+        graph_id: str | None,
         max_nodes: int,
         max_edges: int,
         node_mapping=None,
+        center_node_ids: set[str] | None = None,
     ) -> DatasetGraphVisual:
-        graph_nodes = nodes[nodes["graph_id"].astype("string") == graph_id]
-        graph_edges = edges[edges["graph_id"].astype("string") == graph_id]
+        if graph_id is None:
+            graph_nodes = nodes
+            graph_edges = edges
+        else:
+            graph_nodes = nodes[nodes["graph_id"].astype("string") == graph_id]
+            graph_edges = edges[edges["graph_id"].astype("string") == graph_id]
         node_ids = [str(node_id) for node_id in graph_nodes["node_id"].tolist()]
         node_id_set = set(node_ids)
         degree = dict.fromkeys(node_ids, 0)
@@ -3639,12 +3831,16 @@ class WorkbenchStore:
                 if center_source_node_id is None and "center_source_node_id" in row:
                     center_source_node_id = str(self._json_scalar(row["center_source_node_id"]))
 
-        center_node_ids = {
-            internal_node_id
-            for internal_node_id, source_node_id in source_node_by_internal_node.items()
-            if center_source_node_id is not None and source_node_id == center_source_node_id
-        }
-        center_node_id = sorted(center_node_ids)[0] if center_node_ids else None
+        if center_node_ids is None:
+            derived_center_ids = {
+                internal_node_id
+                for internal_node_id, source_node_id in source_node_by_internal_node.items()
+                if center_source_node_id is not None and source_node_id == center_source_node_id
+            }
+            derived_center_id = sorted(derived_center_ids)[0] if derived_center_ids else None
+            effective_center_ids = {derived_center_id} if derived_center_id is not None else set()
+        else:
+            effective_center_ids = {str(center_node_id) for center_node_id in center_node_ids} & node_id_set
 
         for row in graph_edges.to_dict(orient="records"):
             source = str(row["src_node_id"])
@@ -3662,9 +3858,13 @@ class WorkbenchStore:
             sampled = True
             sample_reasons.append(f"nodes limited to {max_nodes}")
             ordered_nodes = sorted(included_node_ids, key=lambda node_id: (-degree.get(node_id, 0), node_id))
-            selected_nodes = ordered_nodes[:max_nodes]
-            if center_node_id and center_node_id in included_node_ids and center_node_id not in selected_nodes:
-                selected_nodes = selected_nodes[:-1] + [center_node_id]
+            center_nodes = [node_id for node_id in ordered_nodes if node_id in effective_center_ids]
+            other_nodes = [node_id for node_id in ordered_nodes if node_id not in effective_center_ids]
+            if len(center_nodes) >= max_nodes:
+                sample_reasons.append(f"center nodes limited to {max_nodes}")
+                selected_nodes = center_nodes[:max_nodes]
+            else:
+                selected_nodes = center_nodes + other_nodes[: max_nodes - len(center_nodes)]
             included_node_ids = set(selected_nodes)
 
         included_edges = [(source, target) for source, target in edge_records if source in included_node_ids and target in included_node_ids]
@@ -3678,7 +3878,7 @@ class WorkbenchStore:
 
         ordered_visual_nodes = sorted(included_node_ids, key=lambda node_id: (-degree.get(node_id, 0), node_id))
         return DatasetGraphVisual(
-            graph_id=graph_id,
+            graph_id=graph_id if graph_id is not None else "",
             node_count=int(len(graph_nodes)),
             edge_count=int(len(graph_edges)),
             sampled=sampled,
@@ -3689,7 +3889,7 @@ class WorkbenchStore:
                     label=node_id,
                     degree=int(degree.get(node_id, 0)),
                     source_node_id=source_node_by_internal_node.get(node_id),
-                    is_center=True if node_id == center_node_id else None,
+                    is_center=True if node_id in effective_center_ids else None,
                 )
                 for node_id in ordered_visual_nodes
             ],

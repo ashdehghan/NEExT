@@ -191,6 +191,34 @@ export interface DatasetGraphVisual {
   sample_reason?: string | null;
 }
 
+export interface DatasetSourceGraphOverview {
+  dataset_id: string;
+  node_count: number;
+  edge_count: number;
+  centroid_count: number;
+  sampled: boolean;
+  nodes: DatasetVisualNode[];
+  edges: DatasetVisualEdge[];
+  sample_reason?: string | null;
+}
+
+export interface DatasetGraphTile {
+  graph_id: string;
+  node_count: number;
+  edge_count: number;
+  graph_label?: unknown;
+  source_node_id?: string | null;
+  visual: DatasetGraphVisual;
+}
+
+export interface DatasetGraphGrid {
+  total_graphs: number;
+  offset: number;
+  limit: number;
+  query?: string | null;
+  tiles: DatasetGraphTile[];
+}
+
 export interface DatasetEgonetMetadata {
   source_graph_shape: "single_graph";
   operation_id: string;
@@ -1075,6 +1103,27 @@ export const api = {
     if (params.max_edges != null) search.set("max_edges", String(params.max_edges));
     const suffix = search.toString() ? `?${search.toString()}` : "";
     return request<DatasetAnalysis>(`/api/projects/${projectId}/datasets/${datasetId}/analysis${suffix}`);
+  },
+  datasetSourceGraph: (projectId: string, datasetId: string, params: { max_nodes?: number; max_edges?: number } = {}) => {
+    const search = new URLSearchParams();
+    if (params.max_nodes != null) search.set("max_nodes", String(params.max_nodes));
+    if (params.max_edges != null) search.set("max_edges", String(params.max_edges));
+    const suffix = search.toString() ? `?${search.toString()}` : "";
+    return request<DatasetSourceGraphOverview>(`/api/projects/${projectId}/datasets/${datasetId}/analysis/source-graph${suffix}`);
+  },
+  datasetGraphGrid: (
+    projectId: string,
+    datasetId: string,
+    params: { offset?: number; limit?: number; max_nodes?: number; max_edges?: number; query?: string } = {}
+  ) => {
+    const search = new URLSearchParams();
+    if (params.offset != null) search.set("offset", String(params.offset));
+    if (params.limit != null) search.set("limit", String(params.limit));
+    if (params.max_nodes != null) search.set("max_nodes", String(params.max_nodes));
+    if (params.max_edges != null) search.set("max_edges", String(params.max_edges));
+    if (params.query) search.set("query", params.query);
+    const suffix = search.toString() ? `?${search.toString()}` : "";
+    return request<DatasetGraphGrid>(`/api/projects/${projectId}/datasets/${datasetId}/analysis/grid${suffix}`);
   },
   datasetGraphSearch: (projectId: string, datasetId: string, query: string, limit = 25) => {
     const search = new URLSearchParams();

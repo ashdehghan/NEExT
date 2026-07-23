@@ -1526,7 +1526,7 @@ test("Dataset Library configures single graph egonet datasets", async ({ page })
   await exploreView.getByRole("button", { name: "Graph", exact: true }).click();
   await expect(exploreView.getByLabel("Search graphs and nodes")).toBeVisible();
   await expect(exploreView.locator(".graph-label-badge")).toContainText("Label");
-  await expect(exploreView.locator(".graph-center-badge")).toContainText("Center Source Node");
+  await expect(exploreView.locator(".graph-center-badge")).toContainText("Center");
   await expect(exploreView.locator(".graph-meta-badge", { hasText: "1-hop egonet" })).toBeVisible();
   await expect(exploreView.locator(".graph-meta-badge", { hasText: "Target club" })).toBeVisible();
   const firstCenterBadge = await exploreView.locator(".graph-center-badge").textContent();

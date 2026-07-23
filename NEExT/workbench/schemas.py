@@ -209,6 +209,34 @@ class DatasetGraphVisual(BaseModel):
     sample_reason: Optional[str] = None
 
 
+class DatasetSourceGraphOverview(BaseModel):
+    dataset_id: str
+    node_count: int
+    edge_count: int
+    centroid_count: int
+    sampled: bool
+    nodes: list[DatasetVisualNode]
+    edges: list[DatasetVisualEdge]
+    sample_reason: Optional[str] = None
+
+
+class DatasetGraphTile(BaseModel):
+    graph_id: str
+    node_count: int
+    edge_count: int
+    graph_label: Optional[Any] = None
+    source_node_id: Optional[str] = None
+    visual: DatasetGraphVisual
+
+
+class DatasetGraphGrid(BaseModel):
+    total_graphs: int
+    offset: int
+    limit: int
+    query: Optional[str] = None
+    tiles: list[DatasetGraphTile]
+
+
 class DatasetEgonetMetadata(BaseModel):
     source_graph_shape: Literal["single_graph"]
     operation_id: str

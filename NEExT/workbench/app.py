@@ -27,6 +27,7 @@ from .schemas import (
     CustomFeatureValidationResponse,
     DatasetAnalysis,
     DatasetCreateRequest,
+    DatasetGraphGrid,
     DatasetGraphSearchResponse,
     DatasetIntakeRequest,
     DatasetIntakeSessionCreateRequest,
@@ -34,6 +35,7 @@ from .schemas import (
     DatasetIntakeSessionTableRequest,
     DatasetIntakeValidationResponse,
     DatasetNodeDetail,
+    DatasetSourceGraphOverview,
     EmbeddingAnalysis,
     EmbeddingCreateRequest,
     EmbeddingGraphDetail,
@@ -505,6 +507,49 @@ def create_app(workspace_path: Optional[Union[str, Path]] = None):
     def inspect_project_dataset_node(project_id: str, dataset_id: str, graph_id: str, node_id: str) -> DatasetNodeDetail:
         try:
             return store.dataset_node_detail(project_id, dataset_id, graph_id=graph_id, node_id=node_id)
+        except Exception as exc:
+            raise api_exception(exc) from exc
+
+    @app.get(
+        "/api/projects/{project_id}/datasets/{dataset_id}/analysis/source-graph",
+        response_model=DatasetSourceGraphOverview,
+        response_model_exclude_none=True,
+    )
+    def overview_project_dataset_source_graph(
+        project_id: str,
+        dataset_id: str,
+        max_nodes: int = 500,
+        max_edges: int = 1500,
+    ) -> DatasetSourceGraphOverview:
+        try:
+            return store.dataset_source_graph_visual(project_id, dataset_id, max_nodes=max_nodes, max_edges=max_edges)
+        except Exception as exc:
+            raise api_exception(exc) from exc
+
+    @app.get(
+        "/api/projects/{project_id}/datasets/{dataset_id}/analysis/grid",
+        response_model=DatasetGraphGrid,
+        response_model_exclude_none=True,
+    )
+    def grid_project_dataset_graphs(
+        project_id: str,
+        dataset_id: str,
+        offset: int = 0,
+        limit: int = 12,
+        max_nodes: int = 40,
+        max_edges: int = 80,
+        query: str = "",
+    ) -> DatasetGraphGrid:
+        try:
+            return store.dataset_graph_grid(
+                project_id,
+                dataset_id,
+                offset=offset,
+                limit=limit,
+                max_nodes=max_nodes,
+                max_edges=max_edges,
+                query=query,
+            )
         except Exception as exc:
             raise api_exception(exc) from exc
 

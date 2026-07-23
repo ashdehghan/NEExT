@@ -1,3 +1,4 @@
+import io
 import json
 import sys
 import time
@@ -90,7 +91,7 @@ def write_labeled_graph_source_bundle(source_dir: Path, *, graph_count: int = 8,
     }
 
 
-def write_single_graph_source_bundle(source_dir: Path) -> dict[str, str]:
+def write_single_graph_source_bundle(source_dir: Path, *, disconnected: bool = False) -> dict[str, str]:
     source_dir.mkdir(parents=True)
     (source_dir / "nodes.csv").write_text(
         "node_id,role,score\n"
@@ -104,10 +105,12 @@ def write_single_graph_source_bundle(source_dir: Path) -> dict[str, str]:
         "108,right,8.0\n",
         encoding="utf-8",
     )
-    (source_dir / "edges.csv").write_text(
-        "src_node_id,dest_node_id\n" "101,102\n" "102,103\n" "103,104\n" "104,105\n" "105,106\n" "106,107\n" "107,108\n",
-        encoding="utf-8",
-    )
+    if disconnected:
+        # largest component 101-105, side component 106-107, isolate 108
+        edge_rows = "src_node_id,dest_node_id\n" "101,102\n" "102,103\n" "103,104\n" "104,105\n" "106,107\n"
+    else:
+        edge_rows = "src_node_id,dest_node_id\n" "101,102\n" "102,103\n" "103,104\n" "104,105\n" "105,106\n" "106,107\n" "107,108\n"
+    (source_dir / "edges.csv").write_text(edge_rows, encoding="utf-8")
     return {
         "nodes": str(source_dir / "nodes.csv"),
         "edges": str(source_dir / "edges.csv"),
@@ -688,6 +691,97 @@ def test_dataset_library_catalog_endpoint_exposes_curated_metadata_without_paths
             assert entry["edge_count"] > 0
 
 
+def test_dataset_library_hf_single_graph_entries_reference_resolve_urls():
+    from NEExT.workbench import dataset_library
+
+    hf_entries = [dataset for dataset in dataset_library.DATASET_CATALOG if dataset.source == dataset_library.HF_CATALOG_SOURCE]
+    assert len(hf_entries) == 44
+    for dataset in hf_entries:
+        assert dataset.source_type == "neext_single_graph_csv"
+        assert dataset.source_graph_shape == "single_graph"
+        assert dataset.graph_count == 1
+        assert set(dataset.files) == {"nodes", "edges"}
+        for url in dataset.files.values():
+            assert url.startswith(f"{dataset_library.HF_RESOLVE_BASE_URL}/")
+            assert url.endswith(".csv")
+        assert len(dataset.node_attribute_columns) == 1
+        assert dataset.node_count > 0
+        assert dataset.edge_count > 0
+    catalog_ids = [dataset.id for dataset in dataset_library.DATASET_CATALOG]
+    assert len(catalog_ids) == len(set(catalog_ids))
+
+
+def test_single_graph_catalog_entry_with_https_files_prepares_from_urls(monkeypatch):
+    pytest.importorskip("fastapi")
+    pytest.importorskip("pyarrow")
+
+    import pandas as pd
+    from fastapi.testclient import TestClient
+
+    import NEExT.workbench.dataset_library as dataset_library
+    from NEExT.workbench.app import create_app
+    from NEExT.workbench.dataset_library import CatalogDataset
+
+    base_url = "https://hub.example/datasets/test/resolve/main/single/neext"
+    nodes_csv = "node_id,role\n101,left\n102,right\n103,left\n104,right\n105,left\n106,right\n107,left\n108,right\n"
+    edges_csv = "src_node_id,dest_node_id\n101,102\n102,103\n103,104\n104,105\n105,106\n106,107\n107,108\n"
+    fetched_urls: list[str] = []
+    real_read_csv = pd.read_csv
+
+    def fake_read_csv(source, *args, **kwargs):
+        if isinstance(source, str) and source.startswith(base_url):
+            fetched_urls.append(source)
+            payload = nodes_csv if source.endswith("nodes.csv") else edges_csv
+            return real_read_csv(io.StringIO(payload), *args, **kwargs)
+        return real_read_csv(source, *args, **kwargs)
+
+    monkeypatch.setattr(pd, "read_csv", fake_read_csv)
+    monkeypatch.setattr(
+        dataset_library,
+        "DATASET_CATALOG",
+        (
+            CatalogDataset(
+                id="HF_SINGLE",
+                name="HF Single Source",
+                description="remote single graph",
+                domain="Tests",
+                files={"nodes": f"{base_url}/nodes.csv", "edges": f"{base_url}/edges.csv"},
+                graph_count=1,
+                node_count=8,
+                edge_count=7,
+                source="Test hub",
+                source_type="neext_single_graph_csv",
+                source_graph_shape="single_graph",
+                node_attribute_columns=("role",),
+            ),
+        ),
+    )
+
+    with TemporaryDirectory() as tmpdir:
+        client = TestClient(create_app(tmpdir))
+        project_id = client.post("/api/projects", json={"name": "HF Single Graph Project"}).json()["id"]
+
+        configured = client.post(
+            f"/api/projects/{project_id}/datasets",
+            json={
+                "catalog_id": "HF_SINGLE",
+                "params": {"k_hop": 1, "node_selection": "all_nodes", "target_node_attribute": "role"},
+            },
+        )
+        assert configured.status_code == 200
+        dataset_id = configured.json()["id"]
+
+        run = client.post(f"/api/projects/{project_id}/datasets/{dataset_id}/run")
+        assert run.status_code == 200
+        job = wait_for_job(client, project_id, run.json()["id"])
+        assert job["status"] == "completed"
+
+        prepared = client.get(f"/api/projects/{project_id}/datasets/{dataset_id}").json()
+        assert prepared["status"] == "completed"
+        assert prepared["prepared_stats"]["graph_count"] == 8
+        assert sorted(set(fetched_urls)) == [f"{base_url}/edges.csv", f"{base_url}/nodes.csv"]
+
+
 def test_dataset_intake_validates_creates_and_prepares_uploaded_neext_tables():
     pytest.importorskip("fastapi")
     pytest.importorskip("pyarrow")
@@ -845,7 +939,7 @@ def test_single_graph_dataset_intake_validates_creates_prepares_and_feeds_downst
             "params": {
                 "graph_type": "networkx",
                 "reindex_nodes": True,
-                "filter_largest_component": False,
+                "filter_largest_component": True,
                 "k_hop": 1,
                 "node_selection": "all_nodes",
                 "sample_fraction": 1.0,
@@ -898,6 +992,49 @@ def test_single_graph_dataset_intake_validates_creates_prepares_and_feeds_downst
             "target_node_attribute": "role",
         }
         assert analysis_payload["graph_label_distribution"] == {"left": 4, "right": 4}
+
+        source_graph = client.get(f"/api/projects/{project_id}/datasets/{dataset_id}/analysis/source-graph")
+        assert source_graph.status_code == 200
+        source_graph_payload = source_graph.json()
+        assert str(Path(tmpdir).resolve()) not in json.dumps(source_graph_payload)
+        assert source_graph_payload["dataset_id"] == dataset_id
+        assert source_graph_payload["node_count"] == 8
+        assert source_graph_payload["edge_count"] == 7
+        assert source_graph_payload["centroid_count"] == 8
+        assert source_graph_payload["sampled"] is False
+        assert {node["id"] for node in source_graph_payload["nodes"]} == {str(node_id) for node_id in range(101, 109)}
+        assert all(node["is_center"] is True for node in source_graph_payload["nodes"])
+        assert len(source_graph_payload["edges"]) == 7
+
+        source_graph_sampled = client.get(f"/api/projects/{project_id}/datasets/{dataset_id}/analysis/source-graph?max_nodes=5&max_edges=3")
+        assert source_graph_sampled.status_code == 200
+        source_graph_sampled_payload = source_graph_sampled.json()
+        assert source_graph_sampled_payload["sampled"] is True
+        assert "nodes limited to 5" in source_graph_sampled_payload["sample_reason"]
+        assert len(source_graph_sampled_payload["nodes"]) == 5
+        assert all(node["is_center"] is True for node in source_graph_sampled_payload["nodes"])
+        assert len(source_graph_sampled_payload["edges"]) <= 3
+
+        source_graph_bad_nodes = client.get(f"/api/projects/{project_id}/datasets/{dataset_id}/analysis/source-graph?max_nodes=3000")
+        assert source_graph_bad_nodes.status_code == 400
+        assert "max_nodes must be between 1 and 2000" in source_graph_bad_nodes.json()["detail"]
+
+        grid = client.get(f"/api/projects/{project_id}/datasets/{dataset_id}/analysis/grid?limit=3")
+        assert grid.status_code == 200
+        grid_payload = grid.json()
+        assert str(Path(tmpdir).resolve()) not in json.dumps(grid_payload)
+        assert grid_payload["total_graphs"] == 8
+        assert [tile["graph_id"] for tile in grid_payload["tiles"]] == [summary["graph_id"] for summary in analysis_payload["graph_summaries"][:3]]
+        for tile in grid_payload["tiles"]:
+            assert tile["source_node_id"]
+            center_nodes = [node for node in tile["visual"]["nodes"] if node.get("is_center")]
+            assert len(center_nodes) == 1
+
+        grid_page = client.get(f"/api/projects/{project_id}/datasets/{dataset_id}/analysis/grid?offset=3&limit=3")
+        assert grid_page.status_code == 200
+        assert [tile["graph_id"] for tile in grid_page.json()["tiles"]] == [
+            summary["graph_id"] for summary in analysis_payload["graph_summaries"][3:6]
+        ]
 
         feature = client.post(
             f"/api/projects/{project_id}/features",
@@ -1172,6 +1309,12 @@ def test_configure_and_run_dataset_writes_prepared_outputs_and_mapping(monkeypat
         not_ready_node = client.get(f"/api/projects/{project_id}/datasets/{dataset_id}/analysis/node?graph_id=g1&node_id=0")
         assert not_ready_node.status_code == 400
         assert "available only after preparation completes" in not_ready_node.json()["detail"]
+        not_ready_source_graph = client.get(f"/api/projects/{project_id}/datasets/{dataset_id}/analysis/source-graph")
+        assert not_ready_source_graph.status_code == 400
+        assert "available only after preparation completes" in not_ready_source_graph.json()["detail"]
+        not_ready_grid = client.get(f"/api/projects/{project_id}/datasets/{dataset_id}/analysis/grid")
+        assert not_ready_grid.status_code == 400
+        assert "available only after preparation completes" in not_ready_grid.json()["detail"]
         not_ready_export = client.get(f"/api/projects/{project_id}/datasets/{dataset_id}/export/nodes")
         assert not_ready_export.status_code == 400
         assert "available only after preparation completes" in not_ready_export.json()["detail"]
@@ -1373,6 +1516,48 @@ def test_configure_and_run_dataset_writes_prepared_outputs_and_mapping(monkeypat
         assert missing_node.status_code == 400
         assert "Prepared node not found" in missing_node.json()["detail"]
 
+        collection_source_graph = client.get(f"/api/projects/{project_id}/datasets/{dataset_id}/analysis/source-graph")
+        assert collection_source_graph.status_code == 400
+        assert "only for single-graph datasets" in collection_source_graph.json()["detail"]
+
+        grid = client.get(f"/api/projects/{project_id}/datasets/{dataset_id}/analysis/grid")
+        assert grid.status_code == 200
+        grid_payload = grid.json()
+        assert str(Path(tmpdir).resolve()) not in json.dumps(grid_payload)
+        assert grid_payload["total_graphs"] == 2
+        assert grid_payload["offset"] == 0
+        assert grid_payload["limit"] == 12
+        assert "query" not in grid_payload
+        assert [tile["graph_id"] for tile in grid_payload["tiles"]] == [summary["graph_id"] for summary in analysis_payload["graph_summaries"]]
+        assert grid_payload["tiles"][0]["node_count"] == 2
+        assert grid_payload["tiles"][0]["edge_count"] == 1
+        assert grid_payload["tiles"][0]["graph_label"] == 0
+        assert grid_payload["tiles"][0]["visual"]["sampled"] is False
+        assert {node["id"] for node in grid_payload["tiles"][0]["visual"]["nodes"]} == {"0", "1"}
+
+        grid_sliced = client.get(f"/api/projects/{project_id}/datasets/{dataset_id}/analysis/grid?offset=1&limit=1")
+        assert grid_sliced.status_code == 200
+        grid_sliced_payload = grid_sliced.json()
+        assert grid_sliced_payload["total_graphs"] == 2
+        assert [tile["graph_id"] for tile in grid_sliced_payload["tiles"]] == ["g2"]
+
+        grid_sampled = client.get(f"/api/projects/{project_id}/datasets/{dataset_id}/analysis/grid?max_nodes=1&max_edges=1")
+        assert grid_sampled.status_code == 200
+        for tile in grid_sampled.json()["tiles"]:
+            assert tile["visual"]["sampled"] is True
+            assert len(tile["visual"]["nodes"]) == 1
+
+        grid_query = client.get(f"/api/projects/{project_id}/datasets/{dataset_id}/analysis/grid?query=g2")
+        assert grid_query.status_code == 200
+        grid_query_payload = grid_query.json()
+        assert grid_query_payload["total_graphs"] == 1
+        assert grid_query_payload["query"] == "g2"
+        assert [tile["graph_id"] for tile in grid_query_payload["tiles"]] == ["g2"]
+
+        grid_bad_limit = client.get(f"/api/projects/{project_id}/datasets/{dataset_id}/analysis/grid?limit=50")
+        assert grid_bad_limit.status_code == 400
+        assert "limit must be between 1 and 24" in grid_bad_limit.json()["detail"]
+
         second = client.post(f"/api/projects/{project_id}/datasets", json={"catalog_id": "TINY"})
         assert second.status_code == 200
         second_dataset = second.json()
@@ -1445,7 +1630,7 @@ def test_single_graph_dataset_prepares_egonet_collection_and_feeds_downstream_ar
             "params": {
                 "graph_type": "networkx",
                 "reindex_nodes": True,
-                "filter_largest_component": False,
+                "filter_largest_component": True,
                 "k_hop": 1,
                 "node_selection": "all_nodes",
                 "sample_fraction": 1.0,
@@ -1684,6 +1869,126 @@ def test_single_graph_node_selection_modes_are_deterministic_and_validate_unknow
         failed_dataset = client.get(f"/api/projects/{project_id}/datasets/{unknown_dataset_id}").json()
         assert failed_dataset["status"] == "failed"
         assert "Unknown source node IDs: 999" in failed_dataset["error"]["message"]
+
+
+def test_single_graph_largest_component_filter_defaults_on_and_records_dropped_nodes(monkeypatch):
+    pytest.importorskip("fastapi")
+    pytest.importorskip("pyarrow")
+
+    import pandas as pd
+    from fastapi.testclient import TestClient
+
+    import NEExT.workbench.dataset_library as dataset_library
+    from NEExT.workbench.app import create_app
+    from NEExT.workbench.dataset_library import CatalogDataset
+
+    with TemporaryDirectory() as tmpdir:
+        source_files = write_single_graph_source_bundle(Path(tmpdir) / "single-source", disconnected=True)
+        monkeypatch.setattr(
+            dataset_library,
+            "DATASET_CATALOG",
+            (
+                CatalogDataset(
+                    id="SINGLE_DISCONNECTED",
+                    name="Disconnected Single Source",
+                    description="single graph with side component and isolate",
+                    domain="Tests",
+                    files=source_files,
+                    graph_count=1,
+                    node_count=8,
+                    edge_count=5,
+                    source="Test catalog",
+                    source_type="neext_single_graph_csv",
+                    source_graph_shape="single_graph",
+                    node_attribute_columns=("role",),
+                ),
+            ),
+        )
+
+        client = TestClient(create_app(tmpdir))
+        project_id = client.post("/api/projects", json={"name": "Filter Default Project"}).json()["id"]
+
+        # 1. Default params: filtering on, only the 5-node largest component prepares.
+        configured = client.post(
+            f"/api/projects/{project_id}/datasets",
+            json={
+                "catalog_id": "SINGLE_DISCONNECTED",
+                "params": {"k_hop": 1, "node_selection": "all_nodes", "target_node_attribute": "role"},
+            },
+        )
+        assert configured.status_code == 200
+        dataset = configured.json()
+        dataset_id = dataset["id"]
+        assert dataset["operation"]["params"]["filter_largest_component"] is True
+
+        run = client.post(f"/api/projects/{project_id}/datasets/{dataset_id}/run")
+        assert run.status_code == 200
+        job = wait_for_job(client, project_id, run.json()["id"])
+        assert job["status"] == "completed"
+
+        prepared = client.get(f"/api/projects/{project_id}/datasets/{dataset_id}").json()
+        assert prepared["status"] == "completed"
+        assert prepared["prepared_stats"]["graph_count"] == 5
+        assert prepared["source_stats"]["node_count"] == 8
+
+        artifact_path = Path(tmpdir) / "projects" / project_id / "artifacts" / "datasets" / dataset_id
+        mapping = pd.read_parquet(artifact_path / "mappings" / "node_mapping.parquet")
+        dropped = mapping[~mapping["included"]]
+        assert sorted(dropped["source_node_id"].tolist()) == [106, 107, 108]
+        assert set(dropped["drop_reason"]) == {"not_in_largest_connected_component"}
+        assert dropped["internal_graph_id"].isna().all()
+        included_centers = mapping[mapping["included"]]["center_source_node_id"].dropna().unique().tolist()
+        assert sorted(included_centers) == [101, 102, 103, 104, 105]
+
+        analysis = client.get(f"/api/projects/{project_id}/datasets/{dataset_id}/analysis")
+        assert analysis.status_code == 200
+        assert analysis.json()["dropped_node_count"] == 3
+
+        # 2. specific_node_ids pointing at a filtered-out node fails with a distinct error.
+        filtered_pick = client.post(
+            f"/api/projects/{project_id}/datasets",
+            json={
+                "catalog_id": "SINGLE_DISCONNECTED",
+                "params": {
+                    "k_hop": 1,
+                    "node_selection": "specific_node_ids",
+                    "source_node_ids": ["108"],
+                    "target_node_attribute": "role",
+                },
+            },
+        )
+        assert filtered_pick.status_code == 200
+        filtered_dataset_id = filtered_pick.json()["id"]
+        run_filtered = client.post(f"/api/projects/{project_id}/datasets/{filtered_dataset_id}/run")
+        assert run_filtered.status_code == 200
+        filtered_job = wait_for_job(client, project_id, run_filtered.json()["id"])
+        assert filtered_job["status"] == "failed"
+        assert "outside the largest connected component: 108" in filtered_job["error"]
+
+        # 3. Opt-out still prepares every node, including the isolate.
+        unfiltered = client.post(
+            f"/api/projects/{project_id}/datasets",
+            json={
+                "catalog_id": "SINGLE_DISCONNECTED",
+                "params": {
+                    "k_hop": 1,
+                    "node_selection": "all_nodes",
+                    "target_node_attribute": "role",
+                    "filter_largest_component": False,
+                },
+            },
+        )
+        assert unfiltered.status_code == 200
+        unfiltered_dataset_id = unfiltered.json()["id"]
+        assert unfiltered.json()["operation"]["params"]["filter_largest_component"] is False
+        run_unfiltered = client.post(f"/api/projects/{project_id}/datasets/{unfiltered_dataset_id}/run")
+        assert run_unfiltered.status_code == 200
+        unfiltered_job = wait_for_job(client, project_id, run_unfiltered.json()["id"])
+        assert unfiltered_job["status"] == "completed"
+        unfiltered_prepared = client.get(f"/api/projects/{project_id}/datasets/{unfiltered_dataset_id}").json()
+        assert unfiltered_prepared["prepared_stats"]["graph_count"] == 8
+        unfiltered_analysis = client.get(f"/api/projects/{project_id}/datasets/{unfiltered_dataset_id}/analysis")
+        assert unfiltered_analysis.json()["dropped_node_count"] == 0
 
 
 def test_feature_library_catalog_endpoint_exposes_built_ins_without_paths_or_code():

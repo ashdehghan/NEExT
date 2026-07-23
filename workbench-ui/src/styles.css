@@ -1431,28 +1431,51 @@ input:focus, textarea:focus, select:focus {
   gap: var(--space-2);
 }
 .dataset-graph-header {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr) minmax(240px, 320px);
-  align-items: center;
-  gap: var(--space-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
   padding: var(--space-3);
   border-bottom: 1px solid var(--border);
   background: var(--panel-alt);
 }
-.graph-nav-group,
-.graph-summary-band {
+.graph-toolbar-row {
+  display: grid;
+  grid-template-columns: auto auto minmax(180px, 1fr);
+  align-items: end;
+  gap: var(--space-3);
+}
+.graph-nav-group {
   display: inline-flex;
   align-items: center;
   gap: var(--space-2);
   min-width: 0;
-}
-.graph-nav-group {
   min-height: 34px;
   padding: 2px;
   border: 1px solid var(--border);
   border-radius: var(--radius-2);
   background: var(--panel);
 }
+.seg-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  min-height: 34px;
+  padding: 2px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-2);
+  background: var(--panel);
+}
+.seg-btn {
+  height: 28px;
+  padding: 0 var(--space-3);
+  border-radius: var(--radius-1);
+  font-size: var(--text-11);
+  font-weight: 600;
+  color: var(--chrome-700);
+  white-space: nowrap;
+}
+.seg-btn:hover { background: var(--chrome-200); }
+.seg-btn.is-active { background: var(--select-bg); color: var(--text); }
 .graph-position {
   display: inline-flex;
   align-items: center;
@@ -1466,10 +1489,87 @@ input:focus, textarea:focus, select:focus {
   text-align: center;
   white-space: nowrap;
 }
-.graph-summary-band {
-  flex-wrap: wrap;
-  align-content: center;
-  min-height: 34px;
+.graph-meta-strip {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 30px;
+  min-width: 0;
+  overflow: hidden;
+}
+.graph-meta-strip > * {
+  flex-shrink: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.graph-meta-strip .status-pill,
+.graph-meta-strip .graph-meta-action {
+  flex-shrink: 0;
+}
+.graph-meta-note {
+  font-size: var(--text-11);
+  color: var(--chrome-600);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.graph-meta-action {
+  height: 28px;
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-1);
+  font-size: var(--text-11);
+  font-weight: 650;
+  color: var(--neext-blue);
+  white-space: nowrap;
+}
+.graph-meta-action:hover { background: var(--chrome-200); }
+.graph-tile-grid {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  align-content: start;
+  gap: var(--space-3);
+  padding: var(--space-3);
+}
+.graph-tile {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-2);
+  background: var(--panel);
+  text-align: left;
+}
+.graph-tile:hover { border-color: var(--select-border); }
+.graph-tile.is-selected {
+  border-color: var(--select-border);
+  box-shadow: inset 0 0 0 1px var(--select-border);
+  background: var(--select-bg);
+}
+.dataset-graph-chart.graph-tile-chart {
+  flex: 0 0 150px;
+  min-height: 150px;
+  background: transparent;
+}
+.graph-tile-caption {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  font-size: var(--text-11);
+}
+.graph-tile-caption .mono {
+  font-weight: 650;
+  flex-shrink: 0;
+}
+.graph-tile-caption > * {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .graph-id-badge,
 .graph-meta-badge,
@@ -1995,10 +2095,10 @@ input:focus, textarea:focus, select:focus {
   .feature-pca-control-band {
     grid-template-columns: auto minmax(220px, 1fr);
   }
-  .dataset-graph-header {
-    grid-template-columns: auto minmax(220px, 1fr);
+  .graph-toolbar-row {
+    grid-template-columns: auto minmax(0, 1fr);
   }
-  .dataset-graph-header .graph-search-field {
+  .graph-toolbar-row .graph-search-field {
     grid-column: 1 / -1;
   }
   .feature-pca-status-group,
