@@ -5255,3 +5255,252 @@ def test_non_executor_store_persists_jobs_for_executor_recovery(monkeypatch):
         assert final.started_at is not None
         # Exactly-once: the worker started the job a single time (recovery did not double-dispatch).
         assert [event.message for event in final.events].count("Job started") == 1
+
+
+def test_embedding_similarity_graph_endpoint():
+    pytest.importorskip("fastapi")
+    pytest.importorskip("pyarrow")
+
+    import numpy as np
+    import pandas as pd
+    from fastapi.testclient import TestClient
+
+    from NEExT.workbench.app import create_app
+    from NEExT.workbench.schemas import EmbeddingOutputFiles, EmbeddingOutputStats, FeatureOutputFiles, FeatureOutputStats
+    from NEExT.workbench.storage import utc_now
+
+    with TemporaryDirectory() as tmpdir:
+        app = create_app(tmpdir)
+        client = TestClient(app)
+        store = app.state.store
+        project_id = client.post("/api/projects", json={"name": "Similarity Graph Project"}).json()["id"]
+
+        created = client.post(f"/api/projects/{project_id}/dataset-intake/create", json=single_graph_intake_payload())
+        assert created.status_code == 200
+        dataset_id = created.json()["id"]
+        run = client.post(f"/api/projects/{project_id}/datasets/{dataset_id}/run")
+        assert run.status_code == 200
+        assert wait_for_job(client, project_id, run.json()["id"])["status"] == "completed"
+
+        def complete_manual_feature(source_dataset_id: str) -> str:
+            feature = client.post(
+                f"/api/projects/{project_id}/features",
+                json={
+                    "source_dataset_id": source_dataset_id,
+                    "source_feature_id": "page_rank",
+                    "params": {"feature_vector_length": 2, "normalize_features": False, "n_jobs": 1, "parallel_backend": "threading"},
+                },
+            ).json()
+            manifest = store.read_feature(project_id, feature["id"])
+            feature_path = store.feature_path(project_id, manifest.id)
+            (feature_path / "output").mkdir(parents=True, exist_ok=False)
+            output = pd.DataFrame([{"node_id": "0", "graph_id": "0", "page_rank_0": 0.1, "page_rank_1": 0.2}])
+            output.to_parquet(feature_path / "output" / "features.parquet", index=False)
+            manifest.status = "completed"
+            manifest.output_files = FeatureOutputFiles(features="output/features.parquet")
+            manifest.output_stats = FeatureOutputStats(row_count=1, column_count=4)
+            manifest.updated_at = utc_now()
+            store._write_json(feature_path / "artifact.json", manifest.model_dump())
+            return manifest.id
+
+        def complete_manual_embedding(source_feature_id: str, rows: list[dict[str, object]]) -> str:
+            embedding = client.post(
+                f"/api/projects/{project_id}/embeddings",
+                json={
+                    "source_embedding_id": "approx_wasserstein",
+                    "source_feature_ids": [source_feature_id],
+                    "params": {"embedding_dimension": 2},
+                },
+            ).json()
+            manifest = store.read_embedding(project_id, embedding["id"])
+            embedding_path = store.embedding_path(project_id, manifest.id)
+            (embedding_path / "output").mkdir(parents=True, exist_ok=False)
+            output = pd.DataFrame(rows)
+            output.to_parquet(embedding_path / "output" / "embeddings.parquet", index=False)
+            manifest.status = "completed"
+            manifest.output_files = EmbeddingOutputFiles(embeddings="output/embeddings.parquet")
+            manifest.output_stats = EmbeddingOutputStats(row_count=int(len(output)), column_count=int(len(output.columns)))
+            manifest.updated_at = utc_now()
+            store._write_json(embedding_path / "artifact.json", manifest.model_dump())
+            return manifest.id
+
+        feature_id = complete_manual_feature(dataset_id)
+        # Internal graph ids 0..7 map to source nodes 101..108 (sorted by source node id).
+        embedding_id = complete_manual_embedding(
+            feature_id,
+            [
+                {"graph_id": 0, "emb_0": 1.0, "emb_1": 0.0},
+                {"graph_id": 1, "emb_0": 1.0, "emb_1": 1.0},
+                {"graph_id": 2, "emb_0": 0.0, "emb_1": 1.0},
+                {"graph_id": 3, "emb_0": -1.0, "emb_1": 0.0},
+                {"graph_id": 4, "emb_0": 2.0, "emb_1": 0.0},
+                {"graph_id": 5, "emb_0": 0.0, "emb_1": -1.0},
+                {"graph_id": 6, "emb_0": 1.0, "emb_1": 0.0},
+                {"graph_id": 7, "emb_0": 0.0, "emb_1": 0.0},
+            ],
+        )
+        endpoint = f"/api/projects/{project_id}/embeddings/{embedding_id}/analysis/similarity-graph"
+
+        # Single-node reference: exact cosine expectations against source node 101 (internal 0).
+        response = client.post(endpoint, json={"reference_mode": "nodes", "reference_source_node_ids": ["101"]})
+        assert response.status_code == 200
+        payload = response.json()
+        assert str(Path(tmpdir).resolve()) not in json.dumps(payload)
+        assert payload["embedding_id"] == embedding_id
+        assert payload["dataset_id"] == dataset_id
+        assert payload["reference_source_node_ids"] == ["101"]
+        assert payload["reference_node_count"] == 1
+        assert payload["node_count"] == 8
+        assert payload["edge_count"] == 7
+        assert payload["embedded_node_count"] == 8
+        assert payload["dropped_node_count"] == 0
+        assert payload["sampled"] is False
+        nodes_by_id = {node["id"]: node for node in payload["nodes"]}
+        assert set(nodes_by_id) == {str(node_id) for node_id in range(101, 109)}
+        assert nodes_by_id["101"]["is_reference"] is True
+        assert nodes_by_id["101"]["internal_graph_id"] == "0"
+        assert nodes_by_id["101"]["similarity"] == pytest.approx(1.0)
+        assert nodes_by_id["105"]["similarity"] == pytest.approx(1.0)  # parallel vector
+        assert nodes_by_id["103"]["similarity"] == pytest.approx(0.5)  # orthogonal
+        assert nodes_by_id["104"]["similarity"] == pytest.approx(0.0)  # opposite
+        assert nodes_by_id["108"]["similarity"] == pytest.approx(0.5)  # zero-norm vector
+        assert nodes_by_id["104"]["cosine"] == pytest.approx(-1.0)
+        assert all(node["graph_label"] in {"left", "right"} for node in payload["nodes"])
+        assert all(0.0 <= node["similarity"] <= 1.0 for node in payload["nodes"])
+
+        # Multi-node centroid: refs 101 (1,0) + 103 (0,1) -> centroid (0.5, 0.5); 102 (1,1) is parallel.
+        response = client.post(endpoint, json={"reference_mode": "nodes", "reference_source_node_ids": ["101", "103"]})
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["reference_source_node_ids"] == ["101", "103"]
+        nodes_by_id = {node["id"]: node for node in payload["nodes"]}
+        assert nodes_by_id["102"]["similarity"] == pytest.approx(1.0)
+        assert nodes_by_id["104"]["similarity"] == pytest.approx((-np.cos(np.pi / 4) + 1) / 2)
+
+        # Empty reference returns the uncolored source graph.
+        response = client.post(endpoint, json={"reference_mode": "nodes", "reference_source_node_ids": []})
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["reference_node_count"] == 0
+        assert all(node["similarity"] is None for node in payload["nodes"])
+        assert payload["node_count"] == 8
+
+        # Label-seeded sample: deterministic for a fixed seed, seeds flagged as references.
+        label_request = {"reference_mode": "label_sample", "label_value": "left", "sample_fraction": 0.5, "random_seed": 42}
+        first = client.post(endpoint, json=label_request)
+        second = client.post(endpoint, json=label_request)
+        assert first.status_code == 200
+        assert first.json()["reference_source_node_ids"] == second.json()["reference_source_node_ids"]
+        payload = first.json()
+        assert payload["label_value"] == "left"
+        assert payload["sample_fraction"] == 0.5
+        assert payload["random_seed"] == 42
+        assert payload["reference_node_count"] == 2  # 4 left nodes * 0.5
+        left_source_ids = {"101", "103", "105", "107"}
+        assert set(payload["reference_source_node_ids"]) <= left_source_ids
+        nodes_by_id = {node["id"]: node for node in payload["nodes"]}
+        for reference_id in payload["reference_source_node_ids"]:
+            assert nodes_by_id[reference_id]["is_reference"] is True
+
+        # Errors.
+        unknown = client.post(endpoint, json={"reference_mode": "nodes", "reference_source_node_ids": ["999"]})
+        assert unknown.status_code == 400
+        assert "999" in unknown.json()["detail"]
+        missing_label = client.post(endpoint, json={"reference_mode": "label_sample"})
+        assert missing_label.status_code == 400
+        assert "label_value is required" in missing_label.json()["detail"]
+        empty_label = client.post(endpoint, json={"reference_mode": "label_sample", "label_value": "missing"})
+        assert empty_label.status_code == 400
+        assert "No embedded egonets" in empty_label.json()["detail"]
+        bad_caps = client.post(endpoint, json={"reference_mode": "nodes", "reference_source_node_ids": [], "max_nodes": 5000})
+        assert bad_caps.status_code == 422
+
+        # Planned embedding is rejected.
+        planned_embedding = client.post(
+            f"/api/projects/{project_id}/embeddings",
+            json={
+                "source_embedding_id": "approx_wasserstein",
+                "source_feature_ids": [feature_id],
+                "params": {"embedding_dimension": 2},
+            },
+        ).json()
+        blocked = client.post(
+            f"/api/projects/{project_id}/embeddings/{planned_embedding['id']}/analysis/similarity-graph",
+            json={"reference_mode": "nodes", "reference_source_node_ids": []},
+        )
+        assert blocked.status_code == 400
+        assert "available only after computation completes" in blocked.json()["detail"]
+
+        # Graph-collection datasets are rejected.
+        collection_payload = {
+            "name": "Collection Import",
+            "description": "Graph collection import",
+            "tables": {
+                "edges": {"format": "csv", "csv": "src_node_id,dest_node_id\n1,2\n3,4\n"},
+                "node_graph_mapping": {"format": "csv", "csv": "node_id,graph_id\n1,g1\n2,g1\n3,g2\n4,g2\n"},
+            },
+        }
+        collection_dataset = client.post(f"/api/projects/{project_id}/dataset-intake/create", json=collection_payload).json()
+        collection_run = client.post(f"/api/projects/{project_id}/datasets/{collection_dataset['id']}/run")
+        assert wait_for_job(client, project_id, collection_run.json()["id"])["status"] == "completed"
+        collection_feature_id = complete_manual_feature(collection_dataset["id"])
+        collection_embedding_id = complete_manual_embedding(
+            collection_feature_id,
+            [{"graph_id": "g1", "emb_0": 1.0, "emb_1": 0.0}, {"graph_id": "g2", "emb_0": 0.0, "emb_1": 1.0}],
+        )
+        rejected = client.post(
+            f"/api/projects/{project_id}/embeddings/{collection_embedding_id}/analysis/similarity-graph",
+            json={"reference_mode": "nodes", "reference_source_node_ids": []},
+        )
+        assert rejected.status_code == 400
+        assert "single-graph egonet datasets" in rejected.json()["detail"]
+
+        # Non-embedded source nodes (dropped by largest-component filtering) are
+        # excluded from the visual; full-graph counts are still reported.
+        disconnected_payload = {
+            "name": "Disconnected Graph",
+            "description": "single graph with dropped nodes",
+            "source_graph_shape": "single_graph",
+            "tables": {
+                "nodes": {
+                    "format": "csv",
+                    "csv": "node_id,role\n101,left\n102,right\n103,left\n104,right\n105,left\n106,right\n107,left\n108,right\n",
+                },
+                "edges": {"format": "csv", "csv": "src_node_id,dest_node_id\n101,102\n102,103\n103,104\n104,105\n106,107\n"},
+            },
+            "params": {"k_hop": 1, "node_selection": "all_nodes", "target_node_attribute": "role"},
+        }
+        disconnected_dataset = client.post(f"/api/projects/{project_id}/dataset-intake/create", json=disconnected_payload).json()
+        disconnected_run = client.post(f"/api/projects/{project_id}/datasets/{disconnected_dataset['id']}/run")
+        assert wait_for_job(client, project_id, disconnected_run.json()["id"])["status"] == "completed"
+        disconnected_feature_id = complete_manual_feature(disconnected_dataset["id"])
+        disconnected_embedding_id = complete_manual_embedding(
+            disconnected_feature_id,
+            [{"graph_id": index, "emb_0": 1.0 + index, "emb_1": float(index)} for index in range(5)],
+        )
+        filtered = client.post(
+            f"/api/projects/{project_id}/embeddings/{disconnected_embedding_id}/analysis/similarity-graph",
+            json={"reference_mode": "nodes", "reference_source_node_ids": ["101"]},
+        )
+        assert filtered.status_code == 200
+        filtered_payload = filtered.json()
+        assert {node["id"] for node in filtered_payload["nodes"]} == {"101", "102", "103", "104", "105"}
+        assert filtered_payload["node_count"] == 8
+        assert filtered_payload["edge_count"] == 5
+        assert filtered_payload["embedded_node_count"] == 5
+        assert filtered_payload["dropped_node_count"] == 3
+        embedded_ids = {"101", "102", "103", "104", "105"}
+        assert all(edge["source"] in embedded_ids and edge["target"] in embedded_ids for edge in filtered_payload["edges"])
+        assert all(node["similarity"] is not None for node in filtered_payload["nodes"])
+
+        # Edge sampling must not orphan drawn nodes: with a tight edge cap, every
+        # node in the visual keeps at least one edge (no false isolates).
+        capped = client.post(
+            endpoint,
+            json={"reference_mode": "nodes", "reference_source_node_ids": ["101"], "max_edges": 5},
+        )
+        assert capped.status_code == 200
+        capped_payload = capped.json()
+        assert len(capped_payload["edges"]) == 5
+        touched = {edge["source"] for edge in capped_payload["edges"]} | {edge["target"] for edge in capped_payload["edges"]}
+        assert {node["id"] for node in capped_payload["nodes"]} <= touched

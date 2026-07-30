@@ -575,6 +575,45 @@ export interface EmbeddingGraphDetail {
   embedding_values: Record<string, unknown>;
 }
 
+export interface EmbeddingSimilarityGraphPayload {
+  reference_mode: "nodes" | "label_sample";
+  reference_source_node_ids?: string[];
+  label_value?: string | null;
+  sample_fraction?: number;
+  random_seed?: number;
+  max_nodes?: number;
+  max_edges?: number;
+}
+
+export interface EmbeddingSimilarityNode {
+  id: string;
+  degree: number;
+  similarity?: number | null;
+  cosine?: number | null;
+  internal_graph_id?: string | null;
+  is_reference?: boolean | null;
+  graph_label?: unknown;
+}
+
+export interface EmbeddingSimilarityGraph {
+  embedding_id: string;
+  dataset_id: string;
+  reference_mode: "nodes" | "label_sample";
+  reference_source_node_ids: string[];
+  reference_node_count: number;
+  label_value?: string | null;
+  sample_fraction?: number | null;
+  random_seed?: number | null;
+  node_count: number;
+  edge_count: number;
+  embedded_node_count: number;
+  dropped_node_count: number;
+  sampled: boolean;
+  sample_reason?: string | null;
+  nodes: EmbeddingSimilarityNode[];
+  edges: DatasetVisualEdge[];
+}
+
 export interface EmbeddingManifest {
   schema_version: string;
   manifest_type: "embedding";
@@ -1261,6 +1300,12 @@ export const api = {
     search.set("graph_id", graphId);
     return request<EmbeddingGraphDetail>(`/api/projects/${projectId}/embeddings/${embeddingId}/analysis/graph?${search.toString()}`);
   },
+  embeddingSimilarityGraph: (projectId: string, embeddingId: string, payload: EmbeddingSimilarityGraphPayload) =>
+    request<EmbeddingSimilarityGraph>(`/api/projects/${projectId}/embeddings/${embeddingId}/analysis/similarity-graph`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    }),
   createModel: (projectId: string, payload: ModelCreatePayload) =>
     request<ModelManifest>(`/api/projects/${projectId}/models`, {
       method: "POST",

@@ -15,6 +15,7 @@ import {
 import { EmptyState } from "../../components/primitives/EmptyState";
 import { FcIcon } from "../../components/primitives/FcIcon";
 import { AnalysisCommandCenter } from "../../components/viz/AnalysisCommandCenter";
+import { EmbeddingGraphTab } from "./EmbeddingGraphTab";
 
 const GNN_ARCHITECTURES: GnnArchitecture[] = ["GCN", "GraphSAGE", "GIN"];
 const GNN_POOLINGS: GnnPooling[] = ["mean", "sum", "max"];
@@ -939,7 +940,7 @@ export function EmbeddingExploreView({
   onSelectGraph,
   onSelectedGraphVisibilityChange
 }: EmbeddingExploreViewProps) {
-  const [tab, setTab] = useState<"statistics" | "analysis" | "data">("statistics");
+  const [tab, setTab] = useState<"statistics" | "analysis" | "graph" | "data">("statistics");
   const datasetsById = useMemo(() => new Map(datasets.map((dataset) => [dataset.id, dataset])), [datasets]);
   const featuresById = useMemo(() => new Map(features.map((feature) => [feature.id, feature])), [features]);
   const catalogById = useMemo(() => new Map(catalog.map((entry) => [entry.id, entry])), [catalog]);
@@ -947,6 +948,13 @@ export function EmbeddingExploreView({
     () => embeddings.find((item) => item.id === exploreEmbeddingId) || embeddings.find((item) => item.id === selectedEmbeddingId),
     [embeddings, exploreEmbeddingId, selectedEmbeddingId]
   );
+  const embeddingDataset = useMemo(() => {
+    if (!embedding) return undefined;
+    const sourceFeatureId = embeddingFeatureIds(embedding)[0];
+    const sourceFeature = sourceFeatureId ? featuresById.get(sourceFeatureId) : undefined;
+    return sourceFeature ? datasetsById.get(featureDatasetId(sourceFeature)) : undefined;
+  }, [embedding, featuresById, datasetsById]);
+  const similarityGraphAvailable = embeddingDataset?.source_graph_shape === "single_graph" && embeddingDataset.status === "completed";
 
   useEffect(() => {
     setTab("statistics");
@@ -969,6 +977,12 @@ export function EmbeddingExploreView({
       setTab("statistics");
     }
   }, [analysis.data, tab]);
+
+  useEffect(() => {
+    if (tab === "graph" && !similarityGraphAvailable) {
+      setTab("statistics");
+    }
+  }, [similarityGraphAvailable, tab]);
 
   if (!activeProjectId) {
     return (
@@ -1095,18 +1109,24 @@ export function EmbeddingExploreView({
           <span className="explore-title">{embedding.name}</span>
         </header>
         <div className="tab-strip">
-          {(["statistics", "analysis", "data"] as const).map((item) => {
+          {(["statistics", "analysis", "graph", "data"] as const).map((item) => {
             const analysisDisabled = item === "analysis" && Boolean(analysis.data && !analysis.data.pca.available);
+            const graphDisabled = item === "graph" && !similarityGraphAvailable;
+            const title = analysisDisabled
+              ? analysis.data?.pca.reason || "Analysis is unavailable for this embedding."
+              : graphDisabled
+                ? "Similarity graph is available for single-graph egonet datasets only."
+                : undefined;
             return (
               <button
                 key={item}
                 type="button"
                 className={`tab-btn ${tab === item ? "is-active" : ""}`}
                 onClick={() => setTab(item)}
-                disabled={analysisDisabled}
-                title={analysisDisabled ? analysis.data?.pca.reason || "Analysis is unavailable for this embedding." : undefined}
+                disabled={analysisDisabled || graphDisabled}
+                title={title}
               >
-                {item === "statistics" ? "Statistics" : item === "analysis" ? "Analysis" : "Data"}
+                {item === "statistics" ? "Statistics" : item === "analysis" ? "Analysis" : item === "graph" ? "Graph" : "Data"}
               </button>
             );
           })}
@@ -1120,6 +1140,13 @@ export function EmbeddingExploreView({
         {tab === "statistics" && analysis.data ? <EmbeddingStatisticsTab analysis={analysis.data} /> : null}
         {tab === "analysis" && analysis.data ? (
           <EmbeddingAnalysisTab activeProjectId={activeProjectId} embedding={embedding} hasLabels={hasLabels} />
+        ) : null}
+        {tab === "graph" && analysis.data && similarityGraphAvailable ? (
+          <EmbeddingGraphTab
+            activeProjectId={activeProjectId}
+            embedding={embedding}
+            labelDistribution={analysis.data.graph_label_distribution}
+          />
         ) : null}
         {tab === "data" ? <EmbeddingDataTab activeProjectId={activeProjectId} embedding={embedding} /> : null}
       </section>

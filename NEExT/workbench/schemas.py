@@ -674,6 +674,49 @@ class EmbeddingGraphDetail(BaseModel):
     embedding_values: dict[str, Any] = Field(default_factory=dict)
 
 
+class EmbeddingSimilarityGraphRequest(BaseModel):
+    reference_mode: Literal["nodes", "label_sample"] = "nodes"
+    # "nodes" mode: source-graph node ids whose egonet embeddings form the reference
+    # set; an empty list returns the uncolored source graph.
+    reference_source_node_ids: list[str] = Field(default_factory=list)
+    # "label_sample" mode: deterministic seeded sample of one label's egonets.
+    label_value: Optional[str] = None
+    sample_fraction: float = Field(default=0.1, gt=0.0, le=1.0)
+    random_seed: int = 42
+    max_nodes: int = Field(default=500, ge=1, le=2000)
+    max_edges: int = Field(default=1500, ge=1, le=6000)
+
+
+class EmbeddingSimilarityNode(BaseModel):
+    id: str
+    degree: int
+    # None when the source node has no embedded egonet (dropped during preparation).
+    similarity: Optional[float] = None
+    cosine: Optional[float] = None
+    internal_graph_id: Optional[str] = None
+    is_reference: Optional[bool] = None
+    graph_label: Optional[Any] = None
+
+
+class EmbeddingSimilarityGraph(BaseModel):
+    embedding_id: str
+    dataset_id: str
+    reference_mode: Literal["nodes", "label_sample"]
+    reference_source_node_ids: list[str]
+    reference_node_count: int
+    label_value: Optional[str] = None
+    sample_fraction: Optional[float] = None
+    random_seed: Optional[int] = None
+    node_count: int
+    edge_count: int
+    embedded_node_count: int
+    dropped_node_count: int
+    sampled: bool
+    sample_reason: Optional[str] = None
+    nodes: list[EmbeddingSimilarityNode]
+    edges: list[DatasetVisualEdge]
+
+
 class EmbeddingManifest(BaseModel):
     schema_version: str = "1"
     manifest_type: Literal["embedding"] = "embedding"

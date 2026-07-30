@@ -41,6 +41,8 @@ from .schemas import (
     EmbeddingGraphDetail,
     EmbeddingGraphSearchResponse,
     EmbeddingRunBatchRequest,
+    EmbeddingSimilarityGraph,
+    EmbeddingSimilarityGraphRequest,
     FeatureAnalysis,
     FeatureCreateRequest,
     FeatureGraphDetail,
@@ -758,6 +760,13 @@ def create_app(workspace_path: Optional[Union[str, Path]] = None):
     def inspect_project_embedding_graph(project_id: str, embedding_id: str, graph_id: str) -> EmbeddingGraphDetail:
         try:
             return store.embedding_graph_detail(project_id, embedding_id, graph_id=graph_id)
+        except Exception as exc:
+            raise api_exception(exc) from exc
+
+    @app.post("/api/projects/{project_id}/embeddings/{embedding_id}/analysis/similarity-graph", response_model=EmbeddingSimilarityGraph)
+    def similarity_graph_project_embedding(project_id: str, embedding_id: str, request: EmbeddingSimilarityGraphRequest) -> EmbeddingSimilarityGraph:
+        try:
+            return store.embedding_similarity_graph(project_id, embedding_id, request)
         except Exception as exc:
             raise api_exception(exc) from exc
 

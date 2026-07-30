@@ -7,7 +7,7 @@ import pandas as pd
 
 from NEExT.collections import GraphCollection
 from NEExT.collections.egonet_collection import EgonetCollection
-from NEExT.embeddings import Embeddings, GNNEmbeddings, GraphEmbeddings
+from NEExT.embeddings import Embeddings, GNNEmbeddings, GraphEmbeddings, compute_embedding_similarity
 from NEExT.features import Features, StructuralNodeFeatures
 from NEExT.ml_models import FeatureImportance
 
@@ -371,6 +371,25 @@ class NEExT:
         self.logger.info(f"Computed embeddings for {len(embeddings.embeddings_df)} graphs")
 
         return embeddings
+
+    def compute_embedding_similarity(
+        self,
+        embeddings: Embeddings,
+        reference_graph_ids: List[Union[str, int]],
+    ) -> pd.DataFrame:
+        """
+        Compute cosine similarity of every embedding row to the centroid of a reference set.
+
+        Args:
+            embeddings: Embeddings object containing computed embeddings
+            reference_graph_ids: graph_id values whose rows form the reference set
+
+        Returns:
+            pd.DataFrame with columns graph_id, cosine_similarity (raw, [-1, 1]),
+            and similarity ((cosine + 1) / 2, in [0, 1])
+        """
+        self.logger.info(f"Computing embedding similarity against {len(reference_graph_ids)} reference graph(s)")
+        return compute_embedding_similarity(embeddings, reference_graph_ids)
 
     def train_ml_model(
         self,

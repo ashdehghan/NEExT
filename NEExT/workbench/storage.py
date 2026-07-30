@@ -87,6 +87,9 @@ from .schemas import (
     EmbeddingPcaPayload,
     EmbeddingPcaPoint,
     EmbeddingRunBatchRequest,
+    EmbeddingSimilarityGraph,
+    EmbeddingSimilarityGraphRequest,
+    EmbeddingSimilarityNode,
     FeatureAnalysis,
     FeatureAnalysisDataset,
     FeatureAnalysisMethod,
@@ -3806,6 +3809,7 @@ class WorkbenchStore:
         max_edges: int,
         node_mapping=None,
         center_node_ids: set[str] | None = None,
+        ensure_node_edges: bool = False,
     ) -> DatasetGraphVisual:
         if graph_id is None:
             graph_nodes = nodes
@@ -3871,10 +3875,32 @@ class WorkbenchStore:
         if len(included_edges) > max_edges:
             sampled = True
             sample_reasons.append(f"edges limited to {max_edges}")
-            included_edges = sorted(
+            ranked_edges = sorted(
                 included_edges,
                 key=lambda edge: (-(degree.get(edge[0], 0) + degree.get(edge[1], 0)), edge[0], edge[1]),
-            )[:max_edges]
+            )
+            if ensure_node_edges:
+                # Keep at least one edge per drawn node before spending the rest of the
+                # budget on the dense core; otherwise degree-ranked truncation strips
+                # every edge from peripheral nodes and they render as false isolates.
+                covered: set[str] = set()
+                guaranteed: list[tuple[str, str]] = []
+                guaranteed_set: set[tuple[str, str]] = set()
+                for edge in ranked_edges:
+                    if edge[0] not in covered and edge[1] not in covered:
+                        guaranteed.append(edge)
+                        guaranteed_set.add(edge)
+                        covered.add(edge[0])
+                        covered.add(edge[1])
+                for edge in ranked_edges:
+                    if edge not in guaranteed_set and (edge[0] not in covered or edge[1] not in covered):
+                        guaranteed.append(edge)
+                        guaranteed_set.add(edge)
+                        covered.add(edge[0])
+                        covered.add(edge[1])
+                included_edges = (guaranteed + [edge for edge in ranked_edges if edge not in guaranteed_set])[:max_edges]
+            else:
+                included_edges = ranked_edges[:max_edges]
 
         ordered_visual_nodes = sorted(included_node_ids, key=lambda node_id: (-degree.get(node_id, 0), node_id))
         return DatasetGraphVisual(
@@ -4180,6 +4206,160 @@ class WorkbenchStore:
                 n_neighbors=n_neighbors,
                 min_dist=min_dist,
             ),
+        )
+
+    def embedding_similarity_graph(
+        self,
+        project_id: str,
+        embedding_id: str,
+        request: EmbeddingSimilarityGraphRequest,
+    ) -> EmbeddingSimilarityGraph:
+        import random
+
+        import pandas as pd
+
+        embedding = self.read_embedding(project_id, embedding_id)
+        if embedding.status != "completed" or embedding.output_files is None:
+            raise ValueError("Embedding similarity graph is available only after computation completes")
+
+        dataset = self.read_dataset(project_id, self._embedding_dataset_id(project_id, embedding))
+        if dataset.status != "completed" or dataset.prepared_data_files is None:
+            raise ValueError("Embedding similarity graph requires a completed source dataset")
+        if dataset.source_graph_shape != "single_graph":
+            raise ValueError("Embedding similarity graph is available only for single-graph egonet datasets")
+        if dataset.raw_data_files is None:
+            raise ValueError("Dataset source graph files are not available")
+
+        artifact_path = self.dataset_path(project_id, dataset.id)
+        raw_nodes_path = artifact_path / dataset.raw_data_files.nodes
+        raw_edges_path = artifact_path / dataset.raw_data_files.edges
+        if not raw_nodes_path.exists() or not raw_edges_path.exists():
+            raise ValueError("Dataset source graph files are not available")
+        if dataset.mapping_files is None or not dataset.mapping_files.graph_mapping:
+            raise ValueError("Dataset egonet mapping files are not available")
+        graph_mapping_path = artifact_path / dataset.mapping_files.graph_mapping
+        if not graph_mapping_path.exists():
+            raise ValueError("Dataset egonet mapping files are not available")
+
+        embedding_path = self.embedding_path(project_id, embedding.id) / embedding.output_files.embeddings
+        if not embedding_path.exists():
+            raise ValueError("Embedding output is missing")
+
+        raw_nodes = pd.read_parquet(raw_nodes_path)
+        raw_edges = pd.read_parquet(raw_edges_path)
+        graph_mapping = pd.read_parquet(graph_mapping_path)
+        embeddings_df = pd.read_parquet(embedding_path)
+
+        numeric_columns = [
+            column for column in embeddings_df.columns if column != "graph_id" and pd.api.types.is_numeric_dtype(embeddings_df[column])
+        ]
+        if not numeric_columns:
+            raise ValueError("Embedding output contains no numeric embedding columns")
+
+        internal_by_source: dict[str, str] = {}
+        source_by_internal: dict[str, str] = {}
+        for row in graph_mapping.to_dict(orient="records"):
+            internal_graph_id = str(row["internal_graph_id"])
+            source_node_id = str(self._json_scalar(row["source_node_id"]))
+            internal_by_source[source_node_id] = internal_graph_id
+            source_by_internal[internal_graph_id] = source_node_id
+
+        embedded_internal_ids = {str(value) for value in embeddings_df["graph_id"].astype(str)}
+        embedded_source_ids = {source for source, internal in internal_by_source.items() if internal in embedded_internal_ids}
+        label_by_graph, _ = self._dataset_graph_label_maps(project_id, dataset)
+
+        def _stable_id_key(value: str) -> tuple[int, int | str]:
+            return (0, int(value)) if value.isdigit() else (1, value)
+
+        if request.reference_mode == "label_sample":
+            if not request.label_value:
+                raise ValueError("label_value is required for label_sample reference mode")
+            candidates = sorted(
+                (internal_id for internal_id in embedded_internal_ids if str(label_by_graph.get(internal_id)) == request.label_value),
+                key=_stable_id_key,
+            )
+            if not candidates:
+                raise ValueError(f"No embedded egonets have label {request.label_value!r}")
+            sample_count = min(len(candidates), max(1, round(request.sample_fraction * len(candidates))))
+            reference_internal_ids = sorted(random.Random(request.random_seed).sample(candidates, sample_count), key=_stable_id_key)
+        else:
+            reference_internal_ids = []
+            missing_source_ids = []
+            for source_node_id in request.reference_source_node_ids:
+                internal_id = internal_by_source.get(str(source_node_id))
+                if internal_id is None or internal_id not in embedded_internal_ids:
+                    missing_source_ids.append(str(source_node_id))
+                else:
+                    reference_internal_ids.append(internal_id)
+            if missing_source_ids:
+                raise ValueError(f"Reference source node ids without an embedded egonet: {sorted(missing_source_ids)}")
+
+        similarity_by_source: dict[str, tuple[float, float]] = {}
+        if reference_internal_ids:
+            from NEExT.embeddings import Embeddings, compute_embedding_similarity
+
+            embeddings_obj = Embeddings(embeddings_df, embedding.name, numeric_columns)
+            similarity_df = compute_embedding_similarity(embeddings_obj, reference_internal_ids)
+            for row in similarity_df.to_dict(orient="records"):
+                source_node_id = source_by_internal.get(str(row["graph_id"]))
+                if source_node_id is not None:
+                    similarity_by_source[source_node_id] = (float(row["cosine_similarity"]), float(row["similarity"]))
+
+        reference_source_ids = sorted({source_by_internal[internal_id] for internal_id in reference_internal_ids}, key=_stable_id_key)
+
+        # The visual is restricted to embedded nodes: source nodes dropped during
+        # preparation (largest-component filtering) are excluded rather than drawn.
+        full_node_count = int(len(raw_nodes))
+        full_edge_count = int(len(raw_edges))
+        embedded_nodes = raw_nodes[raw_nodes["node_id"].astype(str).isin(embedded_source_ids)]
+        embedded_edges = raw_edges[
+            raw_edges["src_node_id"].astype(str).isin(embedded_source_ids) & raw_edges["dest_node_id"].astype(str).isin(embedded_source_ids)
+        ]
+
+        visual = self._dataset_graph_visual(
+            nodes=embedded_nodes,
+            edges=embedded_edges,
+            graph_id=None,
+            max_nodes=request.max_nodes,
+            max_edges=request.max_edges,
+            center_node_ids=set(reference_source_ids),
+            ensure_node_edges=True,
+        )
+
+        similarity_nodes = []
+        for node in visual.nodes:
+            internal_graph_id = internal_by_source.get(node.id)
+            scores = similarity_by_source.get(node.id)
+            similarity_nodes.append(
+                EmbeddingSimilarityNode(
+                    id=node.id,
+                    degree=node.degree,
+                    similarity=scores[1] if scores else None,
+                    cosine=scores[0] if scores else None,
+                    internal_graph_id=internal_graph_id,
+                    is_reference=True if node.id in set(reference_source_ids) else None,
+                    graph_label=label_by_graph.get(internal_graph_id) if internal_graph_id is not None else None,
+                )
+            )
+
+        is_label_mode = request.reference_mode == "label_sample"
+        return EmbeddingSimilarityGraph(
+            embedding_id=embedding.id,
+            dataset_id=dataset.id,
+            reference_mode=request.reference_mode,
+            reference_source_node_ids=reference_source_ids,
+            reference_node_count=len(reference_source_ids),
+            label_value=request.label_value if is_label_mode else None,
+            sample_fraction=request.sample_fraction if is_label_mode else None,
+            random_seed=request.random_seed if is_label_mode else None,
+            node_count=full_node_count,
+            edge_count=full_edge_count,
+            embedded_node_count=len(embedded_source_ids),
+            dropped_node_count=max(0, full_node_count - len(embedded_source_ids)),
+            sampled=visual.sampled,
+            sample_reason=visual.sample_reason,
+            nodes=similarity_nodes,
+            edges=visual.edges,
         )
 
     def search_embedding_graphs(self, project_id: str, embedding_id: str, *, query: str = "", limit: int = 25) -> EmbeddingGraphSearchResponse:
