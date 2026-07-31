@@ -1,0 +1,17 @@
+# The repo root .gitignore ignores notes/ globally (personal scratch notes);
+# session notes here are deliberate, tracked lab-notebook content.
+!**/notes/
+
+# Bulky / regenerable session artifacts — keep the dirs, ignore the contents
+**/data/*
+**/logs/*
+**/outputs/*
+**/figures/*
+!**/data/.gitkeep
+!**/logs/.gitkeep
+!**/outputs/.gitkeep
+!**/figures/.gitkeep
+
+# Notebook + python noise
+.ipynb_checkpoints/
+__pycache__/
