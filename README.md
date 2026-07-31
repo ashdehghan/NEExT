@@ -55,6 +55,15 @@ pip install "NEExT[workbench-mcp]"  # local Workbench + MCP integration
 
 See the [docs](https://www.neext.app/docs) for the full list of extras.
 
+## Datasets
+
+A curated collection of ready-to-use network datasets lives on Hugging Face at
+[anomalypoint/NEExT](https://huggingface.co/datasets/anomalypoint/NEExT) — including
+single-graph networks with node classification labels, formatted to NEExT's table
+contract (`edges.csv` / `nodes.csv`). It backs the Workbench's Dataset Library. Each
+dataset keeps its original upstream license and citation; the collection is a research
+mirror, so please cite the original authors of any dataset you use.
+
 ## Quick start
 
 ```python
