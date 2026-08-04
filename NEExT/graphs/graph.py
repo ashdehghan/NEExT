@@ -299,12 +299,12 @@ class Graph(BaseModel):
             self.sampled_nodes = self.nodes
             return self.nodes
 
-        if random_seed is not None:
-            random.seed(random_seed)
+        # Self-contained RNG: never reseed or consume the global random module.
+        rng = random.Random(random_seed)
 
         num_nodes = len(self.nodes)
         num_samples = max(1, int(num_nodes * sample_rate))  # Ensure at least 1 node is sampled
-        self.sampled_nodes = random.sample(self.nodes, num_samples)
+        self.sampled_nodes = rng.sample(self.nodes, num_samples)
         return self.sampled_nodes
 
     def update_node_attributes(

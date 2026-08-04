@@ -1,5 +1,7 @@
 """Regression tests for the bugs surfaced by the 2026-08 performance audit."""
 
+import random
+
 import pandas as pd
 
 from NEExT import NEExT
@@ -56,6 +58,52 @@ def test_load_centrality_backend_parity_with_isolated_node():
     merged_ig = features_ig.features_df.sort_values("node_id").reset_index(drop=True)
     merged_nx = features_nx.features_df.sort_values("node_id").reset_index(drop=True)
     pd.testing.assert_frame_equal(merged_ig, merged_nx)
+
+
+# ---------------------------------------------------------------------------
+# BUG-3: node sampling reseeded and consumed Python's global random module on
+# every collection load (call-order-dependent results, silent global reseed).
+# Sampling now uses self-contained random.Random instances.
+# ---------------------------------------------------------------------------
+
+
+def _load_with_rate(rate: float):
+    edges, nodes = triangle_plus_isolated_nodes_df()
+    nxt = NEExT()
+    nxt.set_log_level("WARNING")
+    return nxt.load_single_graph_from_dfs(
+        edges_df=edges, nodes_df=nodes, graph_type="networkx", node_sample_rate=rate
+    )
+
+
+def test_loading_does_not_touch_global_random_state():
+    for rate in (1.0, 0.5):
+        random.seed(999)
+        expected_draw = random.random()
+        random.seed(999)
+        _load_with_rate(rate)
+        assert random.random() == expected_draw, f"global random stream perturbed at rate {rate}"
+
+
+def test_sampling_reproducible_regardless_of_global_random_usage():
+    collection_a = _load_with_rate(0.5)
+    collection_a.sample_nodes(random_seed=42)
+    samples_a = [list(g.sampled_nodes) for g in collection_a.graphs]
+
+    random.seed(0)
+    random.random()  # interleaved global-random consumption must not matter
+
+    collection_b = _load_with_rate(0.5)
+    collection_b.sample_nodes(random_seed=42)
+    samples_b = [list(g.sampled_nodes) for g in collection_b.graphs]
+
+    assert samples_a == samples_b
+
+
+def test_full_rate_sampling_returns_all_nodes():
+    collection = _load_with_rate(1.0)
+    for graph in collection.graphs:
+        assert graph.sampled_nodes == graph.nodes
 
 
 # ---------------------------------------------------------------------------

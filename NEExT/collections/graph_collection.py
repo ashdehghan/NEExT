@@ -36,15 +36,18 @@ class GraphCollection(BaseModel):
         """
         Sample nodes from all graphs based on the node_sample_rate.
 
+        Uses a self-contained RNG: sampling is fully determined by
+        random_seed (or OS entropy when None) and never reads or reseeds
+        Python's global random module.
+
         Args:
             random_seed (Optional[int]): Random seed for reproducibility
         """
-        if random_seed is not None:
-            random.seed(random_seed)
+        rng = random.Random(random_seed)
 
         # Sample nodes for each graph
         for graph in self.graphs:
-            graph.sample_nodes(self.node_sample_rate, random_seed=random.randint(0, 1000000))
+            graph.sample_nodes(self.node_sample_rate, random_seed=rng.randint(0, 1000000))
 
         # Update graph_id_node_array to only include sampled nodes
         if self.node_sample_rate < 1.0:
