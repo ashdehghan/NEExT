@@ -188,6 +188,17 @@ class MLModels:
         self.data_df["encoded_label"] = self.label_encoder.fit_transform(self.data_df["label"])
         self.num_classes = len(self.label_encoder.classes_)
     
+    def __getstate__(self):
+        # Iteration workers get their data through iteration_data; when the
+        # bound iteration method is pickled to a process pool, don't ship the
+        # whole graph collection / embeddings / merged frame with it. The
+        # worker code reads only self.config (and module globals).
+        state = self.__dict__.copy()
+        state["graph_collection"] = None
+        state["embeddings"] = None
+        state["data_df"] = None
+        return state
+
     def compute(self) -> Dict[str, Any]:
         """
         Train and evaluate models based on the configuration.
@@ -448,9 +459,12 @@ class MLModels:
         # Run iterations in parallel
         executor_class = ProcessPoolExecutor if self.config.parallel_backend == "process" else ThreadPoolExecutor
         results = []
-        
-        with executor_class(max_workers=self.config.n_jobs) as executor:
-            results = list(executor.map(self._train_regressor_iteration, iteration_data))
+
+        if self.config.n_jobs == 1:
+            results = [self._train_regressor_iteration(iteration) for iteration in iteration_data]
+        else:
+            with executor_class(max_workers=self.config.n_jobs) as executor:
+                results = list(executor.map(self._train_regressor_iteration, iteration_data))
         
         # Collect results
         models = [r['model'] for r in results]

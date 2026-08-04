@@ -127,6 +127,18 @@ class StructuralNodeFeatures:
         # Cache for neighborhoods to avoid redundant computation
         self._neighborhood_cache = {}
 
+    def __getstate__(self):
+        # joblib/loky pickles the bound _compute_graph_node_features per task,
+        # dragging self along. Workers only need config + feature dispatch:
+        # ship neither the graph collection (each task already receives its own
+        # graph as an argument) nor the neighborhood cache (empty in the parent
+        # during parallel dispatch; workers rebuild per graph). Measured 25.4MB
+        # -> KBs per task batch on a 1,418-egonet collection.
+        state = self.__dict__.copy()
+        state["graph_collection"] = None
+        state["_neighborhood_cache"] = {}
+        return state
+
     def _precompute_neighborhoods(self, graph):
         """Precompute neighborhoods for all nodes in the graph.
 
