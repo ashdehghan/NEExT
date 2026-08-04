@@ -117,8 +117,7 @@ class EgonetCollection(GraphCollection):
         attr_nodes = [nid for nid in egonet_nodes_sorted if nid in node_attr_pos]
         attr_nodes.sort(key=node_attr_pos.__getitem__)
         egonet_node_attributes = {
-            node_mapping[nid]: {key: value for key, value in node_attrs_src[nid].items() if key not in skip_keys}
-            for nid in attr_nodes
+            node_mapping[nid]: {key: value for key, value in node_attrs_src[nid].items() if key not in skip_keys} for nid in attr_nodes
         }
 
         # edge attributes: gather via the per-node index, restore parent dict order
@@ -132,9 +131,7 @@ class EgonetCollection(GraphCollection):
                         matches.append(entry)
             matches.sort(key=lambda entry: entry[0])
             for _, (src, dst), attrs in matches:
-                egonet_edge_attributes[(node_mapping[src], node_mapping[dst])] = {
-                    key: value for key, value in attrs.items() if key not in skip_keys
-                }
+                egonet_edge_attributes[(node_mapping[src], node_mapping[dst])] = {key: value for key, value in attrs.items() if key not in skip_keys}
 
         # extract egonet subgraph (nx: cheap view; igraph: attribute-free clone
         # so the C subgraph routine yields identical structure without copying

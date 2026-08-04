@@ -708,9 +708,7 @@ class StructuralNodeFeatures:
         # See _precompute_neighborhoods: the deepest hop is only consumed by
         # basic_expansion, so BFS depth can shrink by one without it.
         self._neighborhood_depth = (
-            self.config.feature_vector_length
-            if "basic_expansion" in resolved_feature_list
-            else self.config.feature_vector_length - 1
+            self.config.feature_vector_length if "basic_expansion" in resolved_feature_list else self.config.feature_vector_length - 1
         )
 
         graphs = self.graph_collection.graphs

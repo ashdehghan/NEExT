@@ -37,9 +37,7 @@ def load_collection(graph_type: str, filter_largest_component: bool = False):
 def test_load_centrality_igraph_isolated_node_no_crash():
     nxt, collection = load_collection("igraph")
 
-    features = nxt.compute_node_features(
-        collection, feature_list=["load_centrality"], feature_vector_length=2, show_progress=False
-    )
+    features = nxt.compute_node_features(collection, feature_list=["load_centrality"], feature_vector_length=2, show_progress=False)
 
     assert set(features.features_df["node_id"]) == {0, 1, 2, 3}
 
@@ -71,9 +69,7 @@ def _load_with_rate(rate: float):
     edges, nodes = triangle_plus_isolated_nodes_df()
     nxt = NEExT()
     nxt.set_log_level("WARNING")
-    return nxt.load_single_graph_from_dfs(
-        edges_df=edges, nodes_df=nodes, graph_type="networkx", node_sample_rate=rate
-    )
+    return nxt.load_single_graph_from_dfs(edges_df=edges, nodes_df=nodes, graph_type="networkx", node_sample_rate=rate)
 
 
 def test_loading_does_not_touch_global_random_state():
