@@ -467,6 +467,7 @@ class NEExT:
         self.logger.info(f"Computing {k_hop}-hop egonets")
 
         egonet_collection = EgonetCollection(
+            graph_type=graph_collection.graph_type,
             egonet_feature_target=egonet_feature_target,
             skip_features=skip_features or [],
         )
@@ -507,6 +508,7 @@ class NEExT:
         self.logger.info("Computing Leiden community egonets")
 
         egonet_collection = EgonetCollection(
+            graph_type=graph_collection.graph_type,
             egonet_feature_target=egonet_feature_target,
             skip_features=skip_features or [],
         )

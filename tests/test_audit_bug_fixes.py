@@ -58,6 +58,27 @@ def test_load_centrality_backend_parity_with_isolated_node():
     pd.testing.assert_frame_equal(merged_ig, merged_nx)
 
 
+# ---------------------------------------------------------------------------
+# BUG-2: framework egonet entry points dropped the source backend, leaving
+# EgonetCollection.graph_type at its "networkx" default even for igraph
+# sources (the Leiden path is igraph-only, so it was always mislabeled).
+# ---------------------------------------------------------------------------
+
+
+def test_k_hop_egonet_collection_reports_source_graph_type():
+    for graph_type in ("igraph", "networkx"):
+        nxt, collection = load_collection(graph_type, filter_largest_component=True)
+        egonets = nxt.compute_k_hop_egonets(collection, k_hop=1, egonet_feature_target="lbl")
+        assert egonets.graph_type == graph_type
+        assert egonets.describe()["graph_type"] == graph_type
+
+
+def test_leiden_egonet_collection_reports_igraph():
+    nxt, collection = load_collection("igraph", filter_largest_component=True)
+    egonets = nxt.compute_leiden_egonets(collection, egonet_feature_target="lbl")
+    assert egonets.graph_type == "igraph"
+
+
 def test_load_centrality_backend_parity_connected_graph():
     """Guard the no-regression claim: connected graphs match across backends."""
     edges = pd.DataFrame({"src_node_id": [0, 1, 2, 3], "dest_node_id": [1, 2, 3, 0]})
