@@ -40,6 +40,38 @@ class EgonetCollection(GraphCollection):
     egonet_to_graph_node_mapping: Dict[int, Tuple[int, int]] = Field(default_factory=dict)
     egonet_node_features: Embeddings = Field(default=None)
 
+    def _build_parent_index(self, graph: Graph) -> dict:
+        """
+        Precompute per-parent-graph lookup structures shared by every egonet of
+        that graph, so each egonet build touches only its own neighborhood
+        instead of scanning the whole parent graph.
+
+        The position maps preserve the parent dicts' iteration order so egonet
+        contents come out identical to a full-scan filter of those dicts.
+        """
+        skip_keys = frozenset(self.skip_features + ([self.egonet_feature_target] if self.egonet_feature_target else []))
+        node_attr_pos = {nid: i for i, nid in enumerate(graph.node_attributes)}
+        edge_attr_by_node = {}
+        if graph.edge_attributes:
+            edge_attr_by_node = defaultdict(list)
+            for pos, (edge, attrs) in enumerate(graph.edge_attributes.items()):
+                edge_attr_by_node[edge[0]].append((pos, edge, attrs))
+        index = {
+            "skip_keys": skip_keys,
+            "node_attr_pos": node_attr_pos,
+            "edge_attr_by_node": edge_attr_by_node,
+        }
+        if graph.graph_type == "igraph":
+            # Attribute-free clone: igraph's subgraph() copies every vertex/edge
+            # attribute of the parent, all of which the egonet build discards.
+            # Same topology in the same order -> identical subgraph structure.
+            import igraph as ig
+
+            bare = ig.Graph(n=graph.G.vcount())
+            bare.add_edges(graph.G.get_edgelist())
+            index["bare_graph"] = bare
+        return index
+
     def _build_egonet(
         self,
         graph: Graph,
@@ -47,6 +79,7 @@ class EgonetCollection(GraphCollection):
         egonet_nodes: List[int],
         egonet_id: int,
         egonet_label: float,
+        parent_index: Optional[dict] = None,
     ) -> Egonet:
         """
         This method constructs an Egonet object from a given graph.
@@ -59,6 +92,8 @@ class EgonetCollection(GraphCollection):
             egonet_nodes (List[int]): The list of node IDs that belong to the egonet.
             egonet_id (int): The unique ID to assign to the egonet.
             egonet_label (float): The label to assign to the egonet.
+            parent_index (Optional[dict]): Precomputed per-parent lookups from
+                _build_parent_index; computed on the fly when omitted.
 
         Returns:
             Egonet: The constructed egonet object.
@@ -71,26 +106,45 @@ class EgonetCollection(GraphCollection):
         # build internal egonet node mapping and extract the features
         # Use sorted nodes for deterministic mapping
         node_mapping = {n: i for i, n in enumerate(egonet_nodes_sorted)}
-        skip_keys = self.skip_features + ([self.egonet_feature_target] if self.egonet_feature_target else [])
-        egonet_node_attributes = {
-            node_mapping[nid]: {key: value for key, value in feature_dict.items() if key not in skip_keys}
-            for nid, feature_dict in graph.node_attributes.items()
-            if nid in egonet_nodes
-        }
+        if parent_index is None:
+            parent_index = self._build_parent_index(graph)
+        skip_keys = parent_index["skip_keys"]
         egonet_nodes_set = set(egonet_nodes_sorted)
-        egonet_edge_attributes = {
-            (node_mapping[src], node_mapping[dst]): {key: value for key, value in attrs.items() if key not in skip_keys}
-            for (src, dst), attrs in graph.edge_attributes.items()
-            if src in egonet_nodes_set and dst in egonet_nodes_set
+
+        # node attributes: visit only egonet members, in the parent dict's order
+        node_attr_pos = parent_index["node_attr_pos"]
+        node_attrs_src = graph.node_attributes
+        attr_nodes = [nid for nid in egonet_nodes_sorted if nid in node_attr_pos]
+        attr_nodes.sort(key=node_attr_pos.__getitem__)
+        egonet_node_attributes = {
+            node_mapping[nid]: {key: value for key, value in node_attrs_src[nid].items() if key not in skip_keys}
+            for nid in attr_nodes
         }
-        # extract egonet subgraph
+
+        # edge attributes: gather via the per-node index, restore parent dict order
+        egonet_edge_attributes = {}
+        edge_attr_by_node = parent_index["edge_attr_by_node"]
+        if edge_attr_by_node:
+            matches = []
+            for nid in egonet_nodes_sorted:
+                for entry in edge_attr_by_node.get(nid, ()):
+                    if entry[1][1] in egonet_nodes_set:
+                        matches.append(entry)
+            matches.sort(key=lambda entry: entry[0])
+            for _, (src, dst), attrs in matches:
+                egonet_edge_attributes[(node_mapping[src], node_mapping[dst])] = {
+                    key: value for key, value in attrs.items() if key not in skip_keys
+                }
+
+        # extract egonet subgraph (nx: cheap view; igraph: attribute-free clone
+        # so the C subgraph routine yields identical structure without copying
+        # the parent's attributes)
         if graph.graph_type == "networkx":
             G_egonet = graph.G.subgraph(egonet_nodes_sorted)
             nodes = list(range(G_egonet.number_of_nodes()))
             edges = [(node_mapping[u], node_mapping[v]) for u, v in G_egonet.edges()]
-
         else:
-            G_egonet = graph.G.subgraph(egonet_nodes_sorted)
+            G_egonet = parent_index["bare_graph"].subgraph(egonet_nodes_sorted)
             nodes = list(range(G_egonet.vcount()))
             edges = G_egonet.get_edgelist()
 
@@ -148,12 +202,13 @@ class EgonetCollection(GraphCollection):
             valid_nodes[graph.graph_id] = list(set(random_nodes + forced_nodes))
 
         for graph in graph_collection.graphs:
+            parent_index = self._build_parent_index(graph)
             for node_id in valid_nodes[graph.graph_id]:
                 if k_hop > 0:
                     egonet_nodes_dict = get_nodes_x_hops_away(graph.G, node_id, k_hop)
-                    egonet_nodes = [node_id]
+                    egonet_nodes = {node_id}
                     for v in egonet_nodes_dict.values():
-                        egonet_nodes.extend(list(v))
+                        egonet_nodes.update(v)
                 else:
                     egonet_nodes = [node_id]
                 # egonet_nodes = sorted(graph.G.neighborhood(node_id, order=k_hop))
@@ -165,6 +220,7 @@ class EgonetCollection(GraphCollection):
                     egonet_nodes=egonet_nodes,
                     egonet_id=egonet_id,
                     egonet_label=egonet_label,
+                    parent_index=parent_index,
                 )
 
                 self.graphs.append(egonet)
@@ -203,11 +259,14 @@ class EgonetCollection(GraphCollection):
 
         for graph in graph_collection.graphs:
             community_detection = graph.G.community_leiden(objective_function="modularity", n_iterations=n_iterations, resolution=resolution)
-            node_community_mapping = {k: v for k, v in enumerate(community_detection.membership)}
+            membership = community_detection.membership
+            community_members = defaultdict(list)
+            for n_id, com_id in enumerate(membership):
+                community_members[com_id].append(n_id)
+            parent_index = self._build_parent_index(graph)
 
             for node_id in range(graph.G.vcount()):
-                community_id = node_community_mapping[node_id]
-                egonet_nodes = [n_id for n_id, com_id in node_community_mapping.items() if com_id == community_id]
+                egonet_nodes = community_members[membership[node_id]]
                 egonet_label = graph.node_attributes[node_id][self.egonet_feature_target] if self.egonet_feature_target else None
 
                 egonet = self._build_egonet(
@@ -216,6 +275,7 @@ class EgonetCollection(GraphCollection):
                     egonet_nodes=egonet_nodes,
                     egonet_id=egonet_id,
                     egonet_label=egonet_label,
+                    parent_index=parent_index,
                 )
                 self.graphs.append(egonet)
                 # Update graph_id_node_array with this egonet's id
@@ -244,14 +304,15 @@ class EgonetCollection(GraphCollection):
         egonet_node_features_df = pd.DataFrame().from_dict(self.egonet_to_graph_node_mapping, orient="index").reset_index()
         egonet_node_features_df.columns = ["subgraph_id", "graph_id", "node_id"]
 
-        raw_features = defaultdict(dict)
+        skip_keys = frozenset(self.skip_features + ([self.egonet_feature_target] if self.egonet_feature_target else []))
+        raw_features = {}
 
         for graph in graph_collection.graphs:
+            graph_id = graph.graph_id
             for node_id, features in graph.node_attributes.items():
-                for feature, value in features.items():
-                    if feature in self.skip_features + ([self.egonet_feature_target] if self.egonet_feature_target else []):
-                        continue
-                    raw_features[graph.graph_id, node_id][feature] = value
+                kept = {feature: value for feature, value in features.items() if feature not in skip_keys}
+                if kept:
+                    raw_features[graph_id, node_id] = kept
 
         raw_features = (
             pd.DataFrame.from_dict(raw_features, orient="index").reset_index().rename(columns={"level_0": "graph_id", "level_1": "node_id"})
@@ -279,26 +340,27 @@ class EgonetCollection(GraphCollection):
         to features before embedding if you want to include it.
         """
 
-        df_position = []
+        node_ids: List[int] = []
+        graph_ids: List[int] = []
+        positions: List[float] = []
         for egonet in self.graphs:
             _, central_node = self.egonet_to_graph_node_mapping[egonet.graph_id]
             mapped_central = egonet.node_mapping[central_node]
 
-            d = pd.DataFrame()
-            d["node_id"] = egonet.nodes
-            d["graph_id"] = egonet.graph_id
             if egonet.graph_type == "igraph":
-                d["egonet_position"] = egonet.G.distances(mapped_central)[0]
+                egonet_positions = egonet.G.distances(mapped_central)[0]
             else:
                 lengths = nx.single_source_shortest_path_length(egonet.G, mapped_central)
-                d["egonet_position"] = [lengths.get(n, float("inf")) for n in egonet.nodes]
-            if strategy == "inv_distance":
-                d["egonet_position"] = 1 / (d["egonet_position"] + 1)
-            elif strategy == "inv_exp_distance":
-                d["egonet_position"] = 1 / np.exp(d["egonet_position"] + 1)
-            df_position.append(d)
+                egonet_positions = [lengths.get(n, float("inf")) for n in egonet.nodes]
+            node_ids.extend(egonet.nodes)
+            graph_ids.extend([egonet.graph_id] * len(egonet.nodes))
+            positions.extend(egonet_positions)
 
-        df_position = pd.concat(df_position, axis=0, ignore_index=True)
+        df_position = pd.DataFrame({"node_id": node_ids, "graph_id": graph_ids, "egonet_position": positions})
+        if strategy == "inv_distance":
+            df_position["egonet_position"] = 1 / (df_position["egonet_position"] + 1)
+        elif strategy == "inv_exp_distance":
+            df_position["egonet_position"] = 1 / np.exp(df_position["egonet_position"] + 1)
 
         if one_hot_encode and strategy == "distance":
             df_position = pd.get_dummies(df_position, columns=["egonet_position"], dtype=np.int8)

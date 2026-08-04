@@ -1,3 +1,4 @@
+from collections import defaultdict, deque
 from functools import lru_cache
 from typing import Dict, List, Optional, Set, Union
 
@@ -30,7 +31,6 @@ def get_numb_of_nb_x_hops_away(G: Union[nx.Graph, ig.Graph], node: int, max_hop_
 def get_nodes_x_hops_away(G: Union[nx.Graph, ig.Graph], node: int, max_hop_length: int) -> Dict[int, Set[int]]:
     """Efficiently get nodes at each hop distance from a given node, up to max_hop_length."""
     if isinstance(G, nx.Graph):
-        from collections import deque, defaultdict
         hop_dict = defaultdict(set)
         visited = {node}
         queue = deque([(node, 0)])
