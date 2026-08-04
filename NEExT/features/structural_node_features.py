@@ -140,11 +140,16 @@ class StructuralNodeFeatures:
         # Determine which nodes to process
         nodes_to_process = list(graph.sampled_nodes if graph.sampled_nodes is not None else graph.nodes)
 
+        # Only basic_expansion reads the deepest hop shell; when it is not in
+        # the resolved feature list one hop of BFS depth can be skipped
+        # (shallower hops are unaffected).
+        depth = getattr(self, "_neighborhood_depth", self.config.feature_vector_length)
+
         # Compute neighborhoods based on graph type
         if isinstance(graph.G, nx.Graph):
-            neighborhoods = get_all_neighborhoods_nx(graph.G, self.config.feature_vector_length, nodes_to_process)
+            neighborhoods = get_all_neighborhoods_nx(graph.G, depth, nodes_to_process)
         else:  # igraph
-            neighborhoods = get_all_neighborhoods_ig(graph.G, self.config.feature_vector_length, nodes_to_process)
+            neighborhoods = get_all_neighborhoods_ig(graph.G, depth, nodes_to_process)
 
         # Cache the result
         self._neighborhood_cache[graph.graph_id] = neighborhoods
@@ -153,17 +158,13 @@ class StructuralNodeFeatures:
     def _compute_structural_feature(self, graph, feature_func_nx, feature_func_ig=None, feature_name=None) -> pd.DataFrame:
         """Optimized structural feature computation."""
         # Compute base features for all nodes ONCE (needed for neighborhood computations)
+        nodes_to_process = graph.sampled_nodes if graph.sampled_nodes is not None else graph.nodes
+        neighborhoods = self._precompute_neighborhoods(graph)
         if isinstance(graph.G, nx.Graph):
             features = feature_func_nx(graph.G)
-            # Get neighborhoods only for sampled nodes
-            nodes_to_process = graph.sampled_nodes if graph.sampled_nodes is not None else graph.nodes
-            neighborhoods = get_all_neighborhoods_nx(graph.G, self.config.feature_vector_length, nodes_to_process)
         else:  # igraph
             features = feature_func_ig(graph.G) if feature_func_ig else feature_func_nx(nx.Graph(graph.G.get_edgelist()))
             features = dict(enumerate(features)) if isinstance(features, (list, np.ndarray)) else features
-            # Get neighborhoods only for sampled nodes
-            nodes_to_process = graph.sampled_nodes if graph.sampled_nodes is not None else graph.nodes
-            neighborhoods = get_all_neighborhoods_ig(graph.G, self.config.feature_vector_length, nodes_to_process)
 
         # Prepare feature matrix only for nodes we're processing
         n_nodes = len(nodes_to_process)
@@ -462,15 +463,16 @@ class StructuralNodeFeatures:
                 # Create subgraph of neighbors
                 subgraph = G.subgraph(neighbors)
 
-                # Sum of inverse distances for all pairs
+                # Sum of inverse distances for all pairs: one single-source BFS
+                # per neighbor instead of one BFS per neighbor pair; identical
+                # pair visit order keeps the summation sequence unchanged
                 inv_dist_sum = 0.0
                 for i in range(k):
+                    lengths = nx.single_source_shortest_path_length(subgraph, neighbors[i])
                     for j in range(i + 1, k):
-                        try:
-                            d = nx.shortest_path_length(subgraph, neighbors[i], neighbors[j])
+                        d = lengths.get(neighbors[j])
+                        if d is not None:
                             inv_dist_sum += 1.0 / d
-                        except nx.NetworkXNoPath:
-                            pass
 
                 n_pairs = k * (k - 1) / 2.0
                 efficiency[node] = inv_dist_sum / n_pairs if n_pairs > 0 else 0.0
@@ -521,11 +523,8 @@ class StructuralNodeFeatures:
         n_hops = self.config.feature_vector_length
         feature_matrix = np.zeros((n_nodes, n_hops))
 
-        # Get all neighborhoods at once for efficiency
-        if isinstance(G, nx.Graph):
-            neighborhoods = get_all_neighborhoods_nx(G, n_hops, nodes)
-        else:  # igraph
-            neighborhoods = get_all_neighborhoods_ig(G, n_hops, nodes)
+        # Get all neighborhoods from the shared per-graph cache
+        neighborhoods = self._precompute_neighborhoods(graph)
 
         # Compute LSME for each node
         for i, node in enumerate(nodes):
@@ -575,15 +574,14 @@ class StructuralNodeFeatures:
         # Use local RNG to avoid mutating global random state
         local_rng = random.Random(13)
 
-        # get neighborhood mapping
+        # get neighborhood mapping from the shared per-graph cache
+        neighborhoods = self._precompute_neighborhoods(graph)
         if isinstance(G, nx.Graph):
-            neighborhoods = get_all_neighborhoods_nx(G, n_hops, nodes)
             community_detection = nx.community.louvain_communities(G, seed=13)
             node_community_mapping = {node: i for i, community in enumerate(community_detection) for node in community}
         else:  # igraph
             # Use local RNG for deterministic community detection
             ig.set_random_number_generator(local_rng)
-            neighborhoods = get_all_neighborhoods_ig(G, n_hops, nodes)
 
             # generate communities using leiden
             community_detection = G.community_leiden(objective_function="modularity", n_iterations=10, resolution=1.0)
@@ -603,25 +601,34 @@ class StructuralNodeFeatures:
         # Build node_to_idx mapping for aggregation
         node_to_idx = {node: i for i, node in enumerate(nodes)}
 
+        # Community subgraph degrees/sizes computed once per community (lazily,
+        # so communities holding only degree-0 nodes are never materialized),
+        # instead of rebuilding the subgraph for every node.
+        is_nx = isinstance(G, nx.Graph)
+        G_num_nodes = G.number_of_nodes() if is_nx else G.vcount()
+        community_cache = {}
+
         for i, node in enumerate(nodes):
             if degrees[node] == 0:
                 feature_matrix[i, 0] = 0.0
                 continue
 
-            if isinstance(G, nx.Graph):
-                G_a = G.subgraph(nodes_in_community[node_community_mapping[node]])
-                degrees_A = {k: v for k, v in G_a.degree}
-                G_num_nodes = G.number_of_nodes()
-                G_a_num_nodes = G_a.number_of_nodes()
+            community_id = node_community_mapping[node]
+            cached = community_cache.get(community_id)
+            if cached is None:
+                if is_nx:
+                    G_a = G.subgraph(nodes_in_community[community_id])
+                    cached = ({k: v for k, v in G_a.degree}, G_a.number_of_nodes(), None)
+                else:
+                    G_a = community_detection.subgraph(community_id)
+                    nodes_id_in_subgraph = {n: idx for idx, n in enumerate(nodes_in_community[community_id])}
+                    cached = (G_a.degree(), G_a.vcount(), nodes_id_in_subgraph)
+                community_cache[community_id] = cached
+            degrees_A, G_a_num_nodes, nodes_id_in_subgraph = cached
 
+            if is_nx:
                 beta_star = 2 * (degrees_A[node] / degrees[node] - (G_a_num_nodes - degrees[node]) / G_num_nodes)
             else:
-                G_a = community_detection.subgraph(node_community_mapping[node])
-                degrees_A = G_a.degree()
-                G_num_nodes = G.vcount()
-                G_a_num_nodes = G_a.vcount()
-
-                nodes_id_in_subgraph = {n: idx for idx, n in enumerate(nodes_in_community[node_community_mapping[node]])}
                 beta_star = 2 * (degrees_A[nodes_id_in_subgraph[node]] / degrees[node] - (G_a_num_nodes - degrees[node]) / G_num_nodes)
             feature_matrix[i, 0] = beta_star
 
@@ -675,6 +682,14 @@ class StructuralNodeFeatures:
         for feature in resolved_feature_list:
             if feature not in self.available_features:
                 raise ValueError(f"Unknown feature: {feature}. Available features: {list(self.available_features.keys())}")
+
+        # See _precompute_neighborhoods: the deepest hop is only consumed by
+        # basic_expansion, so BFS depth can shrink by one without it.
+        self._neighborhood_depth = (
+            self.config.feature_vector_length
+            if "basic_expansion" in resolved_feature_list
+            else self.config.feature_vector_length - 1
+        )
 
         graphs = self.graph_collection.graphs
         if self.config.show_progress:
@@ -756,7 +771,18 @@ class StructuralNodeFeatures:
 
         graph_df = graph_features[0]
         for df in graph_features[1:]:
-            graph_df = graph_df.merge(df, on=["node_id", "graph_id"])
+            # Fast path: when both frames carry the exact same key sequence
+            # (always true for built-in features, which share one node list),
+            # an axis-1 concat equals the inner merge without join-key work.
+            # Custom features with reordered/subset rows fall back to merge.
+            if (
+                len(df) == len(graph_df)
+                and np.array_equal(df["node_id"].to_numpy(), graph_df["node_id"].to_numpy())
+                and np.array_equal(df["graph_id"].to_numpy(), graph_df["graph_id"].to_numpy())
+            ):
+                graph_df = pd.concat([graph_df, df.drop(columns=["node_id", "graph_id"])], axis=1)
+            else:
+                graph_df = graph_df.merge(df, on=["node_id", "graph_id"])
         if self.config.suffix:
             graph_df.columns = [f"{col}_{self.config.suffix}" if col not in ["node_id", "graph_id"] else col for col in graph_df.columns]
 

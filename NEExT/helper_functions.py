@@ -95,11 +95,17 @@ def get_all_neighborhoods_ig(G, max_hops: int, nodes_to_process: Optional[List[i
     neighborhoods = {}
     for node in nodes_to_process:
         neighborhoods[node] = {}
+        # Reuse the previous hop's ball instead of recomputing it, halving the
+        # per-node BFS calls; the set construction sequence is unchanged so the
+        # resulting difference sets (and their list order) are identical.
+        prev = set(G.neighborhood(node, order=0))
         for hop in range(1, max_hops + 1):
+            cur = set(G.neighborhood(node, order=hop))
             # Get nodes at exactly hop distance
-            nodes_at_hop = set(G.neighborhood(node, order=hop)) - set(G.neighborhood(node, order=hop-1))
+            nodes_at_hop = cur - prev
             if nodes_at_hop:
                 neighborhoods[node][hop] = list(nodes_at_hop)
+            prev = cur
     return neighborhoods
 
 
