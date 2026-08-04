@@ -175,7 +175,17 @@ class StructuralNodeFeatures:
         if isinstance(graph.G, nx.Graph):
             features = feature_func_nx(graph.G)
         else:  # igraph
-            features = feature_func_ig(graph.G) if feature_func_ig else feature_func_nx(nx.Graph(graph.G.get_edgelist()))
+            if feature_func_ig:
+                features = feature_func_ig(graph.G)
+            else:
+                # nx.Graph(edgelist) alone drops isolated vertices, which later
+                # KeyErrors on features[node]. Append the missing vertices after
+                # the edges: existing node iteration order is preserved and
+                # isolated sources add exactly 0 to path-based accumulations,
+                # so previously-working values are unchanged.
+                G_nx = nx.Graph(graph.G.get_edgelist())
+                G_nx.add_nodes_from(range(graph.G.vcount()))
+                features = feature_func_nx(G_nx)
             features = dict(enumerate(features)) if isinstance(features, (list, np.ndarray)) else features
 
         # Prepare feature matrix only for nodes we're processing
