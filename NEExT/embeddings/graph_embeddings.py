@@ -132,7 +132,7 @@ class GraphEmbeddings:
         graph_id_to_idx = {gid: i for i, gid in enumerate(graph_ids)}
         
         # Create row and column indices for sparse matrix
-        rows = [graph_id_to_idx[gid] for gid in node_features_df['graph_id']]
+        rows = node_features_df['graph_id'].map(graph_id_to_idx).to_numpy()
         cols = range(len(node_ids))
         
         # Create sparse incidence matrix
@@ -143,8 +143,19 @@ class GraphEmbeddings:
         
         # Create feature matrix
         feature_matrix = node_features_df[feature_cols].values
-        
+
         return incidence_matrix, feature_matrix, graph_ids
+
+    def _embeddings_output_df(self, embeddings, graph_ids) -> pd.DataFrame:
+        """Assemble the output frame (graph_id first, then emb_* columns)."""
+        embeddings_df = pd.DataFrame()
+        embeddings_df['graph_id'] = graph_ids
+
+        # Add embedding columns
+        for i in range(self.config.embedding_dimension):
+            embeddings_df[f"emb_{i}_{self.config.suffix}" if self.config.suffix else f"emb_{i}"] = embeddings[:, i]
+
+        return embeddings_df
 
     def _compute_approx_wasserstein(self, node_features_df: pd.DataFrame) -> pd.DataFrame:
         """
@@ -165,15 +176,7 @@ class GraphEmbeddings:
             n_components=self.config.embedding_dimension
         ).fit_transform(incidence_matrix, vectors=feature_matrix)
         
-        # Create DataFrame with graph_id as first column
-        embeddings_df = pd.DataFrame()
-        embeddings_df['graph_id'] = graph_ids
-        
-        # Add embedding columns
-        for i in range(self.config.embedding_dimension):
-            embeddings_df[f"emb_{i}_{self.config.suffix}" if self.config.suffix else f"emb_{i}"] = embeddings[:, i]
-        
-        return embeddings_df
+        return self._embeddings_output_df(embeddings, graph_ids)
 
     def _compute_wasserstein(self, node_features_df: pd.DataFrame) -> pd.DataFrame:
         """
@@ -195,15 +198,7 @@ class GraphEmbeddings:
             n_components=self.config.embedding_dimension
         ).fit_transform(incidence_matrix, vectors=feature_matrix)
         
-        # Create DataFrame with graph_id as first column
-        embeddings_df = pd.DataFrame()
-        embeddings_df['graph_id'] = graph_ids
-        
-        # Add embedding columns
-        for i in range(self.config.embedding_dimension):
-            embeddings_df[f"emb_{i}_{self.config.suffix}" if self.config.suffix else f"emb_{i}"] = embeddings[:, i]
-        
-        return embeddings_df
+        return self._embeddings_output_df(embeddings, graph_ids)
 
     def _compute_sinkhorn(self, node_features_df: pd.DataFrame) -> pd.DataFrame:
         """
@@ -225,12 +220,4 @@ class GraphEmbeddings:
             n_components=self.config.embedding_dimension
         ).fit_transform(incidence_matrix, vectors=feature_matrix)
         
-        # Create DataFrame with graph_id as first column
-        embeddings_df = pd.DataFrame()
-        embeddings_df['graph_id'] = graph_ids
-        
-        # Add embedding columns
-        for i in range(self.config.embedding_dimension):
-            embeddings_df[f"emb_{i}_{self.config.suffix}" if self.config.suffix else f"emb_{i}"] = embeddings[:, i]
-        
-        return embeddings_df
+        return self._embeddings_output_df(embeddings, graph_ids)

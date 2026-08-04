@@ -39,8 +39,11 @@ class GraphDataset:
         self._embeddings_df = pd.merge(self.embeddings.embeddings_df, self.labels_df, on="graph_id").sort_values("graph_id")
         self.graph_ids = self._embeddings_df["graph_id"].to_list()
 
-        self.labeled_graphs = self._embeddings_df.query(f"label != {self.unlabeled_marker}")["graph_id"].to_list()
-        self.unlabeled_graphs = self._embeddings_df.query(f"label == {self.unlabeled_marker}")["graph_id"].to_list()
+        # One boolean mask instead of five .query() re-evaluations of the same
+        # predicate (NaN labels compare unequal to the marker either way).
+        self._labeled_mask = self._embeddings_df["label"] != self.unlabeled_marker
+        self.labeled_graphs = self._embeddings_df.loc[self._labeled_mask, "graph_id"].to_list()
+        self.unlabeled_graphs = self._embeddings_df.loc[~self._labeled_mask, "graph_id"].to_list()
 
         if self.standardize:
             self.scaler = StandardScaler().fit(self._embeddings_df[self.embeddings.embedding_columns])
@@ -56,9 +59,9 @@ class GraphDataset:
         self.X = self._embeddings_df[self.embeddings.embedding_columns]
         self.y = self._embeddings_df["label"].values
 
-        self.X_labeled = self._embeddings_df.query(f"label != {self.unlabeled_marker}")[self.embeddings.embedding_columns]
-        self.X_unlabeled = self._embeddings_df.query(f"label == {self.unlabeled_marker}")[self.embeddings.embedding_columns]
-        self.y_labeled = self._embeddings_df.query(f"label != {self.unlabeled_marker}")["label"].values
+        self.X_labeled = self._embeddings_df.loc[self._labeled_mask, self.embeddings.embedding_columns]
+        self.X_unlabeled = self._embeddings_df.loc[~self._labeled_mask, self.embeddings.embedding_columns]
+        self.y_labeled = self._embeddings_df.loc[self._labeled_mask, "label"].values
 
         if self.standardize:
             self.X = pd.DataFrame(self.scaler.transform(self.X), columns=self.X.columns, index=self.X.index)

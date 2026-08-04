@@ -157,15 +157,24 @@ class GNNEmbeddings:
             x = sub[self.feature_columns].to_numpy(dtype=np.float32)
             x_t = torch.tensor(x, dtype=torch.float32, device=self.device)
 
-            # Dense, symmetric adjacency over the induced node set.
+            # Dense, symmetric adjacency over the induced node set. Collect the
+            # index pairs in Python and set them with one advanced-indexing
+            # assignment instead of two tensor writes per edge (duplicate
+            # indices assign the same 1.0, matching the per-edge writes).
             adj = torch.zeros((n, n), dtype=torch.float32, device=self.device)
+            row_idx: list[int] = []
+            col_idx: list[int] = []
             for src, dst in graph.edges:
                 i = index_of.get(src)
                 j = index_of.get(dst)
                 if i is None or j is None:
                     continue  # edge to a node without features (e.g. sampled out)
-                adj[i, j] = 1.0
-                adj[j, i] = 1.0
+                row_idx.append(i)
+                col_idx.append(j)
+            if row_idx:
+                rows_t = torch.tensor(row_idx + col_idx, dtype=torch.long, device=self.device)
+                cols_t = torch.tensor(col_idx + row_idx, dtype=torch.long, device=self.device)
+                adj[rows_t, cols_t] = 1.0
 
             tensors.append(
                 {
