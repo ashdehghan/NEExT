@@ -149,6 +149,9 @@ from .schemas import (
 
 logger = logging.getLogger(__name__)
 
+# Lazily bound pandas.isna (see _json_scalar); keeps pandas out of module import time.
+_pd_isna = None
+
 SCHEMA_VERSION = "1"
 
 # Interval (seconds) for the server's durable job-recovery poller. The poller picks up
@@ -227,6 +230,9 @@ class WorkbenchStore:
         self._enqueued_job_ids: set[str] = set()
         self._dataset_intake_sessions: dict[str, dict[str, Any]] = {}
         self._dataset_intake_lock = threading.Lock()
+        # Per-job prepared-collection cache; a dict only while the single worker
+        # thread is executing a job (see _job_worker_loop / _load_prepared_collection).
+        self._job_collection_cache: dict[tuple[str, str], Any] | None = None
         if self._run_worker:
             self._job_worker = threading.Thread(target=self._job_worker_loop, daemon=True)
             self._job_worker.start()
@@ -2026,11 +2032,13 @@ class WorkbenchStore:
             try:
                 job = self.read_job(project_id, job_id)
                 self._mark_job_running(project_id, job_id)
+                self._job_collection_cache = {}
                 self._dispatch_job(job)
                 self._mark_job_completed(project_id, job_id)
             except Exception as exc:
                 self._mark_job_failed(project_id, job_id, str(exc))
             finally:
+                self._job_collection_cache = None
                 with self._job_lock:
                     self._enqueued_job_ids.discard(job_id)
                 self._job_queue.task_done()
@@ -2099,6 +2107,11 @@ class WorkbenchStore:
 
     def _prepare_dataset_artifact(self, project_id: str, dataset_id: str, job_id: str) -> DatasetManifest:
         dataset = self.read_dataset(project_id, dataset_id)
+        # (Re)preparation rewrites the prepared Parquet files; drop any per-job
+        # cached collection for this dataset so later stages reload fresh data.
+        cache = getattr(self, "_job_collection_cache", None)
+        if cache is not None:
+            cache.pop((project_id, dataset.id), None)
         artifact_path = self.dataset_path(project_id, dataset.id)
         tmp_path = artifact_path / "_tmp" / job_id
         shutil.rmtree(tmp_path, ignore_errors=True)
@@ -2767,7 +2780,7 @@ class WorkbenchStore:
             for feature in features:
                 self._set_feature_status(project_id, feature.id, "running", error=None)
 
-            collection = self._load_prepared_collection(project_id, dataset.id)
+            collection = self._load_prepared_collection(project_id, dataset.id, use_job_cache=True)
             grouped_features: dict[tuple[Any, ...], list[FeatureManifest]] = {}
             for feature in features:
                 params = feature.operation.params
@@ -2859,7 +2872,7 @@ class WorkbenchStore:
                 if incomplete_features:
                     raise ValueError(f"Source features must be completed before embedding computation: {', '.join(incomplete_features)}")
 
-                collection = self._load_prepared_collection(project_id, dataset.id)
+                collection = self._load_prepared_collection(project_id, dataset.id, use_job_cache=True)
                 feature_set = self._load_embedding_features(project_id, features)
                 self._log_job(project_id, job_id, f"Computing embedding {embedding.name} with {embedding.source_embedding_id}")
                 embeddings = self._compute_graph_embeddings(collection, feature_set, embedding.operation.params)
@@ -3215,10 +3228,21 @@ class WorkbenchStore:
             memory_size=params["memory_size"],
         ).compute()
 
-    def _load_prepared_collection(self, project_id: str, dataset_id: str):
+    def _load_prepared_collection(self, project_id: str, dataset_id: str, use_job_cache: bool = False):
         import pandas as pd
 
         from NEExT.io import GraphIO
+
+        # Within a single job the same prepared dataset may be needed by
+        # several read-only stages (feature compute, embedding compute, and
+        # upstream auto-runs). Those call sites opt into the per-job cache set
+        # up by _job_worker_loop. Model training and feature importance must
+        # NOT use the cache: _validate_model_labels mutates graph labels in
+        # place, so they always load a fresh collection.
+        cache = getattr(self, "_job_collection_cache", None)
+        cache_key = (project_id, dataset_id)
+        if use_job_cache and cache is not None and cache_key in cache:
+            return cache[cache_key]
 
         dataset = self.read_dataset(project_id, dataset_id)
         if dataset.prepared_data_files is None:
@@ -3232,7 +3256,7 @@ class WorkbenchStore:
         node_features_df = pd.read_parquet(artifact_path / files.node_features) if files.node_features else None
         edge_features_df = pd.read_parquet(artifact_path / files.edge_features) if files.edge_features else None
 
-        return GraphIO().load_from_dfs(
+        collection = GraphIO().load_from_dfs(
             # Keep graph_id so the loader scopes edges per graph (prepared node IDs are only unique
             # within a graph; node_features/edge_features already retain graph_id below).
             edges_df=edges_df.loc[:, ["graph_id", "src_node_id", "dest_node_id"]],
@@ -3245,6 +3269,9 @@ class WorkbenchStore:
             filter_largest_component=False,
             node_sample_rate=1.0,
         )
+        if use_job_cache and cache is not None:
+            cache[cache_key] = collection
+        return collection
 
     def _write_feature_output(self, project_id: str, feature_id: str, output_df) -> None:
         artifact_path = self.feature_path(project_id, feature_id)
@@ -4943,9 +4970,14 @@ class WorkbenchStore:
         return number if math.isfinite(number) else None
 
     def _json_scalar(self, value):
-        import pandas as pd
+        # Called once per scalar on the prep hot path; avoid re-entering the
+        # import machinery per call.
+        global _pd_isna
+        if _pd_isna is None:
+            from pandas import isna as _pd_isna_fn
 
-        if pd.isna(value):
+            _pd_isna = _pd_isna_fn
+        if _pd_isna(value):
             return None
         if hasattr(value, "item"):
             return value.item()
