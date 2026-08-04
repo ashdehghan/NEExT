@@ -275,6 +275,29 @@ class GraphIO:
             else None
         )
 
+        # For the no-graph_id fallback with globally-unique node IDs (the
+        # documented contract for that input shape), a single node->graph map
+        # replaces the per-graph full-frame isin() scans; groupby preserves the
+        # original row order within each graph, matching the isin() filters.
+        # Non-unique IDs keep the legacy per-graph scan behaviour.
+        node_to_graph = None
+        if node_graph_df["node_id"].is_unique:
+            node_to_graph = dict(zip(node_graph_df["node_id"], node_graph_df["graph_id"]))
+        if edges_by_graph is None and node_to_graph is not None:
+            src_graph = edges_df["src_node_id"].map(node_to_graph)
+            dst_graph = edges_df["dest_node_id"].map(node_to_graph)
+            same_graph = (src_graph == dst_graph) & src_graph.notna()
+            edges_by_graph = {gid: group for gid, group in edges_df[same_graph].groupby(src_graph[same_graph], sort=False)}
+        if node_features_by_graph is None and node_features_df is not None and node_to_graph is not None:
+            nf_graph = node_features_df["node_id"].map(node_to_graph)
+            nf_mask = nf_graph.notna()
+            node_features_by_graph = {gid: group for gid, group in node_features_df[nf_mask].groupby(nf_graph[nf_mask], sort=False)}
+        if edge_features_by_graph is None and edge_features_df is not None and node_to_graph is not None:
+            ef_src = edge_features_df["src_node_id"].map(node_to_graph)
+            ef_dst = edge_features_df["dest_node_id"].map(node_to_graph)
+            ef_mask = (ef_src == ef_dst) & ef_src.notna()
+            edge_features_by_graph = {gid: group for gid, group in edge_features_df[ef_mask].groupby(ef_src[ef_mask], sort=False)}
+
         # Create graph data dictionaries
         graphs_data = []
         for graph_id, nodes in graph_nodes.items():
@@ -304,8 +327,15 @@ class GraphIO:
                 else:
                     node_features = node_features_df[node_features_df["node_id"].isin(node_set)]
                 feature_cols = [col for col in node_features.columns if col not in ("node_id", "graph_id")]
-                for _, row in node_features.iterrows():
-                    graph_data["node_attributes"][row["node_id"]] = {col: row[col] for col in feature_cols}
+                # Row-wise build over the frame's common-dtype matrix: same cell
+                # types iterrows() produced (it also reads frame.values), without
+                # the per-row Series construction.
+                cols = list(node_features.columns)
+                nid_idx = cols.index("node_id")
+                feature_idx = [cols.index(col) for col in feature_cols]
+                node_attr_dst = graph_data["node_attributes"]
+                for row_values in node_features.to_numpy():
+                    node_attr_dst[row_values[nid_idx]] = dict(zip(feature_cols, row_values[feature_idx]))
 
             # Add edge features if available
             if edge_features_df is not None:
@@ -316,9 +346,14 @@ class GraphIO:
                         (edge_features_df["src_node_id"].isin(node_set)) & (edge_features_df["dest_node_id"].isin(node_set))
                     ]
                 feature_cols = [col for col in edge_features.columns if col not in ("src_node_id", "dest_node_id", "graph_id")]
-                for _, row in edge_features.iterrows():
-                    edge_key = (row["src_node_id"], row["dest_node_id"])
-                    graph_data["edge_attributes"][edge_key] = {col: row[col] for col in feature_cols}
+                cols = list(edge_features.columns)
+                src_idx = cols.index("src_node_id")
+                dst_idx = cols.index("dest_node_id")
+                feature_idx = [cols.index(col) for col in feature_cols]
+                edge_attr_dst = graph_data["edge_attributes"]
+                for row_values in edge_features.to_numpy():
+                    edge_key = (row_values[src_idx], row_values[dst_idx])
+                    edge_attr_dst[edge_key] = dict(zip(feature_cols, row_values[feature_idx]))
 
             graphs_data.append(graph_data)
 

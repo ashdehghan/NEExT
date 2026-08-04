@@ -53,6 +53,22 @@ class GraphCollection(BaseModel):
                 if graph.sampled_nodes:
                     self.graph_id_node_array.extend([graph.graph_id] * len(graph.sampled_nodes))
 
+    @staticmethod
+    def _materialize_identity_source_mapping(graph: Graph) -> None:
+        """Set the source-mapping fields exactly as a filter/reindex rebuild
+        of an already-canonical graph would have (observable contract)."""
+        if not graph.source_to_internal_node_id:
+            graph.source_to_internal_node_id = {node: node for node in graph.nodes}
+        if graph.source_graph_id is None:
+            graph.source_graph_id = graph.graph_id
+
+    @staticmethod
+    def _graph_is_connected(graph: Graph) -> bool:
+        """Backend-appropriate connectivity check on an initialized graph."""
+        if graph.graph_type == "networkx":
+            return nx.is_connected(graph.G)
+        return len(graph.G.connected_components()) <= 1
+
     def _networkx_to_dict(self, nx_graph: nx.Graph, graph_id: int) -> Dict:
         """
         Convert a NetworkX graph to the dictionary format expected by add_graphs.
@@ -176,15 +192,27 @@ class GraphCollection(BaseModel):
             # Initialize the graph backend
             graph.initialize_graph()
 
+            # A connected graph whose nodes are already 0..n-1 gains nothing
+            # from filter/reindex: both would rebuild an equal Graph (mapping
+            # exporters treat the implicit identity source mapping the same),
+            # so skip the two extra Graph constructions + backend rebuild.
+            has_canonical_node_ids = graph.nodes == list(range(len(graph.nodes)))
+
             # Apply processing steps if requested
             if filter_largest_component:
-                graph = graph.filter_largest_component()
-                # Re-initialize after filtering
-                graph.initialize_graph()
+                if has_canonical_node_ids and self._graph_is_connected(graph):
+                    self._materialize_identity_source_mapping(graph)
+                else:
+                    graph = graph.filter_largest_component()
+                    # Re-initialize after filtering
+                    graph.initialize_graph()
             elif reindex_nodes:  # Only reindex if not already done by filter_largest_component
-                graph = graph.reindex_nodes()
-                # Re-initialize after reindexing
-                graph.initialize_graph()
+                if has_canonical_node_ids:
+                    self._materialize_identity_source_mapping(graph)
+                else:
+                    graph = graph.reindex_nodes()
+                    # Re-initialize after reindexing
+                    graph.initialize_graph()
 
             self.graphs.append(graph)
 

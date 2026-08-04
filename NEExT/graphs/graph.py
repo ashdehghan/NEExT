@@ -55,11 +55,12 @@ class Graph(BaseModel):
             self.G.add_nodes_from(self.nodes)
             self.G.add_edges_from(self.edges)
 
-            # Add attributes
-            for node, attrs in self.node_attributes.items():
-                nx.set_node_attributes(self.G, {node: attrs})
-            for edge, attrs in self.edge_attributes.items():
-                nx.set_edge_attributes(self.G, {edge: attrs})
+            # Add attributes (single bulk call; nx merges per-node/per-edge
+            # dicts identically to one call per element)
+            if self.node_attributes:
+                nx.set_node_attributes(self.G, self.node_attributes)
+            if self.edge_attributes:
+                nx.set_edge_attributes(self.G, self.edge_attributes)
 
         elif self.graph_type == "igraph":
             # Ensure nodes are consecutive integers starting from 0
@@ -87,16 +88,36 @@ class Graph(BaseModel):
                 edge_list = [(src, dst) for src, dst in self.edges]
                 self.G.add_edges(edge_list)
 
-            for node, attrs in self.node_attributes.items():
-                for k, v in attrs.items():
-                    self.G.vs[node][k] = v
-            for (src, dst), attrs in self.edge_attributes.items():
-                try:
-                    eid = self.G.get_eid(src, dst)
-                except ig.InternalError:
-                    continue
-                for k, v in attrs.items():
-                    self.G.es[eid][k] = v
+            # One igraph attribute-array assignment per key instead of one
+            # per (element, key) pair. Column dict insertion order preserves
+            # the legacy attribute-creation order (key first appearance);
+            # unset elements stay None exactly as before.
+            if self.node_attributes:
+                n_vertices = max_node + 1
+                node_columns: Dict[str, list] = {}
+                for node, attrs in self.node_attributes.items():
+                    for k, v in attrs.items():
+                        column = node_columns.get(k)
+                        if column is None:
+                            column = node_columns[k] = [None] * n_vertices
+                        column[node] = v
+                for k, column in node_columns.items():
+                    self.G.vs[k] = column
+            if self.edge_attributes:
+                n_edges = self.G.ecount()
+                edge_columns: Dict[str, list] = {}
+                for (src, dst), attrs in self.edge_attributes.items():
+                    try:
+                        eid = self.G.get_eid(src, dst)
+                    except ig.InternalError:
+                        continue
+                    for k, v in attrs.items():
+                        column = edge_columns.get(k)
+                        if column is None:
+                            column = edge_columns[k] = [None] * n_edges
+                        column[eid] = v
+                for k, column in edge_columns.items():
+                    self.G.es[k] = column
 
     def reindex_nodes(self) -> "Graph":
         """Reindex nodes to be consecutive integers starting from 0."""
@@ -148,7 +169,8 @@ class Graph(BaseModel):
         drop_reason = "not_in_largest_connected_component"
         dropped_source_node_ids = list(self.dropped_source_node_ids)
         drop_reasons = dict(self.drop_reasons_by_source_node_id)
-        for source_node_id, internal_node_id in self._current_source_mapping().items():
+        source_mapping = self._current_source_mapping()
+        for source_node_id, internal_node_id in source_mapping.items():
             if internal_node_id in removed_nodes and source_node_id not in dropped_source_node_ids:
                 dropped_source_node_ids.append(source_node_id)
             if internal_node_id in removed_nodes:
@@ -164,7 +186,7 @@ class Graph(BaseModel):
             edge_attributes=edge_attrs,
             graph_type=self.graph_type,
             source_graph_id=self._source_graph_id(),
-            source_to_internal_node_id=self._current_source_mapping(),
+            source_to_internal_node_id=source_mapping,
             dropped_source_node_ids=dropped_source_node_ids,
             drop_reasons_by_source_node_id=drop_reasons,
         )
@@ -214,7 +236,8 @@ class Graph(BaseModel):
             # Find largest connected component
             components = self.G.connected_components()
             if len(components) > 1:
-                largest_cc_idx = components.sizes().index(max(components.sizes()))
+                component_sizes = components.sizes()
+                largest_cc_idx = component_sizes.index(max(component_sizes))
                 subgraph = self.G.subgraph(components[largest_cc_idx])
             else:
                 # Already connected
