@@ -24,11 +24,11 @@ sys.path.insert(0, str(RESEARCH_ROOT))
 from lib.containment import (  # noqa: E402
     aggregate,
     build_bags,
+    evaluate_node_oracle,
     evaluate_representation,
     git_sha,
     make_synthetic,
     neext_version,
-    node_oracle_scores,
     pooled_features,
     run_complete,
     size_only,
@@ -110,7 +110,6 @@ def run_cell(nxt, params, family, anomaly, prevalence, k_hop) -> None:
         "pooled_all": pooled_features(features, stats=("mean", "max", "p90")),
         "pooled_max": pooled_features(features, stats=("max",)),
         "size_only": size_only(bags.table),
-        "node_oracle": node_oracle_scores(nxt, collection, bags, seed=params["ml_seed"]),
     }
 
     metrics_rows, score_frames = [], []
@@ -121,6 +120,15 @@ def run_cell(nxt, params, family, anomaly, prevalence, k_hop) -> None:
         metrics_rows.extend(result["metrics_rows"])
         if not result["bag_scores"].empty:
             score_frames.append(result["bag_scores"])
+
+    # The node oracle owns its per-split training (train-bag centers only);
+    # it must never be precomputed and fed through evaluate_representation.
+    oracle = evaluate_node_oracle(
+        nxt, collection, bags, n_splits=params["n_splits"], test_size=params["test_size"], seed=params["ml_seed"]
+    )
+    metrics_rows.extend(oracle["metrics_rows"])
+    if not oracle["bag_scores"].empty:
+        score_frames.append(oracle["bag_scores"])
 
     bag_predictions = (
         pd.concat(score_frames, ignore_index=True).merge(bags.table, on="graph_id") if score_frames else bags.table.copy()

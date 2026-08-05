@@ -55,7 +55,11 @@ def node_meta(collection, nodes_df: pd.DataFrame) -> pd.DataFrame:
     anomalies = [v for v in graph.nodes if graph.node_attributes[v]["is_anomaly"] == 1]
     dist_rows = np.array(G.distances(source=anomalies))  # anomalies x nodes
     nearest = dist_rows.min(axis=0)
-    layout = G.layout_fruchterman_reingold(niter=500)
+    # Seeded start grid so re-running compute reproduces identical coords
+    # (audit hardening; existing runs keep their persisted layout).
+    rng = np.random.default_rng(0)
+    seed_coords = rng.random((len(graph.nodes), 2)).tolist()
+    layout = G.layout_fruchterman_reingold(niter=500, seed=seed_coords)
     coords = np.array(layout.coords)
     meta = pd.DataFrame(
         {

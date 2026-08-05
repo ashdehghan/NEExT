@@ -58,7 +58,10 @@ def lfr_background(n: int = 1500, seed: int = 7, mu: float = 0.1) -> nx.Graph:
                 seed=seed + attempt,
             )
             G.remove_edges_from(nx.selfloop_edges(G))
-            return nx.Graph(G)  # strip community attrs / multiedges defensively
+            # Plain-Graph copy guards against multigraph edge cases. Node
+            # attributes (LFR's 'community' sets) survive the copy but are
+            # never read downstream — nodes_df is built from explicit columns.
+            return nx.Graph(G)
         except Exception:
             continue
     rng = np.random.default_rng(seed)

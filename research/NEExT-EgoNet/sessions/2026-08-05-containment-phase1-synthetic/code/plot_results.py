@@ -37,6 +37,11 @@ PREVALENCES = [0.005, 0.01, 0.02, 0.05, 0.10]
 def load_results() -> pd.DataFrame:
     df = pd.read_csv(SESSION_ROOT / "results.csv")
     ok = df[df["status"] == "ok"].copy()
+    # Uniform degeneracy rule (audit remediation): the >=10-minority-bags
+    # guard entered mid-sweep, so a few early cells carry "ok" rows the
+    # stated protocol excludes. Apply the rule here so figures match it.
+    minority = (np.minimum(ok["positive_rate"], 1 - ok["positive_rate"]) * ok["n_bags"]).round()
+    ok = ok[minority >= 10]
     return (
         ok.groupby(["family", "anomaly", "prevalence", "k_hop", "representation"])
         .agg(

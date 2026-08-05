@@ -48,3 +48,34 @@ clique +.008/.027.
   holds on real data before claiming it in the trim-down.
 - Consider k=0.5-style "center + sampled neighbors" bags for hub-type
   targets to dodge early saturation.
+
+## Audit remediation (2026-08-05, session 3)
+
+**Oracle leakage fixed.** The original node_oracle trained on ALL bag centers
+(incl. test bags). Replaced by `evaluate_node_oracle` (lib/containment/
+evaluate.py): per-split training on train-bag centers only, AND test bags
+scored on non-training-center members only — the regression test showed that
+without the exclusion, memorized member labels still leak through bag overlap
+(0.909 AUC on random labels; now ~chance). All 60 cells' oracle rows
+regenerated (`code/rerun_oracle.py`; rebuilt bags verified identical to
+stored; fair rows asserted byte-untouched).
+
+**Clean oracle:** median 0.933, range 0.539–0.999 over valid cells (was
+"≥0.98 almost everywhere" under the leak). At k=1 low π the label-starved
+oracle (~4–8 positive centers) sits BELOW the fair bag-level methods — they
+learn from ~10× more positive bags. The old 0.5/0.736 saturated-cell values
+are gone; those cells now report degenerate_oracle_training or are excluded.
+
+**Uniform degeneracy rule applied retroactively.** MIN_MINORITY_BAGS=10
+entered mid-sweep; 4 early cells with minority<10 carried "ok" rows:
+ba_tail_p0.005_k1 (9 minority — was the +.270 headline cell),
+ba_hub_p0.02_k2 (5 — was +.238), er_hub_p0.1_k1 (all-0.5 row),
+er_tail_p0.005_k1 (the sub-chance size_only cell). All four reclassified
+degenerate. **Corrected headline: 20 of 50 valid cells ≥ +0.05; peak +0.351
+(ba_tail_p0.02_k1) unchanged. Ordering (tail .084 > hub .039 > clique .029)
+and pooling verdict (pooled_all 21 / pooled_max 17 / wass 12) unchanged.**
+Figures regenerated with the rule applied (plot_results.load_results).
+
+Manuscript updated accordingly (abstract, results_phase1 incl. new tab:phase1
+rows, protocols appendix, limitations: +transductive preprocessing, +split
+dependence). Phase-2 to-do reaffirmed: add min/p10 to pooled stats.
