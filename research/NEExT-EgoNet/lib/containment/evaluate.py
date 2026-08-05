@@ -20,6 +20,10 @@ from xgboost import XGBClassifier
 
 DEFAULT_SPLITS = 10
 DEFAULT_TEST_SIZE = 0.3
+# Below this many minority-class bags a cell is saturation-degenerate: the
+# stratified splitter can't even guarantee both classes in every split, and
+# rank metrics on a handful of minority test bags are noise, not signal.
+MIN_MINORITY_BAGS = 10
 
 
 def evaluate_representation(
@@ -45,7 +49,8 @@ def evaluate_representation(
         "n_features": len(feature_cols),
     }
 
-    if len(np.unique(y)) < 2:
+    minority = int(np.bincount(y, minlength=2).min())
+    if len(np.unique(y)) < 2 or minority < MIN_MINORITY_BAGS:
         return {
             "metrics_rows": [{**base, "split": "", "status": "degenerate", "roc_auc": "", "pr_auc": "", "accuracy": ""}],
             "bag_scores": pd.DataFrame(),

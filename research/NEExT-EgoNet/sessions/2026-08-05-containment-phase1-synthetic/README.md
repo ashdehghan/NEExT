@@ -39,13 +39,38 @@ size all the way down ⇒ negative result, program stops.
 
 ## Key findings
 
-(pending sweep completion — see `logs/sweep.log`, `results.csv`,
-`outputs/<run_id>/`)
+Sweep complete: 60/60 cells (6 saturation-degenerate, all hub π≥0.02 — as the
+1−(1−π)^s model predicts). **Gate to phase 2: PASS.**
+
+- 23/54 non-degenerate cells: best fair rep beats size_only by ≥ +0.05 AUC.
+  Peaks: BA/tail π=.02 k=1 → 0.87 vs 0.51 (+0.35); BA/tail π=.005 k=1 →
+  0.81 vs 0.54 (+0.27); BA/hub π=.02 k=2 → 0.89 vs 0.66 (+0.24).
+- Anomaly difficulty ordering (mean margin): tail +0.10 > hub +0.05 >
+  clique +0.03. Tails = point anomalies → containment-friendliest. Hubs
+  saturate early (contained in every neighbor's bag; pos_rate far above the
+  uniform curve). Cliques invisible at k=1 (don't fit the bag), emerge at
+  k=2 (BA π=.05: 0.67→0.91).
+- **Dilution measured:** BA/tail π=.01: 0.89 (k=1, med bag 12) → 0.74 (k=2,
+  med bag 109). Radius rule splits by signature: match k to the anomaly's
+  scale, then check π·s for balance.
+- **Pooling verdict (honest):** pooled_all wins 21 cells, pooled_max 19,
+  wasserstein 14. Pooled moments suffice for extremum signatures; wasserstein
+  earns its keep in hard low-signal regimes (ER/tail k=2: leads at every π).
+  Phase 2 contract: wass + pooled co-primary.
+- node_oracle ≥0.98 nearly everywhere — planted anomalies trivial at
+  full-graph cost; margins measure what survives bag-level compression.
+
+Artifacts: `results.csv` (all cells × reps × splits), `outputs/<run_id>/`
+(config/metrics/bag_predictions/bag_table), `figures/` via
+`code/plot_results.py` (CSV-only regeneration). Manuscript updated:
+`sections/results_phase1.tex` + 4 figures, compiles clean.
 
 ## Next steps
 
-- Fold results into manuscript `sections/results_phase1.tex` + figures
-- Gate decision → phase 2 (BOOKS, REDDIT_PYGOD, MINESWEEPER contrast)
+- Phase 2 (next session): BOOKS → REDDIT_PYGOD → MINESWEEPER, same matrix,
+  reuse lib/containment unchanged; add dataset loader to lib (copy PoC
+  `datasets.py` pattern).
+- Consider per-anomaly-type feature ablation informed by pooling verdict.
 
 ## Layout
 

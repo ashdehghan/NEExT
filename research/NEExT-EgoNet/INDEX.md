@@ -27,7 +27,7 @@ collection (also the backend of the Workbench Dataset Library).
 
 | Session | Status | Goal | Key findings |
 |---|---|---|---|
-| [2026-08-05-containment-phase1-synthetic](sessions/2026-08-05-containment-phase1-synthetic/) | active | Containment reframing (egonet=MIL bag, label=contains target?): synthetic detectability surface over {er,ba}×{hub,clique,tail}×π×k vs size-only confound | (sweep running) |
+| [2026-08-05-containment-phase1-synthetic](sessions/2026-08-05-containment-phase1-synthetic/) | done | Containment reframing (egonet=MIL bag, label=contains target?): synthetic detectability surface over {er,ba}×{hub,clique,tail}×π×k vs size-only confound | GATE PASS: 23/54 cells beat size-only by ≥.05 AUC (peak +.35, BA/tail k=1 low π). Tail > hub > clique difficulty; dilution + saturation both measured; pooled features strong co-primary, wasserstein wins hard regimes |
 | [2026-07-31-egonet-poc](sessions/2026-07-31-egonet-poc/) | active | Prove k-hop egonet embeddings carry node-class signal (AIRPORTS_USA, k ∈ {1,2}, vs baselines) | Mechanism works (0.56–0.63 acc vs 0.25 floor) but center-node full-graph features win (0.68); k=2 slow (6.7 h). Next: local-label datasets + combined signals |
 
 <!-- Statuses: active | done | parked. Newest first. -->
