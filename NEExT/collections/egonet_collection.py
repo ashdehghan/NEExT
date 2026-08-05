@@ -186,6 +186,7 @@ class EgonetCollection(GraphCollection):
         if nodes_to_sample is None:
             nodes_to_sample = {}
 
+        self.graphs = []
         self.graph_id_node_array = []
         self.egonet_to_graph_node_mapping = {}
         egonet_id = 0
@@ -250,6 +251,7 @@ class EgonetCollection(GraphCollection):
         if any(g.graph_type == "networkx" for g in graph_collection.graphs):
             raise NotImplementedError("Leiden egonets require iGraph backend. Use graph_type='igraph' when loading graphs.")
 
+        self.graphs = []
         self.graph_id_node_array = []
         self.egonet_to_graph_node_mapping = {}
         egonet_id = 0

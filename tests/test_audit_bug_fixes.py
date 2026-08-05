@@ -5,6 +5,7 @@ import random
 import pandas as pd
 
 from NEExT import NEExT
+from NEExT.collections import EgonetCollection
 
 
 def triangle_plus_isolated_nodes_df():
@@ -121,6 +122,52 @@ def test_leiden_egonet_collection_reports_igraph():
     nxt, collection = load_collection("igraph", filter_largest_component=True)
     egonets = nxt.compute_leiden_egonets(collection, egonet_feature_target="lbl")
     assert egonets.graph_type == "igraph"
+
+
+# ---------------------------------------------------------------------------
+# BUG-4: EgonetCollection compute methods reset their mappings but never
+# cleared self.graphs, so a second compute call on the same instance stacked
+# two generations of egonets with colliding graph_ids and silently corrupted
+# downstream features/embeddings. Repeat calls must rebuild the collection.
+# ---------------------------------------------------------------------------
+
+
+def load_path_graph_collection(graph_type: str):
+    """A 4-node path graph (0-1-2-3): k=1 vs k=2 egonets differ in size."""
+    edges = pd.DataFrame({"src_node_id": [0, 1, 2], "dest_node_id": [1, 2, 3]})
+    nodes = pd.DataFrame({"node_id": [0, 1, 2, 3], "lbl": [0, 1, 0, 1]})
+    nxt = NEExT()
+    nxt.set_log_level("WARNING")
+    return nxt.load_single_graph_from_dfs(edges_df=edges, nodes_df=nodes, graph_type=graph_type)
+
+
+def assert_collection_is_single_generation(egonets: EgonetCollection, node_count: int):
+    assert len(egonets.graphs) == node_count
+    assert sorted(g.graph_id for g in egonets.graphs) == list(range(node_count))
+    assert len(egonets.graph_id_node_array) == sum(len(g.nodes) for g in egonets.graphs)
+    assert set(egonets.egonet_to_graph_node_mapping) == {g.graph_id for g in egonets.graphs}
+
+
+def test_k_hop_egonets_repeat_call_rebuilds_collection():
+    collection = load_path_graph_collection("networkx")
+    egonets = EgonetCollection(graph_type=collection.graph_type, egonet_feature_target="lbl", skip_features=["lbl"])
+
+    egonets.compute_k_hop_egonets(collection, k_hop=1)
+    egonets.compute_k_hop_egonets(collection, k_hop=2)
+
+    assert_collection_is_single_generation(egonets, node_count=4)
+    # k=2 egonets on the path graph have sizes 3, 4, 4, 3 (k=1 would be 10 total)
+    assert len(egonets.graph_id_node_array) == 14
+
+
+def test_leiden_egonets_repeat_call_rebuilds_collection():
+    collection = load_path_graph_collection("igraph")
+    egonets = EgonetCollection(graph_type=collection.graph_type, egonet_feature_target="lbl", skip_features=["lbl"])
+
+    egonets.compute_leiden_egonets(collection)
+    egonets.compute_leiden_egonets(collection)
+
+    assert_collection_is_single_generation(egonets, node_count=4)
 
 
 def test_load_centrality_backend_parity_connected_graph():
