@@ -2,6 +2,10 @@
 # session notes here are deliberate, tracked lab-notebook content.
 !**/notes/
 
+# The repo root .gitignore ignores lib/ globally (build-artifact rule);
+# research/NEExT-EgoNet/lib is deliberate, tracked shared experiment code.
+!lib/
+
 # Bulky / regenerable session artifacts — keep the dirs, ignore the contents
 **/data/*
 **/logs/*
