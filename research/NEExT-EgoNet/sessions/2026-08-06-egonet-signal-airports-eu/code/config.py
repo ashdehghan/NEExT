@@ -11,7 +11,7 @@ CONFIG = {
     "graph_type": "igraph",
     "min_class_count": 10,
     # egonet construction
-    "k_hop": 2,
+    "k_hops": [1, 2, 3],
     "egonet_seed": 13,
     # features: computed WITHIN each egonet, own-node value only
     "feature_list": [
@@ -30,9 +30,13 @@ CONFIG = {
     "test_size": 0.3,
 }
 
-# x-axis order + display labels for the results figure
-METHODS = {
+# x-axis order + display labels for the results figure. Majority is still
+# computed and recorded in outputs/ but deliberately kept OFF the plot
+# (Ash 2026-08-06: report the permutation floor as the baseline; macro-F1
+# and AUC stay in the artifacts, the figure shows accuracy only).
+PLOT_METHODS = {
     "permuted": "Random\n(permuted labels)",
-    "majority": "Majority\nclass",
-    "egonet_k2_wass": "Egonet $k{=}2$\nWasserstein",
+    "egonet_k1_wass": "Egonet $k{=}1$",
+    "egonet_k2_wass": "Egonet $k{=}2$",
+    "egonet_k3_wass": "Egonet $k{=}3$",
 }

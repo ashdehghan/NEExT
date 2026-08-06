@@ -1,12 +1,13 @@
-"""Experiment 1: is there class signal in the 2-hop egonet? (Air Traffic Europe)
+"""Experiment 1: is there class signal in the k-hop egonet? (Air Traffic Europe)
 
-Pipeline: catalog dataset -> 2-hop egonet per node (label = center's class) ->
-4 structural features per member (feature_vector_length=1, computed inside the
-egonet) -> approx-Wasserstein embedding (dim 4) -> XGBoost under 10x stratified
-70/30 shared splits, against two floors:
+Pipeline: catalog dataset -> k-hop egonet per node for k in {1,2,3} (label =
+center's class) -> 4 structural features per member (feature_vector_length=1,
+computed inside the egonet) -> approx-Wasserstein embedding (dim 4) -> XGBoost
+under 10x stratified 70/30 shared splits, against two floors:
 
-  - majority: train-majority constant predictor
-  - permuted: same pipeline, training labels shuffled (the honest random model)
+  - permuted: same pipeline, training labels shuffled (the honest random
+    model, the figure baseline)
+  - majority: train-majority constant predictor (ledger only, off the figure)
 
 Artifacts follow lib/containment/runio conventions: one dir per method under
 outputs/, plus a session-root results.csv aggregate. Figures read artifacts
@@ -64,46 +65,51 @@ def main():
     print(f"[{time.time() - t0:6.1f}s] graph loaded: {table_report['n_nodes']} nodes, "
           f"{table_report['n_classes']} classes, {len(centers)} centers")
 
-    reach = khop_reach(collection, centers, k=cfg["k_hop"])
-    (OUTPUTS / f"{cfg['dataset']}__k{cfg['k_hop']}_reach.json").write_text(json.dumps(reach, indent=2))
-    print(f"[{time.time() - t0:6.1f}s] k={cfg['k_hop']} reach: median {reach['median']:.0f} nodes "
-          f"({reach['median_frac_of_graph']:.0%} of graph), p90 {reach['p90']:.0f}, max {reach['max']:.0f}")
-
-    bags = build_node_bags(
-        nxt, collection, centers, cfg["label_column"], method="k_hop",
-        k_hop=cfg["k_hop"], seed=cfg["egonet_seed"],
-    )
-    print(f"[{time.time() - t0:6.1f}s] {len(bags.egonets.graphs)} egonets built "
-          f"(median size {bags.table['n_nodes'].median():.0f})")
-
-    features = nxt.compute_node_features(
-        bags.egonets,
-        feature_list=list(cfg["feature_list"]),
-        feature_vector_length=cfg["feature_vector_length"],
-        show_progress=False,
-        n_jobs=-1,
-    )
-    rep_df = wasserstein_embedding(nxt, bags.egonets, features, dimension=cfg["wasserstein_dim"], seed=cfg["embed_seed"])
-    rep_node = egonet_rep_to_node_frame(rep_df, bags.table)
-    print(f"[{time.time() - t0:6.1f}s] features + embedding done ({cfg['wasserstein_dim']} dims)")
-
     eval_kwargs = dict(n_splits=cfg["n_splits"], test_size=cfg["test_size"], seed=cfg["ml_seed"])
-    results = {
-        "egonet_k2_wass": evaluate_node_representation("egonet_k2_wass", rep_node, node_table, **eval_kwargs),
-        "majority": majority_floor(node_table, **eval_kwargs),
-        "permuted": permutation_floor("permuted", rep_node, node_table, **eval_kwargs),
-    }
+    results, bag_tables, reaches, reps = {}, {}, {}, {}
+    for k in cfg["k_hops"]:
+        reach = khop_reach(collection, centers, k=k)
+        reaches[k] = reach
+        (OUTPUTS / f"{cfg['dataset']}__k{k}_reach.json").write_text(json.dumps(reach, indent=2))
+        print(f"[{time.time() - t0:6.1f}s] k={k} reach: median {reach['median']:.0f} nodes "
+              f"({reach['median_frac_of_graph']:.0%} of graph), p90 {reach['p90']:.0f}, max {reach['max']:.0f}")
+
+        bags = build_node_bags(
+            nxt, collection, centers, cfg["label_column"], method="k_hop",
+            k_hop=k, seed=cfg["egonet_seed"],
+        )
+        features = nxt.compute_node_features(
+            bags.egonets,
+            feature_list=list(cfg["feature_list"]),
+            feature_vector_length=cfg["feature_vector_length"],
+            show_progress=False,
+            n_jobs=-1,
+        )
+        rep_df = wasserstein_embedding(nxt, bags.egonets, features, dimension=cfg["wasserstein_dim"], seed=cfg["embed_seed"])
+        rep_node = egonet_rep_to_node_frame(rep_df, bags.table)
+        method = f"egonet_k{k}_wass"
+        results[method] = evaluate_node_representation(method, rep_node, node_table, **eval_kwargs)
+        bag_tables[method], reps[method] = bags.table, rep_node
+        print(f"[{time.time() - t0:6.1f}s] k={k}: {len(bags.egonets.graphs)} egonets "
+              f"(median size {bags.table['n_nodes'].median():.0f}) evaluated")
+
+    # Floors: permuted rides on the k=2 representation (any would do — it exists
+    # to show the pipeline scores at chance without true labels). Majority is
+    # recorded for the ledger but stays off the figure.
+    results["permuted"] = permutation_floor("permuted", reps["egonet_k2_wass"], node_table, **eval_kwargs)
+    results["majority"] = majority_floor(node_table, **eval_kwargs)
 
     run_config = {
         **cfg,
         "n_centers": len(centers),
         "table_report": table_report,
         "filter_report": filter_report,
-        "reach": reach,
+        "reach": {str(k): r for k, r in reaches.items()},
         "git_sha": runio.git_sha(REPO_ROOT),
         "neext_version": runio.neext_version(),
     }
     all_rows = []
+    fallback_table = bag_tables["egonet_k2_wass"]
     for method, out in results.items():
         run_config_m = {**run_config, "method": method, "status": out["status"]}
         runio.write_run(
@@ -112,11 +118,12 @@ def main():
             run_config_m,
             out["metrics_rows"],
             out["node_predictions"],
-            bags.table,
+            bag_tables.get(method, fallback_table),
         )
         all_rows.extend(out["metrics_rows"])
-    rep_node.to_parquet(OUTPUTS / f"{cfg['dataset']}__egonet_k2_wass" / "representation.parquet", index=False)
-    runio.aggregate(OUTPUTS, ["dataset", "method", "status", "k_hop", "git_sha"])
+        if method in reps:
+            reps[method].to_parquet(OUTPUTS / f"{cfg['dataset']}__{method}" / "representation.parquet", index=False)
+    runio.aggregate(OUTPUTS, ["dataset", "method", "status", "git_sha"])
 
     print(f"[{time.time() - t0:6.1f}s] done\n")
     print(summarize_node_metrics(all_rows).to_string(index=False))

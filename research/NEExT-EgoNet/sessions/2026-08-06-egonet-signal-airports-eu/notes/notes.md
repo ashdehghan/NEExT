@@ -18,3 +18,8 @@
   smaller bags sharpen or blur the separation.
 - Figure `figures/exp1_signal_box.{pdf,png}` (plotstyle, legend above axes,
   panels (a) accuracy / (b) macro-F1). Pushed PNG to the terminal scratchpad.
+
+- Ash follow-up: drop majority from the figure (keep in ledger), accuracy
+  only, add k=1 and k=3. Re-run (22 s): k=1 .536±.024 > k=2 .463 > k=3 .434,
+  all >> floor .249. Coverage medians 4% / 70% / 99% — monotone degradation
+  with saturation; the signal is local. Figure regenerated (single panel).

@@ -29,23 +29,27 @@ alone? Yes/no signal detection under ONE fixed configuration, no sweeps.
 
 ## Key findings
 
-- **Signal: yes.** Accuracy 0.463 ± 0.043 vs 0.249 (permuted) / 0.250
-  (majority); macro-F1 0.462; OVR-AUC 0.753. Boxes don't overlap the floors
-  across 10 splits — `figures/exp1_signal_box.{pdf,png}`.
-- Permutation floor lands exactly at chance → no leakage in the harness.
-- **Saturation observed, signal survives:** median 2-hop egonet spans 278/399
-  nodes (70% of the graph; p90 = 369). Heavily overlapping near-global bags
-  still separate activity quartiles.
-- Runtime: 14 s end-to-end.
+- **Signal: yes, and smaller bags win.** Accuracy vs the permutation floor
+  (0.249 ± 0.061): k=1 **0.536 ± 0.024**, k=2 0.463 ± 0.043, k=3
+  0.434 ± 0.043 — every k clears the floor decisively, and accuracy falls
+  monotonically with k (`figures/exp1_signal_box.{pdf,png}`).
+- Coverage explains the ordering: median egonet = 16 nodes (4% of graph) at
+  k=1, 278 (70%) at k=2, 394 (99%) at k=3. As bags saturate toward the whole
+  graph the embeddings blur together — the signal is local.
+- Permutation floor lands exactly at chance → no leakage in the harness
+  (`permutation_floor` added to `lib/nodeclass` this session, unit-tested).
+- Per Ash: figure reports accuracy only, permutation floor as the baseline;
+  majority floor + macro-F1/AUC stay recorded in `outputs/` (majority's
+  macro-F1 of 0.10 is an artifact of single-class prediction, misleading on
+  a near-balanced 4-class task).
+- Runtime: 22 s end-to-end for the full k-sweep.
 
 ## Next steps
 
-- k=1 comparison (smaller, less saturated bags) — is k=2's coverage helping or
-  hurting?
+- Center-node-features baseline (full-graph features of the center only) to
+  isolate what the neighborhood distribution adds beyond the node itself.
 - More features / longer feature vectors; other datasets (AIRPORTS_USA next).
-- Compare against a non-egonet baseline (center-node full-graph features) to
-  see whether the *neighborhood distribution* is doing work beyond the node
-  itself.
+- k=1 looks like the default construction for follow-ups on dense graphs.
 
 ## Layout
 

@@ -1,8 +1,10 @@
-"""Experiment 1 figure: per-split box plot, approaches on the x-axis.
+"""Experiment 1 figure: accuracy box plot, approaches on the x-axis.
 
-Reads the session results.csv aggregate only. Two panels: (a) accuracy,
-(b) macro-F1. Floors grey, egonet blue (plotstyle family palette); legend
-above the axes, never inside. Output: figures/exp1_signal_box.{pdf,png}.
+Reads the session results.csv aggregate only. Single panel: accuracy across
+the 10 shared splits for the permutation floor and egonet k=1/2/3. Majority
+and the other metrics (macro-F1, AUC) stay in the artifacts, off the figure.
+Floor grey, egonets blue (plotstyle family palette); legend above the axes,
+never inside. Output: figures/exp1_signal_box.{pdf,png}.
 
 Usage: uv run --with matplotlib python code/plot_results.py
 """
@@ -23,37 +25,38 @@ import pandas as pd  # noqa: E402
 import config as C  # noqa: E402
 
 FIGURES = SESSION_ROOT / "figures"
-FAMILY_OF = {"permuted": "floor", "majority": "floor", "egonet_k2_wass": "egonet_hop"}
-CHANCE = 0.25  # 4 balanced quartile classes
+CHANCE = 0.25  # 4 near-balanced quartile classes
+
+
+def family_of(method: str) -> str:
+    return "floor" if method == "permuted" else "egonet_hop"
 
 
 def main():
     df = pd.read_csv(SESSION_ROOT / "results.csv")
     df = df[df["status"] == "ok"]
-    ps.use_style()
 
-    methods = list(C.METHODS)
-    fig, axes = plt.subplots(1, 2, figsize=(ps.FULL_W, 2.4), sharex=True)
-    for ax, metric, tag in zip(axes, ("accuracy", "f1_macro"), ("(a) accuracy", "(b) macro-F1")):
-        data = [df.loc[df["method"] == m, metric].to_numpy() for m in methods]
-        boxes = ax.boxplot(data, positions=range(len(methods)), widths=0.55, showfliers=False, patch_artist=True)
-        for patch, med, m in zip(boxes["boxes"], boxes["medians"], methods):
-            color = ps.FAMILY_COLOR[FAMILY_OF[m]]
-            patch.set_facecolor(color)
-            patch.set_alpha(0.35)
-            patch.set_edgecolor(color)
-            med.set_color(ps.INK)
-        ax.axhline(CHANCE, color=ps.MUTED, linewidth=0.6, linestyle=(0, (4, 3)), zorder=0)
-        ax.set_xticks(range(len(methods)), [C.METHODS[m] for m in methods])
-        ax.set_ylim(0.0, 1.0)
-        ax.set_ylabel(metric.replace("f1_macro", "macro-F1"))
-        ps.panel_tag(ax, tag)
+    ps.use_style()
+    methods = list(C.PLOT_METHODS)
+    fig, ax = plt.subplots(figsize=(ps.FULL_W, 2.6))
+    data = [df.loc[df["method"] == m, "accuracy"].to_numpy() for m in methods]
+    boxes = ax.boxplot(data, positions=range(len(methods)), widths=0.55, showfliers=False, patch_artist=True)
+    for patch, med, m in zip(boxes["boxes"], boxes["medians"], methods):
+        color = ps.FAMILY_COLOR[family_of(m)]
+        patch.set_facecolor(color)
+        patch.set_alpha(0.35)
+        patch.set_edgecolor(color)
+        med.set_color(ps.INK)
+    ax.axhline(CHANCE, color=ps.MUTED, linewidth=0.6, linestyle=(0, (4, 3)), zorder=0)
+    ax.set_xticks(range(len(methods)), [C.PLOT_METHODS[m] for m in methods])
+    ax.set_ylim(0.0, 1.0)
+    ax.set_ylabel("accuracy")
 
     handles = [
         plt.Rectangle((0, 0), 1, 1, facecolor=ps.FAMILY_COLOR["floor"], alpha=0.35,
-                      edgecolor=ps.FAMILY_COLOR["floor"], label="Chance floors"),
+                      edgecolor=ps.FAMILY_COLOR["floor"], label="Random floor"),
         plt.Rectangle((0, 0), 1, 1, facecolor=ps.FAMILY_COLOR["egonet_hop"], alpha=0.35,
-                      edgecolor=ps.FAMILY_COLOR["egonet_hop"], label="Egonet embedding"),
+                      edgecolor=ps.FAMILY_COLOR["egonet_hop"], label="Egonet + approx. Wasserstein"),
         plt.Line2D([], [], color=ps.MUTED, linewidth=0.6, linestyle=(0, (4, 3)),
                    label="Uniform chance (0.25)"),
     ]
