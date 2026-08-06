@@ -365,14 +365,15 @@ TOOL_DESCRIPTIONS = {
         '{"format": "records"|"csv", "records": [...] | "csv": "..."}. With source_graph_shape="graph_collection" '
         "(default), required tables are edges (src_node_id, dest_node_id) and node_graph_mapping (node_id, graph_id). "
         'With source_graph_shape="single_graph", required table is edges plus an optional nodes table (node_id + '
-        "attribute columns); params may carry egonet settings (k_hop, node_selection, sample_fraction, random_seed, "
-        "source_node_ids, target_node_attribute). Node IDs must be integer-compatible. "
+        "attribute columns); params may carry egonet settings (egonet_method [k_hop|random_walk], k_hop, walk_length, "
+        "n_walks, restart_prob, min_visits, max_egonet_size, weight_by_visits, node_selection, sample_fraction, "
+        "random_seed, source_node_ids, target_node_attribute). Node IDs must be integer-compatible. "
         "See the neext://docs/dataset-intake resource for the full contract."
     ),
     "neext_create_dataset_intake_session": (
         "Create a temporary Dataset Intake session for agent-supplied NEExT table data. Step 1 of the session flow: "
         'create session, append tables, validate session, then create the dataset. Set source_graph_shape="single_graph" '
-        "with egonet params to import one graph that preparation breaks into a k-hop egonet graph collection."
+        "with egonet params to import one graph that preparation breaks into an egonet graph collection (k-hop or random-walk)."
     ),
     "neext_append_dataset_intake_table": (
         "Append or replace one NEExT table in a Dataset Intake session. table is "

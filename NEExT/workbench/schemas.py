@@ -241,7 +241,11 @@ class DatasetEgonetMetadata(BaseModel):
     source_graph_shape: Literal["single_graph"]
     operation_id: str
     operation_version: str
-    k_hop: int
+    egonet_method: Literal["k_hop", "random_walk"] = "k_hop"
+    k_hop: Optional[int] = None
+    walk_length: Optional[int] = None
+    n_walks: Optional[int] = None
+    restart_prob: Optional[float] = None
     node_selection: str
     sample_fraction: float
     random_seed: int
@@ -311,7 +315,14 @@ class DatasetCatalogEntry(BaseModel):
 class DatasetPrepareParams(BaseModel):
     graph_type: Literal["networkx", "igraph"] = "networkx"
     filter_largest_component: bool = True
+    egonet_method: Literal["k_hop", "random_walk"] = "k_hop"
     k_hop: int = Field(default=1, ge=0, le=10)
+    walk_length: int = Field(default=10, ge=1, le=1000)
+    n_walks: int = Field(default=100, ge=1, le=100_000)
+    restart_prob: float = Field(default=0.15, ge=0.0, lt=1.0)
+    min_visits: int = Field(default=1, ge=1)
+    max_egonet_size: Optional[int] = Field(default=None, ge=1)
+    weight_by_visits: bool = True
     node_selection: Literal["all_nodes", "sample_fraction", "specific_node_ids"] = "all_nodes"
     sample_fraction: float = Field(default=1.0, ge=0.0, le=1.0)
     random_seed: int = Field(default=13, ge=0)
