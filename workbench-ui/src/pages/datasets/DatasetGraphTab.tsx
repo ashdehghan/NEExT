@@ -438,7 +438,11 @@ export function DatasetGraphTab({
                 </span>
               ) : null}
               {analysis.egonet_metadata ? (
-                <span className="graph-meta-badge">{formatCount(analysis.egonet_metadata.k_hop)}-hop egonet</span>
+                <span className="graph-meta-badge">
+                  {analysis.egonet_metadata.egonet_method === "random_walk"
+                    ? `${formatCount(analysis.egonet_metadata.walk_length ?? 0)}-step walk egonet`
+                    : `${formatCount(analysis.egonet_metadata.k_hop ?? 0)}-hop egonet`}
+                </span>
               ) : null}
               {analysis.egonet_metadata?.target_node_attribute ? (
                 <span className="graph-meta-badge" title={`Target ${analysis.egonet_metadata.target_node_attribute}`}>
