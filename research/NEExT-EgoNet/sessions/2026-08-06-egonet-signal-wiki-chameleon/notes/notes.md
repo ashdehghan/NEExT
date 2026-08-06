@@ -22,3 +22,11 @@
   composition of true global features carries signal the page's own profile
   lacks. Chameleon is not an airports clone; it's a third regime (dense +
   partially neighborhood-encoded label).
+
+- Figure consolidation (Ash chose Layout A, merged axis, after seeing both
+  protos on the board): promoted to lib/nodeclass/figures.py
+  (dataset_overview_figure); all three sessions now render one overview
+  figure via thin code/plot_results_overview.py wrappers. Manuscript: 4
+  figure floats -> 3 (one per dataset), Chameleon subsection added (table
+  + overview figure + 4 findings incl. global k2 > node baseline; triptych
+  framing closes the section). Compiles clean, pdf_rev 7.
