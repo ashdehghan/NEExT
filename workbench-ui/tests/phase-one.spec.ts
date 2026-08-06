@@ -1495,7 +1495,7 @@ test("Dataset Library configures single graph egonet datasets", async ({ page })
 
   await karateCatalogRow.getByRole("button", { name: "Add to Project" }).click();
   await expect(page.getByRole("heading", { name: "Add Zachary Karate Club to Project" })).toBeVisible();
-  await expect(page.getByLabel("K-Hop")).toHaveValue("1");
+  await expect(page.getByLabel("K-Hop", { exact: true })).toHaveValue("1");
   await expect(page.getByLabel("Node Selection")).toHaveValue("all_nodes");
   await expect(page.getByLabel("Target Attribute")).toContainText("club");
   await page.getByRole("button", { name: "Back" }).click();

@@ -14,6 +14,7 @@ from NEExT.features import Features
 
 class GraphEmbeddingConfig(BaseModel):
     """Configuration for graph embedding computation"""
+
     embedding_algorithm: str
     embedding_dimension: int
     feature_columns: Optional[List[str]] = None
@@ -21,7 +22,7 @@ class GraphEmbeddingConfig(BaseModel):
     memory_size: str = "4G"
     suffix: str = ""
 
-    @validator('embedding_algorithm')
+    @validator("embedding_algorithm")
     def validate_embedding_algorithm(cls, v):
         valid_algorithms = ["approx_wasserstein", "wasserstein", "sinkhornvectorizer"]
         if v not in valid_algorithms:
@@ -32,17 +33,17 @@ class GraphEmbeddingConfig(BaseModel):
 class GraphEmbeddings:
     """
     A class for computing graph embeddings based on node features.
-    
+
     This class provides methods to compute graph-level embeddings from node-level
     features using various embedding algorithms.
-    
+
     Attributes:
         graph_collection (GraphCollection): Collection of graphs to process
         features (Features): Features object containing node features
         config (GraphEmbeddingConfig): Configuration for embedding computation
         available_algorithms (Dict): Dictionary mapping algorithm names to computation methods
     """
-    
+
     def __init__(
         self,
         graph_collection: GraphCollection,
@@ -52,7 +53,7 @@ class GraphEmbeddings:
         feature_columns: Optional[List[str]] = None,
         random_state: int = 42,
         memory_size: str = "4G",
-        suffix: str = '',
+        suffix: str = "",
     ):
         """Initialize the GraphEmbeddings processor."""
         self.config = GraphEmbeddingConfig(
@@ -61,32 +62,30 @@ class GraphEmbeddings:
             feature_columns=feature_columns or features.feature_columns,
             random_state=random_state,
             memory_size=memory_size,
-            suffix=suffix
+            suffix=suffix,
         )
         self.graph_collection = graph_collection
         self.features = features
-        
+
         # Define available embedding algorithms
         self.available_algorithms = {
             "approx_wasserstein": self._compute_approx_wasserstein,
             "wasserstein": self._compute_wasserstein,
-            "sinkhornvectorizer": self._compute_sinkhorn
+            "sinkhornvectorizer": self._compute_sinkhorn,
         }
-        
+
         # Import vectorizers only when needed
         try:
             import vectorizers
+
             self.vectorizers = vectorizers
         except ImportError:
-            raise ImportError(
-                "The 'vectorizers' package is required for graph embeddings. "
-                "Install it with: pip install vectorizers"
-            )
+            raise ImportError("The 'vectorizers' package is required for graph embeddings. " "Install it with: pip install vectorizers")
 
     def compute(self) -> Embeddings:
         """
         Compute graph embeddings based on node features.
-        
+
         Returns:
             Embeddings: Embeddings object containing computed embeddings
         """
@@ -94,28 +93,24 @@ class GraphEmbeddings:
         if self.config.embedding_algorithm not in self.available_algorithms:
             valid_algorithms = list(self.available_algorithms.keys())
             raise ValueError(f"Unknown algorithm: {self.config.embedding_algorithm}. Valid algorithms: {valid_algorithms}")
-        
+
         embedding_func = self.available_algorithms[self.config.embedding_algorithm]
-        
+
         # Compute embeddings
         embeddings_df = embedding_func(self.features.features_df)
-        
+
         # Get embedding column names
         embedding_columns = [f"emb_{i}_{self.config.suffix}" if self.config.suffix else f"emb_{i}" for i in range(self.config.embedding_dimension)]
-        
-        return Embeddings(
-            embeddings_df=embeddings_df,
-            embedding_name=self.config.embedding_algorithm,
-            embedding_columns=embedding_columns
-        )
+
+        return Embeddings(embeddings_df=embeddings_df, embedding_name=self.config.embedding_algorithm, embedding_columns=embedding_columns)
 
     def _prepare_incidence_matrix(self, node_features_df: pd.DataFrame):
         """
         Prepare incidence matrix and feature matrix for embedding computation.
-        
+
         Args:
             node_features_df: DataFrame containing node features
-            
+
         Returns:
             Tuple: (incidence_matrix, feature_matrix, graph_ids)
         """
@@ -123,24 +118,35 @@ class GraphEmbeddings:
         if self.config.feature_columns:
             feature_cols = self.config.feature_columns
         else:
-            feature_cols = [col for col in node_features_df.columns 
-                          if col not in ['node_id', 'graph_id']]
-        
+            feature_cols = [col for col in node_features_df.columns if col not in ["node_id", "graph_id"]]
+
         # Create sparse incidence matrix (graphs x nodes)
-        graph_ids = sorted(node_features_df['graph_id'].unique())
-        node_ids = node_features_df['node_id'].values
+        graph_ids = sorted(node_features_df["graph_id"].unique())
+        node_ids = node_features_df["node_id"].values
         graph_id_to_idx = {gid: i for i, gid in enumerate(graph_ids)}
-        
+
         # Create row and column indices for sparse matrix
-        rows = node_features_df['graph_id'].map(graph_id_to_idx).to_numpy()
+        rows = node_features_df["graph_id"].map(graph_id_to_idx).to_numpy()
         cols = range(len(node_ids))
-        
+
+        # Incidence entries are the per-node distribution mass of each graph's
+        # bag: uniform ones normally, or the graph's membership weights when it
+        # carries them (e.g. random-walk visit frequencies). Aligned to
+        # node_features_df ROW order — the columns are positional.
+        weights_by_graph = {graph.graph_id: graph.node_weights for graph in self.graph_collection.graphs if getattr(graph, "node_weights", None)}
+        if weights_by_graph:
+            values = np.array(
+                [
+                    weights_by_graph.get(gid, {}).get(nid, 1.0) if gid in weights_by_graph else 1.0
+                    for gid, nid in zip(node_features_df["graph_id"].to_numpy(), node_ids)
+                ]
+            )
+        else:
+            values = np.ones(len(rows))
+
         # Create sparse incidence matrix
-        incidence_matrix = scipy.sparse.csr_matrix(
-            (np.ones(len(rows)), (rows, cols)),
-            shape=(len(graph_ids), len(node_ids))
-        )
-        
+        incidence_matrix = scipy.sparse.csr_matrix((values, (rows, cols)), shape=(len(graph_ids), len(node_ids)))
+
         # Create feature matrix
         feature_matrix = node_features_df[feature_cols].values
 
@@ -149,7 +155,7 @@ class GraphEmbeddings:
     def _embeddings_output_df(self, embeddings, graph_ids) -> pd.DataFrame:
         """Assemble the output frame (graph_id first, then emb_* columns)."""
         embeddings_df = pd.DataFrame()
-        embeddings_df['graph_id'] = graph_ids
+        embeddings_df["graph_id"] = graph_ids
 
         # Add embedding columns
         for i in range(self.config.embedding_dimension):
@@ -160,64 +166,59 @@ class GraphEmbeddings:
     def _compute_approx_wasserstein(self, node_features_df: pd.DataFrame) -> pd.DataFrame:
         """
         Compute graph embeddings using approximate Wasserstein distance.
-        
+
         Args:
             node_features_df: DataFrame containing node features
-            
+
         Returns:
             pd.DataFrame: DataFrame containing graph embeddings with graph_id as first column
         """
         # Prepare data
         incidence_matrix, feature_matrix, graph_ids = self._prepare_incidence_matrix(node_features_df)
-        
+
         # Compute embeddings
         embeddings = self.vectorizers.ApproximateWassersteinVectorizer(
-            random_state=self.config.random_state,
-            n_components=self.config.embedding_dimension
+            random_state=self.config.random_state, n_components=self.config.embedding_dimension
         ).fit_transform(incidence_matrix, vectors=feature_matrix)
-        
+
         return self._embeddings_output_df(embeddings, graph_ids)
 
     def _compute_wasserstein(self, node_features_df: pd.DataFrame) -> pd.DataFrame:
         """
         Compute graph embeddings using exact Wasserstein distance.
-        
+
         Args:
             node_features_df: DataFrame containing node features
-            
+
         Returns:
             pd.DataFrame: DataFrame containing graph embeddings with graph_id as first column
         """
         # Prepare data
         incidence_matrix, feature_matrix, graph_ids = self._prepare_incidence_matrix(node_features_df)
-        
+
         # Compute embeddings
         embeddings = self.vectorizers.WassersteinVectorizer(
-            memory_size=self.config.memory_size,
-            random_state=self.config.random_state,
-            n_components=self.config.embedding_dimension
+            memory_size=self.config.memory_size, random_state=self.config.random_state, n_components=self.config.embedding_dimension
         ).fit_transform(incidence_matrix, vectors=feature_matrix)
-        
+
         return self._embeddings_output_df(embeddings, graph_ids)
 
     def _compute_sinkhorn(self, node_features_df: pd.DataFrame) -> pd.DataFrame:
         """
         Compute graph embeddings using Sinkhorn distance.
-        
+
         Args:
             node_features_df: DataFrame containing node features
-            
+
         Returns:
             pd.DataFrame: DataFrame containing graph embeddings with graph_id as first column
         """
         # Prepare data
         incidence_matrix, feature_matrix, graph_ids = self._prepare_incidence_matrix(node_features_df)
-        
+
         # Compute embeddings
         embeddings = self.vectorizers.SinkhornVectorizer(
-            memory_size=self.config.memory_size,
-            random_state=self.config.random_state,
-            n_components=self.config.embedding_dimension
+            memory_size=self.config.memory_size, random_state=self.config.random_state, n_components=self.config.embedding_dimension
         ).fit_transform(incidence_matrix, vectors=feature_matrix)
-        
+
         return self._embeddings_output_df(embeddings, graph_ids)

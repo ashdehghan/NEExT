@@ -1334,7 +1334,14 @@ class WorkbenchStore:
                     "graph_type": "networkx",
                     "reindex_nodes": True,
                     "filter_largest_component": request.params.filter_largest_component,
+                    "egonet_method": request.params.egonet_method,
                     "k_hop": request.params.k_hop,
+                    "walk_length": request.params.walk_length,
+                    "n_walks": request.params.n_walks,
+                    "restart_prob": request.params.restart_prob,
+                    "min_visits": request.params.min_visits,
+                    "max_egonet_size": request.params.max_egonet_size,
+                    "weight_by_visits": request.params.weight_by_visits,
                     "node_selection": request.params.node_selection,
                     "sample_fraction": request.params.sample_fraction,
                     "random_seed": request.params.random_seed,
@@ -1822,7 +1829,14 @@ class WorkbenchStore:
                         "graph_type": "networkx",
                         "reindex_nodes": True,
                         "filter_largest_component": params.filter_largest_component,
+                        "egonet_method": params.egonet_method,
                         "k_hop": params.k_hop,
+                        "walk_length": params.walk_length,
+                        "n_walks": params.n_walks,
+                        "restart_prob": params.restart_prob,
+                        "min_visits": params.min_visits,
+                        "max_egonet_size": params.max_egonet_size,
+                        "weight_by_visits": params.weight_by_visits,
                         "node_selection": params.node_selection,
                         "sample_fraction": params.sample_fraction,
                         "random_seed": params.random_seed,
@@ -2267,16 +2281,46 @@ class WorkbenchStore:
         source_graph = source_collection.graphs[0]
         nodes_to_sample, sample_fraction = self._egonet_node_selection(source_graph, params)
         egonets = EgonetCollection(graph_type=source_collection.graph_type, egonet_feature_target=target_attribute)
-        self._log_job(project_id, job_id, f"Computing {params['k_hop']}-hop egonets for {dataset.name}")
-        egonets.compute_k_hop_egonets(
-            source_collection,
-            k_hop=int(params["k_hop"]),
-            nodes_to_sample=nodes_to_sample,
-            sample_fraction=sample_fraction,
-            random_seed=int(params["random_seed"]),
-        )
+        # Legacy manifests predate egonet_method and the walk params: read every
+        # method field with .get + default so old datasets prepare unchanged.
+        egonet_method = str(params.get("egonet_method", "k_hop"))
+        if egonet_method == "random_walk":
+            walk_length = int(params.get("walk_length", 10))
+            n_walks = int(params.get("n_walks", 100))
+            restart_prob = float(params.get("restart_prob", 0.15))
+            self._log_job(
+                project_id,
+                job_id,
+                f"Computing random-walk egonets ({n_walks}x{walk_length} steps, restart={restart_prob}) for {dataset.name}",
+            )
+            egonets.compute_random_walk_egonets(
+                source_collection,
+                walk_length=walk_length,
+                n_walks=n_walks,
+                restart_prob=restart_prob,
+                min_visits=int(params.get("min_visits", 1)),
+                max_egonet_size=params.get("max_egonet_size"),
+                weight_by_visits=bool(params.get("weight_by_visits", True)),
+                nodes_to_sample=nodes_to_sample,
+                sample_fraction=sample_fraction,
+                random_seed=int(params["random_seed"]),
+            )
+        else:
+            self._log_job(project_id, job_id, f"Computing {params['k_hop']}-hop egonets for {dataset.name}")
+            egonets.compute_k_hop_egonets(
+                source_collection,
+                k_hop=int(params["k_hop"]),
+                nodes_to_sample=nodes_to_sample,
+                sample_fraction=sample_fraction,
+                random_seed=int(params["random_seed"]),
+            )
         self._normalize_egonet_graph_ids(egonets, source_graph)
-        node_mapping, graph_mapping = self._egonet_mapping_records(egonets, source_graph, int(params["k_hop"]))
+        node_mapping, graph_mapping = self._egonet_mapping_records(
+            egonets,
+            source_graph,
+            egonet_method=egonet_method,
+            k_hop=int(params["k_hop"]) if egonet_method == "k_hop" else None,
+        )
         prepared_files, mapping_files, prepared_stats = self._write_prepared_dataset_outputs(
             tmp_path,
             egonets,
@@ -2530,7 +2574,7 @@ class WorkbenchStore:
             egonets.egonet_to_graph_node_mapping[graph_id] = (egonet.original_graph_id, egonet.original_node_id)
             egonets.graph_id_node_array.extend([graph_id] * len(egonet.nodes))
 
-    def _egonet_mapping_records(self, egonets, source_graph, k_hop: int):
+    def _egonet_mapping_records(self, egonets, source_graph, egonet_method: str = "k_hop", k_hop: Optional[int] = None):
         import pandas as pd
 
         source_node_by_internal = self._source_node_by_internal_id(source_graph)
@@ -2558,6 +2602,7 @@ class WorkbenchStore:
                     "internal_graph_id": egonet.graph_id,
                     "internal_node_count": len(egonet.nodes),
                     "internal_edge_count": len(egonet.edges),
+                    "egonet_method": egonet_method,
                     "k_hop": k_hop,
                 }
             )
@@ -2598,6 +2643,7 @@ class WorkbenchStore:
                 "internal_graph_id",
                 "internal_node_count",
                 "internal_edge_count",
+                "egonet_method",
                 "k_hop",
             ],
         )
@@ -3434,11 +3480,16 @@ class WorkbenchStore:
         egonet_metadata = None
         if dataset.source_graph_shape == "single_graph":
             params = dataset.operation.params
+            egonet_method = str(params.get("egonet_method", "k_hop"))
             egonet_metadata = DatasetEgonetMetadata(
                 source_graph_shape="single_graph",
                 operation_id=dataset.operation.operation_id,
                 operation_version=dataset.operation.operation_version,
-                k_hop=int(params["k_hop"]),
+                egonet_method=egonet_method,
+                k_hop=int(params["k_hop"]) if egonet_method == "k_hop" else None,
+                walk_length=int(params.get("walk_length", 10)) if egonet_method == "random_walk" else None,
+                n_walks=int(params.get("n_walks", 100)) if egonet_method == "random_walk" else None,
+                restart_prob=float(params.get("restart_prob", 0.15)) if egonet_method == "random_walk" else None,
                 node_selection=str(params["node_selection"]),
                 sample_fraction=float(params["sample_fraction"]),
                 random_seed=int(params["random_seed"]),
