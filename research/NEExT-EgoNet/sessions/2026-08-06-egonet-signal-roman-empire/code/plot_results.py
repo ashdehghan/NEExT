@@ -28,6 +28,8 @@ METHODS = {
     "permuted": "Random\n(permuted labels)",
     "egonet_k1_wass": "Egonet $k{=}1$\n(local)",
     "egonet_k2_wass": "Egonet $k{=}2$\n(local)",
+    "egonet_k3_wass": "Egonet $k{=}3$\n(local)",
+    "egonet_k4_wass": "Egonet $k{=}4$\n(local)",
 }
 
 

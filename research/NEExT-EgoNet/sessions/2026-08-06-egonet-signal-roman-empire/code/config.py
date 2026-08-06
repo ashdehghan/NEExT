@@ -16,7 +16,7 @@ CONFIG = {
     "n_centers": 3000,
     "center_seed": 13,
     # egonet construction
-    "k_hops": [1, 2],
+    "k_hops": [1, 2, 3, 4],
     "egonet_seed": 13,
     # features: computed WITHIN each egonet (local scope), own-node value only
     "feature_list": ["all"],
