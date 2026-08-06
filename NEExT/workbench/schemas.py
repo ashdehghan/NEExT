@@ -320,7 +320,7 @@ class DatasetPrepareParams(BaseModel):
     walk_length: int = Field(default=10, ge=1, le=1000)
     n_walks: int = Field(default=100, ge=1, le=100_000)
     restart_prob: float = Field(default=0.15, ge=0.0, lt=1.0)
-    min_visits: int = Field(default=1, ge=1)
+    min_visits: int = Field(default=3, ge=1)
     max_egonet_size: Optional[int] = Field(default=None, ge=1)
     weight_by_visits: bool = True
     node_selection: Literal["all_nodes", "sample_fraction", "specific_node_ids"] = "all_nodes"

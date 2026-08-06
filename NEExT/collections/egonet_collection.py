@@ -236,7 +236,7 @@ class EgonetCollection(GraphCollection):
         walk_length: int = 10,
         n_walks: int = 100,
         restart_prob: float = 0.15,
-        min_visits: int = 1,
+        min_visits: int = 3,
         max_egonet_size: Optional[int] = None,
         weight_by_visits: bool = True,
         nodes_to_sample: Optional[Dict[int, List[int]]] = None,
@@ -268,7 +268,10 @@ class EgonetCollection(GraphCollection):
             restart_prob (float): Per-step probability of returning to the
                 center; 0.0 gives pure walks (default: 0.15)
             min_visits (int): Minimum visit events for membership; the center
-                is always kept (default: 1)
+                is always kept. The default of 3 is a noise floor over the
+                ~n_walks*walk_length visit events that cuts the one-visit
+                fringe (which balloons bag size without adding signal); set
+                1 to keep every visited node (default: 3)
             max_egonet_size (Optional[int]): Keep only the top-N most visited
                 members (center always kept). None keeps all (default: None)
             weight_by_visits (bool): Attach normalized visit frequencies as

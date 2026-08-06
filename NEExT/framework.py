@@ -488,7 +488,7 @@ class NEExT:
         walk_length: int = 10,
         n_walks: int = 100,
         restart_prob: float = 0.15,
-        min_visits: int = 1,
+        min_visits: int = 3,
         max_egonet_size: Optional[int] = None,
         weight_by_visits: bool = True,
         egonet_feature_target: Optional[str] = None,
@@ -513,7 +513,8 @@ class NEExT:
             n_walks: Walks per center (default: 100)
             restart_prob: Per-step probability of returning to the center;
                 0.0 gives pure walks (default: 0.15)
-            min_visits: Minimum visit events for membership (default: 1)
+            min_visits: Minimum visit events for membership; noise floor
+                against the one-visit fringe (default: 3)
             max_egonet_size: Keep only the top-N most visited members
                 (default: None)
             weight_by_visits: Attach normalized visit frequencies as
