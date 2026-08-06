@@ -250,6 +250,7 @@ class NEExT:
         my_feature_methods: list = None,
         parallel_backend: Literal["loky", "threading"] = "loky",
         profile_features: bool = False,
+        feature_scope: Literal["local", "global"] = "local",
         joblib_kwargs: Optional[dict[str, Any]] = None,
     ) -> Features:
         """
@@ -265,15 +266,47 @@ class NEExT:
             my_feature_methods: Optional list of custom feature method definitions
             parallel_backend: Joblib backend for parallel execution, either "loky" or "threading" (default: "loky")
             profile_features: Whether to log per graph-feature timing records at INFO level (default: False)
+            feature_scope: Where features are computed (default: "local").
+                "local" computes features within each graph of the collection —
+                for an EgonetCollection that means within each egonet subgraph,
+                so centralities are relative to the extracted bag.
+                "global" (EgonetCollection only) computes features once on the
+                source GraphCollection the egonets were built from — true
+                full-graph values, with feature_vector_length hop aggregations
+                over the real neighborhoods — then projects each source node's
+                vector onto every egonet it is a member of. With
+                normalize_features=True the normalization is fit on the source
+                rows (one row per source node) before projection, so bag
+                overlap cannot skew it; a k_hop=0 singleton bag carries the
+                node's true full-graph features.
             joblib_kwargs: Optional advanced keyword arguments passed to joblib.Parallel for parallel execution
 
         Returns:
             Features: Container with computed feature data for all nodes
         """
-        self.logger.info(f"Computing node features: {feature_list}")
+        if feature_scope not in ("local", "global"):
+            raise ValueError(f"feature_scope must be 'local' or 'global', got {feature_scope!r}")
+        target_collection = graph_collection
+        if feature_scope == "global":
+            if not isinstance(graph_collection, EgonetCollection):
+                raise ValueError(
+                    "feature_scope='global' requires an EgonetCollection (features are computed on the "
+                    "source graphs and projected onto egonet members); for a plain GraphCollection use "
+                    "the default feature_scope='local'."
+                )
+            source = getattr(graph_collection, "source_graph_collection", None)
+            if source is None:
+                raise ValueError(
+                    "This EgonetCollection has no source_graph_collection. Rebuild the egonets with "
+                    "compute_k_hop_egonets / compute_random_walk_egonets / compute_leiden_egonets, or "
+                    "set egonet_collection.source_graph_collection to the source GraphCollection."
+                )
+            target_collection = source
+
+        self.logger.info(f"Computing node features: {feature_list} (scope: {feature_scope})")
 
         node_features = StructuralNodeFeatures(
-            graph_collection=graph_collection,
+            graph_collection=target_collection,
             feature_list=feature_list,
             feature_vector_length=feature_vector_length,
             normalize_features=normalize_features,
@@ -289,6 +322,8 @@ class NEExT:
                 node_features.register_metric(entry["feature_name"], entry["feature_function"])
 
         features = node_features.compute()
+        if feature_scope == "global":
+            features = graph_collection.project_source_features(features)
         self.logger.info(f"Computed features for {len(features.features_df)} nodes")
 
         return features

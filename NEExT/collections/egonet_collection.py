@@ -33,12 +33,18 @@ class EgonetCollection(GraphCollection):
             Defaults to an empty dictionary.
         egonet_node_features (Embeddings): An Embeddings object containing the
             features of a central node of each egonet. Defaults to None.
+        source_graph_collection (Optional[GraphCollection]): The collection the
+            egonets were built from, stashed by the builder methods so
+            feature_scope="global" can compute features on the source graphs.
+            Held by reference (keeps the source alive) and excluded from
+            serialization. Defaults to None.
     """
 
     egonet_feature_target: Optional[str] = Field(default=None)
     skip_features: List[str] = Field(default_factory=list)
     egonet_to_graph_node_mapping: Dict[int, Tuple[int, int]] = Field(default_factory=dict)
     egonet_node_features: Embeddings = Field(default=None)
+    source_graph_collection: Optional[GraphCollection] = Field(default=None, exclude=True, repr=False)
 
     def _build_parent_index(self, graph: Graph) -> dict:
         """
@@ -229,6 +235,7 @@ class EgonetCollection(GraphCollection):
                 egonet_id += 1
 
         self.egonet_node_features = self._create_egonet_features_df(graph_collection)
+        self.source_graph_collection = graph_collection
 
     def compute_random_walk_egonets(
         self,
@@ -343,6 +350,7 @@ class EgonetCollection(GraphCollection):
                 egonet_id += 1
 
         self.egonet_node_features = self._create_egonet_features_df(graph_collection)
+        self.source_graph_collection = graph_collection
 
     def compute_leiden_egonets(self, graph_collection: GraphCollection, n_iterations: int = 10, resolution: float = 1.0):
         """
@@ -398,6 +406,56 @@ class EgonetCollection(GraphCollection):
                 egonet_id += 1
 
         self.egonet_node_features = self._create_egonet_features_df(graph_collection)
+        self.source_graph_collection = graph_collection
+
+    def project_source_features(self, source_features: Features) -> Features:
+        """
+        Project per-node features computed on the SOURCE graphs onto egonet members.
+
+        Expands every egonet's node_mapping (original -> internal id) into one row
+        per member and joins each member's feature vector from `source_features`
+        (keyed by the source graph's (graph_id, node_id)). The result has the same
+        shape a local (within-egonet) computation produces — one row per
+        (internal node_id, egonet graph_id), columns
+        ["node_id", "graph_id", <feature columns>] — so downstream embeddings
+        consume it unchanged. Rows are emitted in egonet order with ascending
+        internal ids. Feature values are taken as-is; no re-normalization.
+
+        Hard-fails if any egonet member has no feature row in `source_features`
+        (typically caused by node sampling on the source collection) — a silent
+        drop here would de-pair members from their bags.
+
+        Args:
+            source_features (Features): Features computed on the source
+                GraphCollection the egonets were built from.
+
+        Returns:
+            Features: Projected features for every egonet member.
+        """
+        node_ids, graph_ids, src_gids, src_nids = [], [], [], []
+        for egonet in self.graphs:
+            for orig, internal in sorted(egonet.node_mapping.items(), key=lambda item: item[1]):
+                node_ids.append(internal)
+                graph_ids.append(egonet.graph_id)
+                src_gids.append(egonet.original_graph_id)
+                src_nids.append(orig)
+        members = pd.DataFrame({"node_id": node_ids, "graph_id": graph_ids, "_src_graph_id": src_gids, "_src_node_id": src_nids})
+
+        src = source_features.features_df.rename(columns={"graph_id": "_src_graph_id", "node_id": "_src_node_id"})
+        merged = members.merge(src, on=["_src_graph_id", "_src_node_id"], how="left", indicator=True)
+
+        missing = merged[merged["_merge"] != "both"]
+        if len(missing):
+            examples = list(missing[["_src_graph_id", "_src_node_id"]].itertuples(index=False, name=None))[:5]
+            raise ValueError(
+                f"{len(missing)} egonet member(s) have no feature row in the source features, "
+                f"e.g. (graph_id, node_id) = {examples}. Likely cause: the source collection was "
+                f"node-sampled (node_sample_rate < 1.0) or the features were computed on a "
+                f"different collection than the egonets were built from."
+            )
+
+        projected = merged[["node_id", "graph_id"] + list(source_features.feature_columns)].reset_index(drop=True)
+        return Features(projected, list(source_features.feature_columns))
 
     def _create_egonet_features_df(self, graph_collection: GraphCollection):
         """
