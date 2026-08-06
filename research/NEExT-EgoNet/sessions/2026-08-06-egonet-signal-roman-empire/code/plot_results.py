@@ -1,11 +1,13 @@
-"""Experiment 2 figure: Roman Empire, local vs global scope, k in {1..4}.
+"""Experiment 2 figures: Roman Empire, local vs global scope.
 
-Accuracy across the 10 shared splits: permutation floor + one local/global
-pair per k. The dashed grey line marks the permutation-floor mean (18-class,
-imbalanced — uniform chance is not meaningful here). Legend above the axes,
-never inside.
+Two figures, same layout as the airports session: the permutation floor and
+the node-features box (green, with its dashed reference line) on the left,
+then one local/global pair per construction — k in {1..4} for the k-hop
+figure, the tuned walk trio for the walk figure. The dashed grey line marks
+the permutation-floor mean (18 imbalanced classes — uniform chance is not
+meaningful). Legend above the axes, never inside.
 
-Output: figures/exp2_roman_scopes.{pdf,png}
+Outputs: figures/exp2_roman_scopes.{pdf,png}, figures/exp2_roman_walk.{pdf,png}
 
 Usage: uv run --with matplotlib python code/plot_results.py
 """
@@ -27,8 +29,7 @@ FIGURES = SESSION_ROOT / "figures"
 LOCAL_TAG = "fall-vl1"
 GLOBAL_TAG = "fall-vl1-glob"
 SCOPE_COLOR = {"local": ps.FAMILY_COLOR["egonet_hop"], "global": ps.FAMILY_COLOR["structural"]}
-NODE_COLOR = ps.FAMILY_COLOR["egonet_walk"]  # green: the node-features ceiling
-K_HOPS = [1, 2, 3, 4]
+NODE_COLOR = ps.FAMILY_COLOR["egonet_walk"]  # green: the node-features reference
 PAIR_OFFSET = 0.21
 BOX_W = 0.36
 
@@ -42,31 +43,27 @@ def draw_box(ax, values, position, color, width=BOX_W):
     med.set_color(ps.INK)
 
 
-def main():
-    df = pd.read_csv(SESSION_ROOT / "results.csv")
-    df = df[df["status"] == "ok"]
-
+def paired_figure(df, methods_labels, stem):
     def acc(tag, method):
         vals = df.loc[(df["feature_tag"] == tag) & (df["method"] == method), "accuracy"].to_numpy()
         if len(vals) == 0:
             raise ValueError(f"No rows for tag={tag} method={method} — run that scope first")
         return vals
 
-    ps.use_style()
     fig, ax = plt.subplots(figsize=(ps.FULL_W, 2.6))
     floor_vals = acc(LOCAL_TAG, "permuted")
     draw_box(ax, floor_vals, 0.0, ps.FAMILY_COLOR["floor"], width=BOX_W)
     node_vals = acc(LOCAL_TAG, "node_struct")
     draw_box(ax, node_vals, 0.85, NODE_COLOR, width=BOX_W)
     ax.axhline(float(node_vals.mean()), color=NODE_COLOR, linewidth=0.6, linestyle=(0, (4, 3)), zorder=0)
-    for i, k in enumerate(K_HOPS):
+    for i, method in enumerate(methods_labels):
         center = 2.05 + i
-        draw_box(ax, acc(LOCAL_TAG, f"egonet_k{k}_wass"), center - PAIR_OFFSET, SCOPE_COLOR["local"])
-        draw_box(ax, acc(GLOBAL_TAG, f"egonet_k{k}_wass"), center + PAIR_OFFSET, SCOPE_COLOR["global"])
+        draw_box(ax, acc(LOCAL_TAG, method), center - PAIR_OFFSET, SCOPE_COLOR["local"])
+        draw_box(ax, acc(GLOBAL_TAG, method), center + PAIR_OFFSET, SCOPE_COLOR["global"])
 
     ax.axhline(float(floor_vals.mean()), color=ps.MUTED, linewidth=0.6, linestyle=(0, (4, 3)), zorder=0)
-    ax.set_xticks([0.0, 0.85] + [2.05 + i for i in range(len(K_HOPS))])
-    ax.set_xticklabels(["Random\n(permuted)", "Node features\n(full graph)"] + [f"Egonet $k{{=}}{k}$" for k in K_HOPS])
+    ax.set_xticks([0.0, 0.85] + [2.05 + i for i in range(len(methods_labels))])
+    ax.set_xticklabels(["Random\n(permuted)", "Node features\n(full graph)"] + list(methods_labels.values()))
     ax.set_ylim(0.0, 1.0)
     ax.set_ylabel("accuracy")
 
@@ -84,8 +81,24 @@ def main():
     ]
     fig.legend(handles=handles, loc="lower center", bbox_to_anchor=(0.5, 1.0), ncol=5, frameon=False)
     fig.tight_layout()
-    ps.save(fig, FIGURES / "exp2_roman_scopes")
-    print(f"wrote {FIGURES / 'exp2_roman_scopes'}.{{pdf,png}}")
+    ps.save(fig, FIGURES / stem)
+    print(f"wrote {FIGURES / stem}.{{pdf,png}}")
+
+
+def main():
+    df = pd.read_csv(SESSION_ROOT / "results.csv")
+    df = df[df["status"] == "ok"]
+    ps.use_style()
+
+    khop_methods = {f"egonet_k{k}_wass": f"Egonet $k{{=}}{k}$" for k in [1, 2, 3, 4]}
+    paired_figure(df, khop_methods, "exp2_roman_scopes")
+
+    walk_methods = {
+        "walk_tight_wass": "Walk tight\n($\\ell{=}5$, $r{=}.30$)",
+        "walk_default_wass": "Walk default\n($\\ell{=}10$, $r{=}.15$)",
+        "walk_wide_wass": "Walk wide\n($\\ell{=}20$, $r{=}.05$)",
+    }
+    paired_figure(df, walk_methods, "exp2_roman_walk")
 
 
 if __name__ == "__main__":

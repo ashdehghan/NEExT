@@ -45,3 +45,12 @@
   carries signal the node's own profile lacks. Completes the two-dataset
   contrast with airports (.592 node >> .556 best bag there). Figure now has
   green box + ceiling line; board updated (Ash-directed).
+
+- Walk trio, both scopes (local 107 s; global 55 s — feature cache loaded
+  instantly, no 22-min pass). Bag medians: tight ~9, default 18, wide 34.
+  Local: tight .266 > default .235 > wide .172. Global: .243/.217/.176.
+  Reading: locality law third confirmation (tight > default > wide); walks
+  never catch pure k=1 hop (.306) — blended multi-hop membership dilutes on
+  this graph; local >= global in every pair (consistent with the reversal);
+  tight walks still beat node_struct (.217), wide walks fall below it.
+  Board: khop + walk figures stacked (Ash-directed).
