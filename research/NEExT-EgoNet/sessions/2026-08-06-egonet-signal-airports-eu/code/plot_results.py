@@ -1,10 +1,13 @@
-"""Experiment 1 figure: accuracy box plot, approaches on the x-axis.
+"""Experiment 1 figure: accuracy box plot, local vs global feature scope.
 
 Reads the session results.csv aggregate only. Single panel: accuracy across
-the 10 shared splits for the permutation floor and egonet k=1/2/3. Majority
-and the other metrics (macro-F1, AUC) stay in the artifacts, off the figure.
-Floor grey, egonets blue (plotstyle family palette); legend above the axes,
-never inside. Output: figures/exp1_signal_box.{pdf,png}.
+the 10 shared splits — the random floor (permuted labels) on the left, then
+one pair of boxes per k in {1,2,3}: local (in-bag features, tag fall-vl1)
+next to global (full-graph features projected onto members, tag
+fall-vl1-glob). Majority and macro-F1/AUC stay in the artifacts, off the
+figure. Legend above the axes, never inside.
+
+Output: figures/exp1_signal_box.{pdf,png}
 
 Usage: uv run --with matplotlib python code/plot_results.py
 """
@@ -22,47 +25,62 @@ from lib.containment import plotstyle as ps  # noqa: E402  (sets Agg before pypl
 import matplotlib.pyplot as plt  # noqa: E402
 import pandas as pd  # noqa: E402
 
-import config as C  # noqa: E402
-
 FIGURES = SESSION_ROOT / "figures"
 CHANCE = 0.25  # 4 near-balanced quartile classes
 
+LOCAL_TAG = "fall-vl1"
+GLOBAL_TAG = "fall-vl1-glob"
+SCOPE_COLOR = {"local": ps.FAMILY_COLOR["egonet_hop"], "global": ps.FAMILY_COLOR["structural"]}
+K_HOPS = [1, 2, 3]
+PAIR_OFFSET = 0.21
+BOX_W = 0.36
 
-def family_of(method: str) -> str:
-    return "floor" if method == "permuted" else "egonet_hop"
+
+def draw_box(ax, values, position, color, width=BOX_W):
+    boxes = ax.boxplot([values], positions=[position], widths=width, showfliers=False, patch_artist=True)
+    patch, med = boxes["boxes"][0], boxes["medians"][0]
+    patch.set_facecolor(color)
+    patch.set_alpha(0.35)
+    patch.set_edgecolor(color)
+    med.set_color(ps.INK)
 
 
 def main():
     df = pd.read_csv(SESSION_ROOT / "results.csv")
     df = df[df["status"] == "ok"]
-    if "feature_tag" in df.columns:
-        df = df[df["feature_tag"] == C.CONFIG["feature_tag"]]
+
+    def acc(tag, method):
+        vals = df.loc[(df["feature_tag"] == tag) & (df["method"] == method), "accuracy"].to_numpy()
+        if len(vals) == 0:
+            raise ValueError(f"No rows for tag={tag} method={method} — run the experiment for that scope first")
+        return vals
 
     ps.use_style()
-    methods = list(C.PLOT_METHODS)
     fig, ax = plt.subplots(figsize=(ps.FULL_W, 2.6))
-    data = [df.loc[df["method"] == m, "accuracy"].to_numpy() for m in methods]
-    boxes = ax.boxplot(data, positions=range(len(methods)), widths=0.55, showfliers=False, patch_artist=True)
-    for patch, med, m in zip(boxes["boxes"], boxes["medians"], methods):
-        color = ps.FAMILY_COLOR[family_of(m)]
-        patch.set_facecolor(color)
-        patch.set_alpha(0.35)
-        patch.set_edgecolor(color)
-        med.set_color(ps.INK)
+
+    draw_box(ax, acc(LOCAL_TAG, "permuted"), 0.0, ps.FAMILY_COLOR["floor"], width=BOX_W)
+    for i, k in enumerate(K_HOPS):
+        center = 1.2 + i
+        draw_box(ax, acc(LOCAL_TAG, f"egonet_k{k}_wass"), center - PAIR_OFFSET, SCOPE_COLOR["local"])
+        draw_box(ax, acc(GLOBAL_TAG, f"egonet_k{k}_wass"), center + PAIR_OFFSET, SCOPE_COLOR["global"])
+
     ax.axhline(CHANCE, color=ps.MUTED, linewidth=0.6, linestyle=(0, (4, 3)), zorder=0)
-    ax.set_xticks(range(len(methods)), [C.PLOT_METHODS[m] for m in methods])
+    ax.set_xticks([0.0] + [1.2 + i for i in range(len(K_HOPS))])
+    ax.set_xticklabels(["Random\n(permuted labels)"] + [f"Egonet $k{{=}}{k}$" for k in K_HOPS])
     ax.set_ylim(0.0, 1.0)
     ax.set_ylabel("accuracy")
 
     handles = [
         plt.Rectangle((0, 0), 1, 1, facecolor=ps.FAMILY_COLOR["floor"], alpha=0.35,
                       edgecolor=ps.FAMILY_COLOR["floor"], label="Random floor"),
-        plt.Rectangle((0, 0), 1, 1, facecolor=ps.FAMILY_COLOR["egonet_hop"], alpha=0.35,
-                      edgecolor=ps.FAMILY_COLOR["egonet_hop"], label="Egonet + approx. Wasserstein"),
+        plt.Rectangle((0, 0), 1, 1, facecolor=SCOPE_COLOR["local"], alpha=0.35,
+                      edgecolor=SCOPE_COLOR["local"], label="Local (in-bag features)"),
+        plt.Rectangle((0, 0), 1, 1, facecolor=SCOPE_COLOR["global"], alpha=0.35,
+                      edgecolor=SCOPE_COLOR["global"], label="Global (full-graph features)"),
         plt.Line2D([], [], color=ps.MUTED, linewidth=0.6, linestyle=(0, (4, 3)),
                    label="Uniform chance (0.25)"),
     ]
-    fig.legend(handles=handles, loc="lower center", bbox_to_anchor=(0.5, 1.0), ncol=3, frameon=False)
+    fig.legend(handles=handles, loc="lower center", bbox_to_anchor=(0.5, 1.0), ncol=4, frameon=False)
     fig.tight_layout()
     ps.save(fig, FIGURES / "exp1_signal_box")
     print(f"wrote {FIGURES / 'exp1_signal_box'}.{{pdf,png}}")

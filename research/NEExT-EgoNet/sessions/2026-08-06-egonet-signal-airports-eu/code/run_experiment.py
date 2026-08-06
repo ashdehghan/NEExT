@@ -13,9 +13,12 @@ Artifacts follow lib/containment/runio conventions: one dir per method under
 outputs/, plus a session-root results.csv aggregate. Figures read artifacts
 only (code/plot_results.py).
 
-Usage: uv run python code/run_experiment.py   (from the session directory)
+Usage (from the session directory):
+    uv run python code/run_experiment.py                  # local feature scope
+    uv run python code/run_experiment.py --scope global   # global feature scope
 """
 
+import argparse
 import json
 import sys
 import time
@@ -49,8 +52,16 @@ OUTPUTS = SESSION_ROOT / "outputs"
 
 
 def main():
-    cfg = C.CONFIG
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--scope", choices=["local", "global"], default="local", help="feature_scope for compute_node_features")
+    args = parser.parse_args()
+
+    cfg = dict(C.CONFIG)
+    cfg["feature_scope"] = args.scope
+    if args.scope == "global":
+        cfg["feature_tag"] = f"{cfg['feature_tag']}-glob"
     t0 = time.time()
+    print(f"feature_scope={cfg['feature_scope']}  feature_tag={cfg['feature_tag']}")
 
     edges_df, nodes_df = load_single_graph_dataset(
         cfg["dataset"], label_column=cfg["label_column"], structural_only=True
@@ -84,6 +95,7 @@ def main():
             feature_vector_length=cfg["feature_vector_length"],
             show_progress=False,
             n_jobs=-1,
+            feature_scope=cfg["feature_scope"],
         )
         rep_df = wasserstein_embedding(nxt, bags.egonets, features, dimension=cfg["wasserstein_dim"], seed=cfg["embed_seed"])
         rep_node = egonet_rep_to_node_frame(rep_df, bags.table)
@@ -124,7 +136,7 @@ def main():
         all_rows.extend(out["metrics_rows"])
         if method in reps:
             reps[method].to_parquet(OUTPUTS / run_id / "representation.parquet", index=False)
-    runio.aggregate(OUTPUTS, ["dataset", "method", "status", "feature_tag", "git_sha"])
+    runio.aggregate(OUTPUTS, ["dataset", "method", "status", "feature_tag", "feature_scope", "git_sha"])
 
     print(f"[{time.time() - t0:6.1f}s] done\n")
     print(summarize_node_metrics(all_rows).to_string(index=False))

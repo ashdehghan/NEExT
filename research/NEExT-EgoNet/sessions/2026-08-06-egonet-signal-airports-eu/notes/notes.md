@@ -31,3 +31,12 @@
   k=1 (within 1 std), nothing at k>=2 — feature richness doesn't rescue
   saturated bags; ranking unchanged. Figure regenerated; scratchpad rebuilt
   with fresh items (in-place image patches don't refresh assets).
+
+- feature_scope shipped in core lib (45b3353); reviewed diff post-hoc: row
+  order matches local mode, indicator-merge guard, no new lint. Session runner
+  gained --scope; global runs tagged fall-vl1-glob.
+- Global-scope k-sweep (24 s vs 2m40s local): k1 .524, k2 .491, k3 .444 vs
+  local .556/.467/.435. DIFFERENT PROFILES: local peaks at k1 and decays with
+  saturation; global flatter, wins at k2, tighter boxes (std ~halves at k>=2)
+  — features fixed, only bag composition varies. Best cell: local k1.
+  Paired figure exp1_signal_box (+ _scopes copy); scratchpad updated (Ash ok).
