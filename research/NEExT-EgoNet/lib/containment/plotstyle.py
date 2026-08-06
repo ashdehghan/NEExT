@@ -54,6 +54,24 @@ AXIS = "#c3c2b7"
 MUTED = "#898781"
 INK = "#0b0b0b"
 
+# --- Node-classification benchmark slots (2026-08-06 session) ---------------
+# Color encodes METHOD FAMILY; marker/linestyle carry identity within a
+# family, so identity never rides on color alone (same convention as above).
+FAMILY_COLOR = {
+    "egonet_hop": "#2a78d6",
+    "egonet_walk": "#1baf7a",
+    "kc_baseline": "#52514e",
+    "structural": "#eb6834",
+    "floor": "#898781",
+}
+FAMILY_LABEL = {
+    "egonet_hop": "Egonet (hop)",
+    "egonet_walk": "Egonet (walk)",
+    "kc_baseline": "Node embedding (karateclub)",
+    "structural": "Structural features (full graph)",
+    "floor": "Floors",
+}
+
 RC = {
     "font.family": "serif",
     "mathtext.fontset": "cm",
