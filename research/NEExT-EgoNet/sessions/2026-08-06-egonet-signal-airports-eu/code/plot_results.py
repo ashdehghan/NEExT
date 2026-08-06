@@ -56,28 +56,31 @@ def paired_figure(df, methods_labels, stem):
 
     fig, ax = plt.subplots(figsize=(ps.FULL_W, 2.6))
     draw_box(ax, acc(LOCAL_TAG, "permuted"), 0.0, ps.FAMILY_COLOR["floor"], width=BOX_W)
+    draw_box(ax, acc(LOCAL_TAG, "node_struct"), 0.85, ps.FAMILY_COLOR["kc_baseline"], width=BOX_W)
     for i, method in enumerate(methods_labels):
-        center = 1.2 + i
+        center = 2.05 + i
         draw_box(ax, acc(LOCAL_TAG, method), center - PAIR_OFFSET, SCOPE_COLOR["local"])
         draw_box(ax, acc(GLOBAL_TAG, method), center + PAIR_OFFSET, SCOPE_COLOR["global"])
 
     ax.axhline(CHANCE, color=ps.MUTED, linewidth=0.6, linestyle=(0, (4, 3)), zorder=0)
-    ax.set_xticks([0.0] + [1.2 + i for i in range(len(methods_labels))])
-    ax.set_xticklabels(["Random\n(permuted labels)"] + list(methods_labels.values()))
+    ax.set_xticks([0.0, 0.85] + [2.05 + i for i in range(len(methods_labels))])
+    ax.set_xticklabels(["Random\n(permuted)", "Node features\n(full graph)"] + list(methods_labels.values()))
     ax.set_ylim(0.0, 1.0)
     ax.set_ylabel("accuracy")
 
     handles = [
         plt.Rectangle((0, 0), 1, 1, facecolor=ps.FAMILY_COLOR["floor"], alpha=0.35,
                       edgecolor=ps.FAMILY_COLOR["floor"], label="Random floor"),
+        plt.Rectangle((0, 0), 1, 1, facecolor=ps.FAMILY_COLOR["kc_baseline"], alpha=0.35,
+                      edgecolor=ps.FAMILY_COLOR["kc_baseline"], label="Node features"),
         plt.Rectangle((0, 0), 1, 1, facecolor=SCOPE_COLOR["local"], alpha=0.35,
-                      edgecolor=SCOPE_COLOR["local"], label="Local (in-bag features)"),
+                      edgecolor=SCOPE_COLOR["local"], label="Local (in-bag)"),
         plt.Rectangle((0, 0), 1, 1, facecolor=SCOPE_COLOR["global"], alpha=0.35,
-                      edgecolor=SCOPE_COLOR["global"], label="Global (full-graph features)"),
+                      edgecolor=SCOPE_COLOR["global"], label="Global (full-graph)"),
         plt.Line2D([], [], color=ps.MUTED, linewidth=0.6, linestyle=(0, (4, 3)),
-                   label="Uniform chance (0.25)"),
+                   label="Chance (0.25)"),
     ]
-    fig.legend(handles=handles, loc="lower center", bbox_to_anchor=(0.5, 1.0), ncol=4, frameon=False)
+    fig.legend(handles=handles, loc="lower center", bbox_to_anchor=(0.5, 1.0), ncol=5, frameon=False)
     fig.tight_layout()
     ps.save(fig, FIGURES / stem)
     print(f"wrote {FIGURES / stem}.{{pdf,png}}")

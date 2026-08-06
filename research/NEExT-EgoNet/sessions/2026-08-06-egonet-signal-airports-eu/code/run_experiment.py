@@ -35,6 +35,7 @@ from lib.containment.representations import wasserstein_embedding  # noqa: E402
 from lib.nodeclass import (  # noqa: E402
     build_node_bags,
     build_node_table,
+    center_structural_features,
     egonet_rep_to_node_frame,
     evaluate_node_representation,
     filter_rare_classes,
@@ -54,7 +55,7 @@ OUTPUTS = SESSION_ROOT / "outputs"
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--scope", choices=["local", "global"], default="local", help="feature_scope for compute_node_features")
-    parser.add_argument("--family", choices=["khop", "walk"], default="khop", help="bag construction family")
+    parser.add_argument("--family", choices=["khop", "walk", "nodefeat"], default="khop", help="bag construction family (nodefeat = no bags: the node's own full-graph features straight to the classifier)")
     args = parser.parse_args()
 
     cfg = dict(C.CONFIG)
@@ -79,6 +80,30 @@ def main():
           f"{table_report['n_classes']} classes, {len(centers)} centers")
 
     eval_kwargs = dict(n_splits=cfg["n_splits"], test_size=cfg["test_size"], seed=cfg["ml_seed"])
+    if cfg["family"] == "nodefeat":
+        # No bags, no embedding: the node's own full-graph structural feature
+        # vector goes straight to the classifier. Scope-independent — written
+        # once under the base (local) tag.
+        rep = center_structural_features(
+            nxt, collection, feature_list=cfg["feature_list"], feature_vector_length=cfg["feature_vector_length"]
+        )
+        out = evaluate_node_representation("node_struct", rep, node_table, **eval_kwargs)
+        run_config = {
+            **cfg,
+            "n_centers": len(centers),
+            "table_report": table_report,
+            "filter_report": filter_report,
+            "git_sha": runio.git_sha(REPO_ROOT),
+            "neext_version": runio.neext_version(),
+            "method": "node_struct",
+            "status": out["status"],
+        }
+        runio.write_run(OUTPUTS, f"{cfg['dataset']}__node_struct__{cfg['feature_tag']}", run_config, out["metrics_rows"], out["node_predictions"], node_table)
+        runio.aggregate(OUTPUTS, ["dataset", "method", "status", "feature_tag", "feature_scope", "git_sha"])
+        print(f"[{time.time() - t0:6.1f}s] done\n")
+        print(summarize_node_metrics(out["metrics_rows"]).to_string(index=False))
+        return
+
     if cfg["family"] == "khop":
         constructions = {f"egonet_k{k}_wass": ("k_hop", {"k_hop": k}) for k in cfg["k_hops"]}
     else:

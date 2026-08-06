@@ -49,3 +49,11 @@
   bags sprawl). Best cells overall: local k1 .556 > global walk_tight .544.
   Runtimes 74s local / 19s global. Figure exp1_walk_box; scratchpad = two
   plots only (khop + walk), per Ash.
+
+- Node-features baseline (Ash-approved): node's own 11 full-graph features
+  straight to XGBoost (no bags/embedding), same splits. Result .592+-.039 —
+  BEATS every egonet cell (best .556). Mirrors old PoC on AIRPORTS_USA.
+  Added as --family nodefeat; both figures now carry the baseline box
+  (dark grey) next to Random. Scratchpad updated (Ash ok); manuscript NOT
+  touched. Open question sharpened: where does the neighborhood add signal
+  beyond the node itself?
