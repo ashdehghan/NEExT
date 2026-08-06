@@ -30,21 +30,43 @@ def wasserstein_embedding(nxt, egonets, features, dimension: int = 16, seed: int
     return embeddings.embeddings_df.copy()
 
 
-def pooled_features(features, stats=POOL_STATS) -> pd.DataFrame:
-    """Statistic-pooled member features per bag: mean / max / 90th percentile.
+def pooled_features(features, stats=POOL_STATS, egonets=None) -> pd.DataFrame:
+    """Statistic-pooled member features per bag.
 
-    The max pool is the tail-sensitive baseline — an anomaly is a tail event,
-    and a distributional embedding may average it away while a max sees it.
+    Supported stats: "mean", "max", "min", and percentiles "pNN". Max/p90 are
+    the top-tail baselines; min/p10 exist because bottom-extremum anomalies
+    (e.g. dangling tails) are invisible to top-of-distribution pools — the
+    2026-08-05 audit follow-up.
+
+    When `egonets` is given and its graphs carry `node_weights` (random-walk
+    bags), the mean becomes visit-weighted; extremum/percentile stats stay
+    unweighted (an extremum is an extremum regardless of visit mass).
     """
     fdf = features.features_df
     cols = features.feature_columns
+    weights = None
+    if egonets is not None:
+        weights_by_graph = {g.graph_id: g.node_weights for g in egonets.graphs if getattr(g, "node_weights", None)}
+        if weights_by_graph:
+            weights = np.array(
+                [weights_by_graph.get(gid, {}).get(nid, np.nan) for gid, nid in zip(fdf["graph_id"], fdf["node_id"])]
+            )
+
     grouped = fdf.groupby("graph_id")[cols]
     parts = []
     for stat in stats:
         if stat == "mean":
-            part = grouped.mean()
+            if weights is not None:
+                weighted = fdf[cols].mul(weights, axis=0)
+                weighted["graph_id"] = fdf["graph_id"]
+                wsum = pd.Series(weights, index=fdf.index).groupby(fdf["graph_id"]).sum()
+                part = weighted.groupby("graph_id")[cols].sum().div(wsum, axis=0)
+            else:
+                part = grouped.mean()
         elif stat == "max":
             part = grouped.max()
+        elif stat == "min":
+            part = grouped.min()
         elif stat.startswith("p"):
             part = grouped.quantile(int(stat[1:]) / 100.0)
         else:

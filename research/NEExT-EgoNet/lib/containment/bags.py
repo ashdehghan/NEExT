@@ -35,33 +35,56 @@ def build_bags(
     nxt,
     source_collection,
     label_column: str,
-    k_hop: int,
+    k_hop: int = 1,
     n_centers: int = None,
     positive_value=1,
     seed: int = 13,
+    method: str = "k_hop",
+    walk_length: int = 10,
+    n_walks: int = 100,
+    restart_prob: float = 0.15,
+    weight_by_visits: bool = True,
+    min_visits: int = 1,
 ) -> BagSet:
-    """Decompose a single-graph collection into k-hop bags with containment labels.
+    """Decompose a single-graph collection into bags with containment labels.
 
     Args:
         nxt: NEExT framework instance.
         source_collection: GraphCollection holding ONE source graph.
         label_column: node-attribute column with the class label.
-        k_hop: egonet radius.
+        k_hop: egonet radius (method="k_hop").
         n_centers: sample this many egonet centers (None = every node).
         positive_value: label value counted as positive.
-        seed: center-sampling seed.
+        seed: center-sampling (and walk) seed.
+        method: "k_hop" or "random_walk" bag construction.
+        walk_length/n_walks/restart_prob/weight_by_visits: random-walk knobs
+            (method="random_walk"); visit weights ride on the egonets and are
+            consumed by weighted embeddings/pooling.
     """
     source_graphs = {g.graph_id: g for g in source_collection.graphs}
     total_nodes = sum(len(g.nodes) for g in source_graphs.values())
     sample_fraction = 1.0 if n_centers is None else min(1.0, n_centers / total_nodes)
 
-    egonets = nxt.compute_k_hop_egonets(
-        source_collection,
-        k_hop=k_hop,
-        egonet_feature_target=label_column,
-        sample_fraction=sample_fraction,
-        random_seed=seed,
-    )
+    if method == "random_walk":
+        egonets = nxt.compute_random_walk_egonets(
+            source_collection,
+            walk_length=walk_length,
+            n_walks=n_walks,
+            restart_prob=restart_prob,
+            weight_by_visits=weight_by_visits,
+            min_visits=min_visits,
+            egonet_feature_target=label_column,
+            sample_fraction=sample_fraction,
+            random_seed=seed,
+        )
+    else:
+        egonets = nxt.compute_k_hop_egonets(
+            source_collection,
+            k_hop=k_hop,
+            egonet_feature_target=label_column,
+            sample_fraction=sample_fraction,
+            random_seed=seed,
+        )
 
     rows = []
     for egonet in egonets.graphs:
