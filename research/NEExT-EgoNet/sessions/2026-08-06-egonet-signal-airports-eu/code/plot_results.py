@@ -45,9 +45,8 @@ def draw_box(ax, values, position, color, width=BOX_W):
     med.set_color(ps.INK)
 
 
-def main():
-    df = pd.read_csv(SESSION_ROOT / "results.csv")
-    df = df[df["status"] == "ok"]
+def paired_figure(df, methods_labels, stem):
+    """One paired local/global box plot: Random floor + one pair per method."""
 
     def acc(tag, method):
         vals = df.loc[(df["feature_tag"] == tag) & (df["method"] == method), "accuracy"].to_numpy()
@@ -55,18 +54,16 @@ def main():
             raise ValueError(f"No rows for tag={tag} method={method} — run the experiment for that scope first")
         return vals
 
-    ps.use_style()
     fig, ax = plt.subplots(figsize=(ps.FULL_W, 2.6))
-
     draw_box(ax, acc(LOCAL_TAG, "permuted"), 0.0, ps.FAMILY_COLOR["floor"], width=BOX_W)
-    for i, k in enumerate(K_HOPS):
+    for i, method in enumerate(methods_labels):
         center = 1.2 + i
-        draw_box(ax, acc(LOCAL_TAG, f"egonet_k{k}_wass"), center - PAIR_OFFSET, SCOPE_COLOR["local"])
-        draw_box(ax, acc(GLOBAL_TAG, f"egonet_k{k}_wass"), center + PAIR_OFFSET, SCOPE_COLOR["global"])
+        draw_box(ax, acc(LOCAL_TAG, method), center - PAIR_OFFSET, SCOPE_COLOR["local"])
+        draw_box(ax, acc(GLOBAL_TAG, method), center + PAIR_OFFSET, SCOPE_COLOR["global"])
 
     ax.axhline(CHANCE, color=ps.MUTED, linewidth=0.6, linestyle=(0, (4, 3)), zorder=0)
-    ax.set_xticks([0.0] + [1.2 + i for i in range(len(K_HOPS))])
-    ax.set_xticklabels(["Random\n(permuted labels)"] + [f"Egonet $k{{=}}{k}$" for k in K_HOPS])
+    ax.set_xticks([0.0] + [1.2 + i for i in range(len(methods_labels))])
+    ax.set_xticklabels(["Random\n(permuted labels)"] + list(methods_labels.values()))
     ax.set_ylim(0.0, 1.0)
     ax.set_ylabel("accuracy")
 
@@ -82,8 +79,24 @@ def main():
     ]
     fig.legend(handles=handles, loc="lower center", bbox_to_anchor=(0.5, 1.0), ncol=4, frameon=False)
     fig.tight_layout()
-    ps.save(fig, FIGURES / "exp1_signal_box")
-    print(f"wrote {FIGURES / 'exp1_signal_box'}.{{pdf,png}}")
+    ps.save(fig, FIGURES / stem)
+    print(f"wrote {FIGURES / stem}.{{pdf,png}}")
+
+
+def main():
+    df = pd.read_csv(SESSION_ROOT / "results.csv")
+    df = df[df["status"] == "ok"]
+    ps.use_style()
+
+    khop_methods = {f"egonet_k{k}_wass": f"Egonet $k{{=}}{k}$" for k in K_HOPS}
+    paired_figure(df, khop_methods, "exp1_signal_box")
+
+    walk_methods = {
+        "walk_tight_wass": "Walk tight\n($\\ell{=}5$, $r{=}.30$)",
+        "walk_default_wass": "Walk default\n($\\ell{=}10$, $r{=}.15$)",
+        "walk_wide_wass": "Walk wide\n($\\ell{=}20$, $r{=}.05$)",
+    }
+    paired_figure(df, walk_methods, "exp1_walk_box")
 
 
 if __name__ == "__main__":

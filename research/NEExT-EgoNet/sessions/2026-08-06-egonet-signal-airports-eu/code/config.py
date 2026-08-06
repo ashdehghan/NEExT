@@ -29,10 +29,22 @@ CONFIG = {
     "test_size": 0.3,
 }
 
-# x-axis order + display labels for the results figure. Majority is still
+# Random-walk bag variants (Ash-approved 2026-08-06): the tuned trio from the
+# walk-bags characterization session. min_visits=3 floor per its findings
+# (stricter floors starve high-degree centers); wide relaxes to 2 to let long
+# low-restart walks keep their reach. n_walks=100 and visit-weighting held
+# fixed — weights are the point of walk bags.
+WALK_CONSTRUCTIONS = {
+    "walk_tight": {"walk_length": 5, "restart_prob": 0.30, "min_visits": 3},
+    "walk_default": {"walk_length": 10, "restart_prob": 0.15, "min_visits": 3},
+    "walk_wide": {"walk_length": 20, "restart_prob": 0.05, "min_visits": 2},
+}
+N_WALKS = 100
+
+# x-axis order + display labels for the results figures. Majority is still
 # computed and recorded in outputs/ but deliberately kept OFF the plot
 # (Ash 2026-08-06: report the permutation floor as the baseline; macro-F1
-# and AUC stay in the artifacts, the figure shows accuracy only).
+# and AUC stay in the artifacts, the figures show accuracy only).
 PLOT_METHODS = {
     "permuted": "Random\n(permuted labels)",
     "egonet_k1_wass": "Egonet $k{=}1$",

@@ -40,3 +40,12 @@
   saturation; global flatter, wins at k2, tighter boxes (std ~halves at k>=2)
   — features fixed, only bag composition varies. Best cell: local k1.
   Paired figure exp1_signal_box (+ _scopes copy); scratchpad updated (Ash ok).
+
+- Walk-bag runs (Ash-approved tuned trio: tight l5/r.30/mv3, default l10/r.15/
+  mv3, wide l20/r.05/mv2; n_walks=100, weighted). Bag medians 30/100/231 —
+  exactly the k1(16)-k2(278) gap. Local: tight .519, default .525, wide .472.
+  Global: tight .544, default .532, wide .537 — FLAT across sizes; wide
+  global beats wide local by +.065 (visit weights keep mass near center as
+  bags sprawl). Best cells overall: local k1 .556 > global walk_tight .544.
+  Runtimes 74s local / 19s global. Figure exp1_walk_box; scratchpad = two
+  plots only (khop + walk), per Ash.
