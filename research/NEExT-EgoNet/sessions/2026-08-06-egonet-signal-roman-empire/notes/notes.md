@@ -24,3 +24,15 @@
   confound here (k4 = 0.08% of graph) — the decay is pure DILUTION: wider
   bags mix in structurally irrelevant context. Same law as airports at the
   opposite density extreme: signal lives in the immediate neighborhood.
+
+- Global-scope run (runner restructured: ONE full-graph feature pass reused
+  across k via project_source_features). Pass took 1343 s (~22 min — over my
+  1-5 min estimate; culprit feature TBD, suspect lsme/load at 22.6k nodes);
+  rest 74 s. Results: global k1 .228, k2 .149, k3 .125, k4 .118 vs local
+  .306/.262/.180/.137, floor .112. COMPLETE REVERSAL of airports: global
+  loses everywhere here. Interpretation: sparse graph -> global per-node
+  features nearly degenerate (most words structurally identical at full-graph
+  scale), so bag distributions of global values carry little; the in-bag
+  fragment SHAPE is what discriminates. Scope interacts with graph character:
+  dense+node-encoded labels -> global robust; sparse+heterophilous -> local
+  wins. Paired figure exp2_roman_scopes; board updated (Ash-directed).

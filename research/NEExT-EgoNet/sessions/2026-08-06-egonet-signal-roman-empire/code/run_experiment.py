@@ -114,6 +114,20 @@ def main():
     else:
         constructions = {f"{name}_wass": ("random_walk", {**params, "n_walks": C.N_WALKS}) for name, params in C.WALK_CONSTRUCTIONS.items()}
 
+    # Global scope: pay the full-graph feature pass ONCE and project it onto
+    # every construction, instead of recomputing per k inside the framework.
+    source_features = None
+    if cfg["feature_scope"] == "global":
+        source_features = nxt.compute_node_features(
+            collection,
+            feature_list=list(cfg["feature_list"]),
+            feature_vector_length=cfg["feature_vector_length"],
+            show_progress=False,
+            n_jobs=-1,
+        )
+        print(f"[{time.time() - t0:6.1f}s] full-graph feature pass done "
+              f"({len(source_features.features_df)} nodes x {len(source_features.feature_columns)} features)")
+
     results, bag_tables, reaches, reps = {}, {}, {}, {}
     for method, (bag_method, bag_params) in constructions.items():
         if bag_method == "k_hop":
@@ -128,14 +142,17 @@ def main():
             nxt, collection, centers, cfg["label_column"], method=bag_method,
             seed=cfg["egonet_seed"], **bag_params,
         )
-        features = nxt.compute_node_features(
-            bags.egonets,
-            feature_list=list(cfg["feature_list"]),
-            feature_vector_length=cfg["feature_vector_length"],
-            show_progress=False,
-            n_jobs=-1,
-            feature_scope=cfg["feature_scope"],
-        )
+        if source_features is not None:
+            features = bags.egonets.project_source_features(source_features)
+        else:
+            features = nxt.compute_node_features(
+                bags.egonets,
+                feature_list=list(cfg["feature_list"]),
+                feature_vector_length=cfg["feature_vector_length"],
+                show_progress=False,
+                n_jobs=-1,
+                feature_scope="local",
+            )
         rep_df = wasserstein_embedding(nxt, bags.egonets, features, dimension=cfg["wasserstein_dim"], seed=cfg["embed_seed"])
         rep_node = egonet_rep_to_node_frame(rep_df, bags.table)
         results[method] = evaluate_node_representation(method, rep_node, node_table, **eval_kwargs)
