@@ -31,6 +31,7 @@ CHANCE = 0.25  # 4 near-balanced quartile classes
 LOCAL_TAG = "fall-vl1"
 GLOBAL_TAG = "fall-vl1-glob"
 SCOPE_COLOR = {"local": ps.FAMILY_COLOR["egonet_hop"], "global": ps.FAMILY_COLOR["structural"]}
+NODE_COLOR = ps.FAMILY_COLOR["egonet_walk"]  # green: the node-features ceiling
 K_HOPS = [1, 2, 3]
 PAIR_OFFSET = 0.21
 BOX_W = 0.36
@@ -56,7 +57,9 @@ def paired_figure(df, methods_labels, stem):
 
     fig, ax = plt.subplots(figsize=(ps.FULL_W, 2.6))
     draw_box(ax, acc(LOCAL_TAG, "permuted"), 0.0, ps.FAMILY_COLOR["floor"], width=BOX_W)
-    draw_box(ax, acc(LOCAL_TAG, "node_struct"), 0.85, ps.FAMILY_COLOR["kc_baseline"], width=BOX_W)
+    node_vals = acc(LOCAL_TAG, "node_struct")
+    draw_box(ax, node_vals, 0.85, NODE_COLOR, width=BOX_W)
+    ax.axhline(float(node_vals.mean()), color=NODE_COLOR, linewidth=0.6, linestyle=(0, (4, 3)), zorder=0)
     for i, method in enumerate(methods_labels):
         center = 2.05 + i
         draw_box(ax, acc(LOCAL_TAG, method), center - PAIR_OFFSET, SCOPE_COLOR["local"])
@@ -71,8 +74,8 @@ def paired_figure(df, methods_labels, stem):
     handles = [
         plt.Rectangle((0, 0), 1, 1, facecolor=ps.FAMILY_COLOR["floor"], alpha=0.35,
                       edgecolor=ps.FAMILY_COLOR["floor"], label="Random floor"),
-        plt.Rectangle((0, 0), 1, 1, facecolor=ps.FAMILY_COLOR["kc_baseline"], alpha=0.35,
-                      edgecolor=ps.FAMILY_COLOR["kc_baseline"], label="Node features"),
+        plt.Rectangle((0, 0), 1, 1, facecolor=NODE_COLOR, alpha=0.35,
+                      edgecolor=NODE_COLOR, label="Node features"),
         plt.Rectangle((0, 0), 1, 1, facecolor=SCOPE_COLOR["local"], alpha=0.35,
                       edgecolor=SCOPE_COLOR["local"], label="Local (in-bag)"),
         plt.Rectangle((0, 0), 1, 1, facecolor=SCOPE_COLOR["global"], alpha=0.35,
