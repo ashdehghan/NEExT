@@ -46,7 +46,7 @@ def draw_box(ax, values, position, color, width=BOX_W):
     med.set_color(ps.INK)
 
 
-def paired_figure(df, methods_labels, stem):
+def paired_figure(df, methods_labels, stem, ylim):
     """One paired local/global box plot: Random floor + one pair per method."""
 
     def acc(tag, method):
@@ -68,7 +68,7 @@ def paired_figure(df, methods_labels, stem):
     ax.axhline(CHANCE, color=ps.MUTED, linewidth=0.6, linestyle=(0, (4, 3)), zorder=0)
     ax.set_xticks([0.0, 0.85] + [2.05 + i for i in range(len(methods_labels))])
     ax.set_xticklabels(["Random\n(permuted)", "Node features\n(full graph)"] + list(methods_labels.values()))
-    ax.set_ylim(0.0, 1.0)
+    ax.set_ylim(*ylim)
     ax.set_ylabel("accuracy")
 
     handles = [
@@ -94,15 +94,24 @@ def main():
     df = df[df["status"] == "ok"]
     ps.use_style()
 
+    # Shared, data-driven y-limits across BOTH figures of this dataset:
+    # margin below the lowest / above the highest plotted value, snapped to
+    # 0.05 ticks. Box plots encode position, not area — a truncated axis is
+    # standard; the floor and node-features lines stay in-window as anchors.
+    import math
+
+    plotted = df.loc[df["feature_tag"].isin([LOCAL_TAG, GLOBAL_TAG]) & (df["method"] != "majority"), "accuracy"]
+    ylim = (math.floor((plotted.min() - 0.02) * 20) / 20, math.ceil((plotted.max() + 0.02) * 20) / 20)
+
     khop_methods = {f"egonet_k{k}_wass": f"Egonet $k{{=}}{k}$" for k in K_HOPS}
-    paired_figure(df, khop_methods, "exp1_signal_box")
+    paired_figure(df, khop_methods, "exp1_signal_box", ylim)
 
     walk_methods = {
         "walk_tight_wass": "Walk tight\n($\\ell{=}5$, $r{=}.30$)",
         "walk_default_wass": "Walk default\n($\\ell{=}10$, $r{=}.15$)",
         "walk_wide_wass": "Walk wide\n($\\ell{=}20$, $r{=}.05$)",
     }
-    paired_figure(df, walk_methods, "exp1_walk_box")
+    paired_figure(df, walk_methods, "exp1_walk_box", ylim)
 
 
 if __name__ == "__main__":
