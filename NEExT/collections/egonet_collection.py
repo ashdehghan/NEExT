@@ -11,7 +11,7 @@ from NEExT.collections.graph_collection import GraphCollection
 from NEExT.embeddings.embeddings import Embeddings
 from NEExT.features import Features
 from NEExT.graphs import Egonet, Graph
-from NEExT.helper_functions import get_nodes_x_hops_away
+from NEExT.helper_functions import build_adjacency_lists, get_nodes_x_hops_away, random_walk_visit_counts
 
 
 class EgonetCollection(GraphCollection):
@@ -225,6 +225,120 @@ class EgonetCollection(GraphCollection):
                 # Update graph_id_node_array with this egonet's id
                 self.graph_id_node_array.extend([egonet_id] * len(egonet.nodes))
 
+                self.egonet_to_graph_node_mapping[egonet_id] = (graph.graph_id, node_id)
+                egonet_id += 1
+
+        self.egonet_node_features = self._create_egonet_features_df(graph_collection)
+
+    def compute_random_walk_egonets(
+        self,
+        graph_collection: GraphCollection,
+        walk_length: int = 10,
+        n_walks: int = 100,
+        restart_prob: float = 0.15,
+        min_visits: int = 3,
+        max_egonet_size: Optional[int] = None,
+        weight_by_visits: bool = True,
+        nodes_to_sample: Optional[Dict[int, List[int]]] = None,
+        sample_fraction: Optional[float] = 1.0,
+        random_seed: int = 13,
+    ):
+        """
+        Computes egonets from random walks with restart.
+
+        For each sampled center, runs `n_walks` walks of `walk_length` steps;
+        at every step the walker returns to the center with probability
+        `restart_prob` (personalized-PageRank-style homing), otherwise moves
+        to a uniformly random neighbor. The visited nodes form the egonet and
+        the visit frequencies (L1-normalized per egonet) become the egonet's
+        membership weights, stored as `Egonet.node_weights` keyed by internal
+        node ID. Unlike k-hop balls, these neighborhoods conform to community
+        structure, and adjacent centers produce gradually-differing bags.
+
+        Walks are simulated over precomputed adjacency lists with a
+        self-contained RNG (igraph's own random_walk uses a process-global C
+        RNG); per-center seeds are derived from the call's seed so results do
+        not depend on iteration order. The center is always a member.
+
+        Args:
+            graph_collection (GraphCollection): The collection of graphs from
+                which to derive egonets.
+            walk_length (int): Steps per walk (default: 10)
+            n_walks (int): Walks per center (default: 100)
+            restart_prob (float): Per-step probability of returning to the
+                center; 0.0 gives pure walks (default: 0.15)
+            min_visits (int): Minimum visit events for membership; the center
+                is always kept. The default of 3 is a noise floor over the
+                ~n_walks*walk_length visit events that cuts the one-visit
+                fringe (which balloons bag size without adding signal); set
+                1 to keep every visited node (default: 3)
+            max_egonet_size (Optional[int]): Keep only the top-N most visited
+                members (center always kept). None keeps all (default: None)
+            weight_by_visits (bool): Attach normalized visit frequencies as
+                `node_weights`; False builds unweighted membership egonets
+                (default: True)
+            nodes_to_sample: Dict mapping graph_id to nodes to always include
+            sample_fraction: Fraction of nodes to sample egonets for (default: 1.0)
+            random_seed: Random seed for center sampling and walks (default: 13)
+        """
+        if walk_length < 1:
+            raise ValueError(f"walk_length must be >= 1, got {walk_length}")
+        if n_walks < 1:
+            raise ValueError(f"n_walks must be >= 1, got {n_walks}")
+        if not 0.0 <= restart_prob < 1.0:
+            raise ValueError(f"restart_prob must be in [0, 1), got {restart_prob}")
+        if min_visits < 1:
+            raise ValueError(f"min_visits must be >= 1, got {min_visits}")
+        if max_egonet_size is not None and max_egonet_size < 1:
+            raise ValueError(f"max_egonet_size must be >= 1, got {max_egonet_size}")
+
+        rng = np.random.RandomState(random_seed)
+        if nodes_to_sample is None:
+            nodes_to_sample = {}
+
+        self.graphs = []
+        self.graph_id_node_array = []
+        self.egonet_to_graph_node_mapping = {}
+        egonet_id = 0
+
+        valid_nodes = {}
+        # draw nodes to sample from for each graph
+        for graph in graph_collection.graphs:
+            nodes = graph.nodes
+            random_nodes = rng.choice(nodes, int(len(nodes) * sample_fraction), replace=False).tolist()
+            forced_nodes = nodes_to_sample.get(graph.graph_id, [])
+            valid_nodes[graph.graph_id] = list(set(random_nodes + forced_nodes))
+
+        for graph in graph_collection.graphs:
+            parent_index = self._build_parent_index(graph)
+            adjacency = build_adjacency_lists(graph.G)
+            for node_id in valid_nodes[graph.graph_id]:
+                # Per-center seed derived from the shared rng: reproducible and
+                # independent of center iteration order.
+                walk_rng = np.random.RandomState(rng.randint(0, 1_000_000))
+                counts = random_walk_visit_counts(adjacency, node_id, walk_length, n_walks, restart_prob, walk_rng)
+
+                if min_visits > 1:
+                    counts = {n: c for n, c in counts.items() if c >= min_visits or n == node_id}
+                if max_egonet_size is not None and len(counts) > max_egonet_size:
+                    kept = sorted(counts, key=lambda n: (n == node_id, counts[n]), reverse=True)[:max_egonet_size]
+                    counts = {n: counts[n] for n in kept}
+
+                egonet_label = graph.node_attributes[node_id][self.egonet_feature_target] if self.egonet_feature_target else None
+                egonet = self._build_egonet(
+                    graph=graph,
+                    node_id=node_id,
+                    egonet_nodes=list(counts),
+                    egonet_id=egonet_id,
+                    egonet_label=egonet_label,
+                    parent_index=parent_index,
+                )
+                if weight_by_visits:
+                    total = sum(counts.values())
+                    egonet.node_weights = {egonet.node_mapping[n]: c / total for n, c in counts.items()}
+
+                self.graphs.append(egonet)
+                self.graph_id_node_array.extend([egonet_id] * len(egonet.nodes))
                 self.egonet_to_graph_node_mapping[egonet_id] = (graph.graph_id, node_id)
                 egonet_id += 1
 

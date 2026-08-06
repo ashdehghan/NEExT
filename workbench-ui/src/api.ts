@@ -223,7 +223,11 @@ export interface DatasetEgonetMetadata {
   source_graph_shape: "single_graph";
   operation_id: string;
   operation_version: string;
-  k_hop: number;
+  egonet_method: "k_hop" | "random_walk";
+  k_hop?: number | null;
+  walk_length?: number | null;
+  n_walks?: number | null;
+  restart_prob?: number | null;
   node_selection: string;
   sample_fraction: number;
   random_seed: number;
@@ -814,7 +818,14 @@ export interface DatasetCreatePayload {
   params: {
     graph_type: "networkx" | "igraph";
     filter_largest_component: boolean;
+    egonet_method?: "k_hop" | "random_walk";
     k_hop?: number;
+    walk_length?: number;
+    n_walks?: number;
+    restart_prob?: number;
+    min_visits?: number;
+    max_egonet_size?: number | null;
+    weight_by_visits?: boolean;
     node_selection?: "all_nodes" | "sample_fraction" | "specific_node_ids";
     sample_fraction?: number;
     random_seed?: number;
@@ -837,7 +848,14 @@ export interface DatasetIntakePayload {
   params: {
     graph_type: "networkx" | "igraph";
     filter_largest_component: boolean;
+    egonet_method?: "k_hop" | "random_walk";
     k_hop?: number;
+    walk_length?: number;
+    n_walks?: number;
+    restart_prob?: number;
+    min_visits?: number;
+    max_egonet_size?: number | null;
+    weight_by_visits?: boolean;
     node_selection?: "all_nodes" | "sample_fraction" | "specific_node_ids";
     sample_fraction?: number;
     random_seed?: number;
