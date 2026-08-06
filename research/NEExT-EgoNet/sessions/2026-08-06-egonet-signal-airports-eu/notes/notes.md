@@ -23,3 +23,11 @@
   only, add k=1 and k=3. Re-run (22 s): k=1 .536±.024 > k=2 .463 > k=3 .434,
   all >> floor .249. Coverage medians 4% / 70% / 99% — monotone degradation
   with saturation; the signal is local. Figure regenerated (single panel).
+
+- All-features run (feature_list=["all"], 11 features, vlen 1, Wass dim 11,
+  tag fall-vl1): k1 .556±.039 (was .536 with 4 feats), k2 .467 (~unchanged),
+  k3 .435 (~unchanged), permuted .246. Runtime 2m40s (k1 12s / k2 55s /
+  k3 90s — betweenness+load+lsme dominate on big bags). Verdict: +0.02 at
+  k=1 (within 1 std), nothing at k>=2 — feature richness doesn't rescue
+  saturated bags; ranking unchanged. Figure regenerated; scratchpad rebuilt
+  with fresh items (in-place image patches don't refresh assets).

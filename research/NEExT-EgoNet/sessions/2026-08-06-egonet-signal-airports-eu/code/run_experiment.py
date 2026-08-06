@@ -112,9 +112,10 @@ def main():
     fallback_table = bag_tables["egonet_k2_wass"]
     for method, out in results.items():
         run_config_m = {**run_config, "method": method, "status": out["status"]}
+        run_id = f"{cfg['dataset']}__{method}__{cfg['feature_tag']}"
         runio.write_run(
             OUTPUTS,
-            f"{cfg['dataset']}__{method}",
+            run_id,
             run_config_m,
             out["metrics_rows"],
             out["node_predictions"],
@@ -122,8 +123,8 @@ def main():
         )
         all_rows.extend(out["metrics_rows"])
         if method in reps:
-            reps[method].to_parquet(OUTPUTS / f"{cfg['dataset']}__{method}" / "representation.parquet", index=False)
-    runio.aggregate(OUTPUTS, ["dataset", "method", "status", "git_sha"])
+            reps[method].to_parquet(OUTPUTS / run_id / "representation.parquet", index=False)
+    runio.aggregate(OUTPUTS, ["dataset", "method", "status", "feature_tag", "git_sha"])
 
     print(f"[{time.time() - t0:6.1f}s] done\n")
     print(summarize_node_metrics(all_rows).to_string(index=False))

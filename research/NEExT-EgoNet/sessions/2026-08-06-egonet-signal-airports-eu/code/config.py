@@ -13,16 +13,15 @@ CONFIG = {
     # egonet construction
     "k_hops": [1, 2, 3],
     "egonet_seed": 13,
-    # features: computed WITHIN each egonet, own-node value only
-    "feature_list": [
-        "degree_centrality",
-        "clustering_coefficient",
-        "page_rank",
-        "closeness_centrality",
-    ],
+    # features: computed WITHIN each egonet, own-node value only.
+    # "all" = the full 11-feature structural pool; feature_tag names the
+    # feature configuration in run ids so runs with different feature sets
+    # coexist in outputs/ and results.csv.
+    "feature_list": ["all"],
     "feature_vector_length": 1,
-    # embedding
-    "wasserstein_dim": 4,
+    "feature_tag": "fall-vl1",
+    # embedding (dimension follows the rule dim = n feature columns)
+    "wasserstein_dim": 11,
     "embed_seed": 42,
     # evaluation
     "ml_seed": 42,

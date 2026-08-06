@@ -35,6 +35,8 @@ def family_of(method: str) -> str:
 def main():
     df = pd.read_csv(SESSION_ROOT / "results.csv")
     df = df[df["status"] == "ok"]
+    if "feature_tag" in df.columns:
+        df = df[df["feature_tag"] == C.CONFIG["feature_tag"]]
 
     ps.use_style()
     methods = list(C.PLOT_METHODS)
