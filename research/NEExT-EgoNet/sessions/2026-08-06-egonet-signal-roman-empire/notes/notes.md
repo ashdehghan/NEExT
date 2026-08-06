@@ -36,3 +36,12 @@
   fragment SHAPE is what discriminates. Scope interacts with graph character:
   dense+node-encoded labels -> global robust; sparse+heterophilous -> local
   wins. Paired figure exp2_roman_scopes; board updated (Ash-directed).
+
+- node_struct baseline (feature pass now CACHED: outputs/ROMAN_EMPIRE__
+  source_features__fall-vl1.parquet, ~1 MB; pass 1337 s, eval 10 s):
+  .217+-.011. HEADLINE: local k1 (.306) beats the node-features baseline by
+  +.089; local k2 (.262) also above it. The green line is NOT a ceiling
+  here — on the heterophilous sparse graph the neighborhood's structure
+  carries signal the node's own profile lacks. Completes the two-dataset
+  contrast with airports (.592 node >> .556 best bag there). Figure now has
+  green box + ceiling line; board updated (Ash-directed).

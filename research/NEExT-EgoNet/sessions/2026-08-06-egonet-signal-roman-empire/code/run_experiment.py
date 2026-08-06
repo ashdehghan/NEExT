@@ -24,6 +24,8 @@ import sys
 import time
 from pathlib import Path
 
+import pandas as pd
+
 SESSION_ROOT = Path(__file__).resolve().parents[1]
 RESEARCH_ROOT = SESSION_ROOT.parents[1]
 REPO_ROOT = RESEARCH_ROOT.parents[1]
@@ -84,14 +86,34 @@ def main():
     print(f"[{time.time() - t0:6.1f}s] graph loaded: {table_report['n_nodes']} nodes, "
           f"{table_report['n_classes']} classes, {len(centers)} centers")
 
+    def full_graph_features():
+        """Full-graph feature pass, cached to parquet (22 min at this size)."""
+        from NEExT.features import Features
+
+        cache = OUTPUTS / f"{cfg['dataset']}__source_features__{C.CONFIG['feature_tag']}.parquet"
+        if cache.exists():
+            df = pd.read_parquet(cache)
+            print(f"[{time.time() - t0:6.1f}s] full-graph features loaded from cache ({cache.name})")
+            return Features(df, [c for c in df.columns if c not in ("node_id", "graph_id")])
+        feats = nxt.compute_node_features(
+            collection,
+            feature_list=list(cfg["feature_list"]),
+            feature_vector_length=cfg["feature_vector_length"],
+            show_progress=False,
+            n_jobs=-1,
+        )
+        feats.features_df.to_parquet(cache, index=False)
+        print(f"[{time.time() - t0:6.1f}s] full-graph feature pass done + cached "
+              f"({len(feats.features_df)} nodes x {len(feats.feature_columns)} features)")
+        return feats
+
     eval_kwargs = dict(n_splits=cfg["n_splits"], test_size=cfg["test_size"], seed=cfg["ml_seed"])
     if cfg["family"] == "nodefeat":
         # No bags, no embedding: the node's own full-graph structural feature
         # vector goes straight to the classifier. Scope-independent — written
         # once under the base (local) tag.
-        rep = center_structural_features(
-            nxt, collection, feature_list=cfg["feature_list"], feature_vector_length=cfg["feature_vector_length"]
-        )
+        feats = full_graph_features()
+        rep = feats.features_df[["node_id"] + feats.feature_columns].copy()
         out = evaluate_node_representation("node_struct", rep, node_table, **eval_kwargs)
         run_config = {
             **cfg,
@@ -114,19 +136,9 @@ def main():
     else:
         constructions = {f"{name}_wass": ("random_walk", {**params, "n_walks": C.N_WALKS}) for name, params in C.WALK_CONSTRUCTIONS.items()}
 
-    # Global scope: pay the full-graph feature pass ONCE and project it onto
-    # every construction, instead of recomputing per k inside the framework.
-    source_features = None
-    if cfg["feature_scope"] == "global":
-        source_features = nxt.compute_node_features(
-            collection,
-            feature_list=list(cfg["feature_list"]),
-            feature_vector_length=cfg["feature_vector_length"],
-            show_progress=False,
-            n_jobs=-1,
-        )
-        print(f"[{time.time() - t0:6.1f}s] full-graph feature pass done "
-              f"({len(source_features.features_df)} nodes x {len(source_features.feature_columns)} features)")
+    # Global scope: pay the full-graph feature pass ONCE (cached) and project
+    # it onto every construction, instead of recomputing per k.
+    source_features = full_graph_features() if cfg["feature_scope"] == "global" else None
 
     results, bag_tables, reaches, reps = {}, {}, {}, {}
     for method, (bag_method, bag_params) in constructions.items():
