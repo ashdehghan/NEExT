@@ -103,22 +103,28 @@ def main():
     pd.DataFrame(stats).to_csv(OUTPUTS / "smoothness_stats.csv", index=False)
 
     fig, axes = plt.subplots(1, 2, figsize=(ps.FULL_W, 2.7))
-    # (a) |Δnovelty| vs Jaccard in equal-count decile bins per run (fixed-width
-    # bins are noise: high-overlap bins are nearly empty at k=1). Curves are
-    # per-run, normalized by that run's median jump.
+    # (a) ONE curve per radius: edges pooled across the three networks after
+    # per-run median-normalization, then equal-count decile bins by Jaccard
+    # (fixed-width bins are noise: high-overlap bins are nearly empty at
+    # k=1; and six per-run curves are an unreadable tangle -- the per-run
+    # Spearman correlations live in the stats CSV / caption instead).
     for k, color in ((1, "#2a78d6"), (2, "#eb6834")):
-        for i, network in enumerate(NETWORKS):
+        pooled = []
+        for network in NETWORKS:
             e = per_run_edges[f"{network}_k{k}"].query("~touches_anomaly").copy()
             e["nov_norm"] = e["dnov"] / e["dnov"].median()
-            e["bin"] = pd.qcut(e["jaccard"], 10, labels=False, duplicates="drop")
-            g = e.groupby("bin").agg(x=("jaccard", "median"), y=("nov_norm", "median"))
-            axes[0].plot(
-                g.x, g.y, marker="o", color=color, markersize=2.5, lw=0.9, alpha=0.85,
-                label=f"$k={k}$" if i == 0 else None,
-            )
+            pooled.append(e[["jaccard", "nov_norm"]])
+        e = pd.concat(pooled, ignore_index=True)
+        e["bin"] = pd.qcut(e["jaccard"], 10, labels=False, duplicates="drop")
+        g = e.groupby("bin").agg(
+            x=("jaccard", "median"), y=("nov_norm", "median"),
+            q1=("nov_norm", lambda v: v.quantile(0.25)), q3=("nov_norm", lambda v: v.quantile(0.75)),
+        )
+        axes[0].plot(g.x, g.y, marker="o", color=color, markersize=3.5, lw=1.3, label=f"$k={k}$")
+        axes[0].fill_between(g.x, g.q1, g.q3, color=color, alpha=0.13, linewidth=0)
     axes[0].axhline(1.0, color=ps.AXIS, lw=0.6, zorder=0)
     axes[0].set_xlabel("bag overlap across the edge (Jaccard, decile bins)")
-    axes[0].set_ylabel("median |Δnovelty| (per-run norm.)")
+    axes[0].set_ylabel("|Δnovelty| (per-run norm.)")
     axes[0].legend()
     ps.panel_tag(axes[0], "(a)")
 
