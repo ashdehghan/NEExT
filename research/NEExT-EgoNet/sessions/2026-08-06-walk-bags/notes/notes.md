@@ -29,3 +29,17 @@ hub_pull_rho = spearman(novelty, degree).
    worse quality). Amend PR: default min_visits=3 (documented as a noise
    floor relative to n_walks*walk_length visit events).
 4. walk_far (restart .05): bigger bags, no consistent gain over .15.
+
+## Manuscript write-up (2026-08-06)
+
+Two new sections landed in NEExT-EgoNet (p_134274d1): "The Score Landscape:
+from Classification to Search" (bed of nails, 4 findings incl. the Jaccard
+mechanism) and "Random-Walk Bags: Smoothness by Construction" (min_visits
+arc, field-map triptych, complementarity parity plot + variant table).
+Framework gained the formal walk-bag subsection (eq: B_w(c), weights,
+restart, floor); related work gained the walk-neighborhood paragraph
+(DeepWalk/RWR/ACL, verified); discussion gained centering-beats-containing
++ construction-anomaly matching; abstract/conclusion updated. 5 new
+main-text figures + 1 table + appendix rings triptych, all print-sized
+from CSVs (print_figures.py in both sessions). Compiles 0/0; rendered
+pages 11-17 inspected.
