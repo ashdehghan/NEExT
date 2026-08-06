@@ -34,7 +34,7 @@ def load_collection(graph_type: str = "networkx"):
 
 
 def build(nxt, collection, **kwargs):
-    defaults = dict(walk_length=8, n_walks=50, restart_prob=0.15, egonet_feature_target="lbl", random_seed=7)
+    defaults = {"walk_length": 8, "n_walks": 50, "restart_prob": 0.15, "egonet_feature_target": "lbl", "random_seed": 7}
     defaults.update(kwargs)
     return nxt.compute_random_walk_egonets(collection, **defaults)
 
