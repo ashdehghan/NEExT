@@ -20,6 +20,7 @@ from lib.nodeclass import (
     evaluate_node_representation,
     filter_rare_classes,
     majority_floor,
+    permutation_floor,
     sample_centers,
 )
 from NEExT import NEExT
@@ -125,6 +126,25 @@ def test_degenerate_single_class():
     one = table[table["y"] == 0].reset_index(drop=True)
     out = evaluate_node_representation("random", _random_rep(one["node_id"]), one, n_splits=3)
     assert out["status"] == "degenerate"
+
+
+def test_permutation_floor_severs_signal():
+    """A label-leaking representation scores high normally, ~chance under permutation."""
+    nxt = NEExT(log_level="WARNING")
+    table, _ = build_node_table(_labeled_collection(nxt), "label")
+    leaky = _random_rep(table["node_id"], dim=1, seed=0)
+    leaky["r_0"] = table["y"].to_numpy() + 0.01 * leaky["r_0"]
+
+    honest = evaluate_node_representation("leaky", leaky, table, n_splits=3)
+    permuted = permutation_floor("permuted", leaky, table, n_splits=3)
+    assert permuted["status"] == "ok"
+    rows = permuted["metrics_rows"]
+    assert len(rows) == 3
+    assert set(rows[0]) == set(honest["metrics_rows"][0])  # same row schema
+    honest_acc = np.mean([r["accuracy"] for r in honest["metrics_rows"]])
+    permuted_acc = np.mean([r["accuracy"] for r in rows])
+    assert honest_acc > 0.9
+    assert permuted_acc < 0.6
 
 
 def test_majority_floor_matches_share():

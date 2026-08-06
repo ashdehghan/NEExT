@@ -21,7 +21,7 @@ from .data import (
     filter_rare_classes,
     sample_centers,
 )
-from .evaluate import evaluate_node_representation, majority_floor, summarize_node_metrics
+from .evaluate import evaluate_node_representation, majority_floor, permutation_floor, summarize_node_metrics
 
 __all__ = [
     "NodeBagSet",
@@ -39,5 +39,6 @@ __all__ = [
     "sample_centers",
     "evaluate_node_representation",
     "majority_floor",
+    "permutation_floor",
     "summarize_node_metrics",
 ]

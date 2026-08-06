@@ -160,6 +160,73 @@ def majority_floor(
     return {"metrics_rows": rows, "node_predictions": pd.DataFrame(), "status": "ok"}
 
 
+def permutation_floor(
+    rep_name: str,
+    rep_df: pd.DataFrame,
+    node_table: pd.DataFrame,
+    n_splits: int = DEFAULT_SPLITS,
+    test_size: float = DEFAULT_TEST_SIZE,
+    seed: int = 42,
+) -> dict:
+    """Label-permutation floor: the full pipeline with the label association severed.
+
+    Trains the same classifier on the same representation under the same shared
+    splits, but with TRAINING labels shuffled (per-split seed), then scores
+    against the true test labels. Unlike `majority_floor`, this floor inherits
+    any leakage or overfitting artifact of the pipeline itself — accuracy above
+    chance here means the harness is broken, not that the representation works.
+    """
+    X, y, _, feature_cols = _merge_matrix(rep_df, node_table)
+    classes = np.unique(y)
+    n_classes = len(classes)
+    base = {
+        "representation": rep_name,
+        "n_nodes": len(y),
+        "n_classes": n_classes,
+        "n_features": len(feature_cols),
+        "majority_share": round(float(np.bincount(y).max() / len(y)), 4),
+    }
+    if n_classes < 2:
+        return {
+            "metrics_rows": [{**base, "split": "", "status": "degenerate"}],
+            "node_predictions": pd.DataFrame(),
+            "status": "degenerate",
+        }
+
+    binary = n_classes == 2
+    eval_metric = "logloss" if binary else "mlogloss"
+    y_enc = np.searchsorted(classes, y)
+    rows = []
+    t0 = time.time()
+    for i, idx_train, idx_test in shared_splits(y, n_splits=n_splits, test_size=test_size, seed=seed):
+        y_train_perm = np.random.RandomState(seed + i).permutation(y_enc[idx_train])
+        model = XGBClassifier(
+            n_estimators=200, max_depth=4, eval_metric=eval_metric, random_state=seed, n_jobs=-1
+        )
+        model.fit(X[idx_train], y_train_perm)
+        proba = model.predict_proba(X[idx_test])
+        y_test = y[idx_test]
+        y_pred = classes[np.argmax(proba, axis=1)]
+        if binary:
+            auc_ovr = roc_auc_score(y_enc[idx_test], proba[:, 1])
+        else:
+            auc_ovr = roc_auc_score(y_test, proba, multi_class="ovr", average="macro", labels=classes)
+        rows.append(
+            {
+                **base,
+                "split": i,
+                "status": "ok",
+                "accuracy": round(float(np.mean(y_pred == y_test)), 4),
+                "f1_macro": round(float(f1_score(y_test, y_pred, average="macro", zero_division=0)), 4),
+                "auc_ovr_macro": round(float(auc_ovr), 4),
+            }
+        )
+    elapsed = time.time() - t0
+    for row in rows:
+        row["eval_seconds"] = round(elapsed, 2)
+    return {"metrics_rows": rows, "node_predictions": pd.DataFrame(), "status": "ok"}
+
+
 def summarize_node_metrics(metrics_rows: list) -> pd.DataFrame:
     """Aggregate per-split rows to mean±std per representation."""
     df = pd.DataFrame([r for r in metrics_rows if r.get("status") == "ok"])
