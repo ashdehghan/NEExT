@@ -77,6 +77,12 @@ embeddings = nxt.compute_graph_embeddings(
 results = nxt.train_ml_model(graph_collection, embeddings, model_type="classifier")
 ```
 
+Single labeled graphs can be decomposed into per-node subgraph collections first:
+`nxt.compute_k_hop_egonets(...)` builds fixed-radius neighborhoods, and
+`nxt.compute_random_walk_egonets(...)` builds community-adaptive neighborhoods from
+random walks with restart, with visit frequencies carried as membership weights into
+the graph embeddings.
+
 Custom features, GNN embeddings, large-graph sampling, feature importance, and the full
 API are covered in the [documentation](https://www.neext.app/docs).
 

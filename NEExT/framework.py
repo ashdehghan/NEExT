@@ -482,6 +482,74 @@ class NEExT:
         self.logger.info(f"Created {len(egonet_collection.graphs)} egonets")
         return egonet_collection
 
+    def compute_random_walk_egonets(
+        self,
+        graph_collection: GraphCollection,
+        walk_length: int = 10,
+        n_walks: int = 100,
+        restart_prob: float = 0.15,
+        min_visits: int = 1,
+        max_egonet_size: Optional[int] = None,
+        weight_by_visits: bool = True,
+        egonet_feature_target: Optional[str] = None,
+        skip_features: Optional[List[str]] = None,
+        nodes_to_sample: Optional[Dict[int, List[int]]] = None,
+        sample_fraction: float = 1.0,
+        random_seed: int = 13,
+    ) -> EgonetCollection:
+        """
+        Decompose graphs into random-walk egonets (visited-node subgraphs).
+
+        Runs n_walks walks of walk_length steps from each sampled center, with
+        per-step restart probability restart_prob (personalized-PageRank-style
+        homing). Visited nodes form the egonet; normalized visit frequencies
+        become membership weights (Egonet.node_weights) consumed by graph
+        embeddings as the bag's distribution mass. Neighborhoods conform to
+        community structure and vary smoothly between adjacent centers.
+
+        Args:
+            graph_collection: Collection of graphs to decompose
+            walk_length: Steps per walk (default: 10)
+            n_walks: Walks per center (default: 100)
+            restart_prob: Per-step probability of returning to the center;
+                0.0 gives pure walks (default: 0.15)
+            min_visits: Minimum visit events for membership (default: 1)
+            max_egonet_size: Keep only the top-N most visited members
+                (default: None)
+            weight_by_visits: Attach normalized visit frequencies as
+                node_weights (default: True)
+            egonet_feature_target: Node attribute to use as egonet label (default: None)
+            skip_features: Node features to exclude from egonets (default: None)
+            nodes_to_sample: Dict mapping graph_id to list of nodes to always include
+            sample_fraction: Fraction of nodes to sample egonets for (default: 1.0)
+            random_seed: Random seed for node sampling and walks (default: 13)
+
+        Returns:
+            EgonetCollection: Collection of egonets
+        """
+        self.logger.info(f"Computing random-walk egonets ({n_walks}x{walk_length} steps, restart={restart_prob})")
+
+        egonet_collection = EgonetCollection(
+            graph_type=graph_collection.graph_type,
+            egonet_feature_target=egonet_feature_target,
+            skip_features=skip_features or [],
+        )
+        egonet_collection.compute_random_walk_egonets(
+            graph_collection=graph_collection,
+            walk_length=walk_length,
+            n_walks=n_walks,
+            restart_prob=restart_prob,
+            min_visits=min_visits,
+            max_egonet_size=max_egonet_size,
+            weight_by_visits=weight_by_visits,
+            nodes_to_sample=nodes_to_sample,
+            sample_fraction=sample_fraction,
+            random_seed=random_seed,
+        )
+
+        self.logger.info(f"Created {len(egonet_collection.graphs)} egonets")
+        return egonet_collection
+
     def compute_leiden_egonets(
         self,
         graph_collection: GraphCollection,
