@@ -20,7 +20,7 @@ df = pd.read_csv(SESSION_ROOT / "results.csv")
 df = df[df["status"] == "ok"]
 stem = dataset_overview_figure(
     df,
-    khop_methods={f"egonet_k{k}_wass": f"$k{{=}}{k}$" for k in [1, 2, 3]},
+    khop_methods={f"egonet_k{k}_wass": f"$k{{=}}{k}$" for k in [1, 2, 3, 4, 5]},
     walk_methods={"walk_tight_wass": "tight", "walk_default_wass": "default", "walk_wide_wass": "wide"},
     stem=SESSION_ROOT / "figures" / "exp4_overview",
 )

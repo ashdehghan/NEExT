@@ -24,3 +24,15 @@
 - Prelim reading: co-purchase rating signal is neither in the node profile
   nor the immediate fragment — it accumulates slowly with neighborhood
   coverage. Fourth regime? Discuss with Ash before manuscript.
+
+- Mechanism-analysis session (2026-08-07, with Ash on the terminal):
+  measured eta2 feature map (11x4; airports=degree family .6; roman=two
+  blocks flow .3 + shape .27; chameleon all marginals <=.046 vs
+  multivariate .635 -> INTERACTION CODE; amazon dark), adjusted homophily
+  (+.206/-.045/+.035/+.150), chameleon walk ESS check (ESS/size ~.15,
+  10-14% mass on top-20 hubs vs 0.9% census), amazon distance-homophily
+  curve (peaks d=2 at .385 vs .271 baseline, above baseline through d=8 ->
+  polling frame predicts continued ascent at k4/5; run in flight).
+  Manuscript: analysis section added (sections/analysis.tex) + orange eta2
+  heatmap figure + ESS table; Amazon results paragraph now forward-refs it.
+  lsme==basic_expansion==degree at vlen 1 (footnoted).
