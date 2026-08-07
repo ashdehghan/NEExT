@@ -46,3 +46,13 @@
   XGBoost nondeterminism, e.g. k1 .211->.203); manuscript table matches
   current artifacts. Manuscript: exp4 table k1-5, figure regenerated,
   Results + analysis verdict sentences updated. pdf_rev 11.
+
+- Manuscript review pass (Ash-directed): numeric sweep vs artifacts found
+  2 stale values (Amazon permuted std/acc .012/.303 -> .014/.304; Roman AUC
+  .741 -> .742), fixed. Paired t-tests added (all pass, Wilcoxon agrees):
+  chameleon glob-k2 vs node p=.002; roman loc-k2 p=.014, tight walk p=.003;
+  amazon glob-k4 p=.042; airports node vs k1 p=.019. Prose pass: parallel
+  subsection titles with dataset in parens, findings deduplicated vs
+  analysis (forward refs), leading-zero number format, ESS caption
+  subsample note, statistical-protocol sentence in Metric paragraph.
+  pdf_rev 12, ready for Ash's read.
