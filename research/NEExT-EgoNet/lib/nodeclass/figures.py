@@ -1,5 +1,8 @@
 """The dataset overview figure: one merged axis per dataset (Layout A).
 
+Headline metric: macro-F1 (Ash, 2026-08-07) — equal class weighting, immune
+to majority-class inflation; accuracy stays in the artifacts and tables.
+
 Chosen by Ash (2026-08-06) as the one-figure-per-dataset manuscript layout:
 Random floor and node-features reference boxes on the left (each with a
 dashed mean line), then one local/global box pair per k-hop construction, a
@@ -49,13 +52,13 @@ def _pairs(ax, acc, methods, start_x):
     return ticks
 
 
-def shared_ylim(df: pd.DataFrame) -> tuple:
+def shared_ylim(df: pd.DataFrame, metric: str = "f1_macro") -> tuple:
     """Data-driven limits over every plotted method (majority stays off figures)."""
-    plotted = df.loc[df["method"] != "majority", "accuracy"]
+    plotted = df.loc[df["method"] != "majority", metric]
     return (math.floor((plotted.min() - 0.02) * 20) / 20, math.ceil((plotted.max() + 0.02) * 20) / 20)
 
 
-def dataset_overview_figure(df: pd.DataFrame, khop_methods: dict, walk_methods: dict, stem, height: float = 2.8, strict: bool = True):
+def dataset_overview_figure(df: pd.DataFrame, khop_methods: dict, walk_methods: dict, stem, height: float = 2.8, strict: bool = True, metric: str = "f1_macro", metric_label: str = "macro-F1"):
     """Render the merged-axis overview for one dataset.
 
     Args:
@@ -66,14 +69,14 @@ def dataset_overview_figure(df: pd.DataFrame, khop_methods: dict, walk_methods: 
     """
 
     def acc(tag, method):
-        vals = df.loc[(df["feature_tag"] == tag) & (df["method"] == method), "accuracy"].to_numpy()
+        vals = df.loc[(df["feature_tag"] == tag) & (df["method"] == method), metric].to_numpy()
         if len(vals) == 0:
             if strict:
                 raise ValueError(f"No rows for tag={tag} method={method} — run that scope first")
             return None
         return vals
 
-    ylim = shared_ylim(df)
+    ylim = shared_ylim(df, metric)
     ps.use_style()
     fig, ax = plt.subplots(figsize=(ps.FULL_W, height))
 
@@ -96,7 +99,7 @@ def dataset_overview_figure(df: pd.DataFrame, khop_methods: dict, walk_methods: 
         ["Random\n(permuted)", "Node feat.\n(full graph)"] + list(khop_methods.values()) + list(walk_methods.values())
     )
     ax.set_ylim(*ylim)
-    ax.set_ylabel("accuracy")
+    ax.set_ylabel(metric_label)
     ax.text((khop_ticks[0] + khop_ticks[-1]) / 2, -0.24, "$k$-hop egonets",
             transform=ax.get_xaxis_transform(), ha="center", fontsize=8, color=ps.MUTED)
     ax.text((walk_ticks[0] + walk_ticks[-1]) / 2, -0.24, "random-walk bags",
