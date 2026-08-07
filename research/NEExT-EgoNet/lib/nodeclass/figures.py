@@ -41,8 +41,10 @@ def _pairs(ax, acc, methods, start_x):
     ticks = []
     for i, method in enumerate(methods):
         center = start_x + i
-        _box(ax, acc(LOCAL_TAG, method), center - PAIR_OFFSET, SCOPE_COLOR["local"])
-        _box(ax, acc(GLOBAL_TAG, method), center + PAIR_OFFSET, SCOPE_COLOR["global"])
+        for tag, side in ((LOCAL_TAG, -PAIR_OFFSET), (GLOBAL_TAG, +PAIR_OFFSET)):
+            vals = acc(tag, method)
+            if vals is not None:
+                _box(ax, vals, center + side, SCOPE_COLOR["local" if side < 0 else "global"])
         ticks.append(center)
     return ticks
 
@@ -53,7 +55,7 @@ def shared_ylim(df: pd.DataFrame) -> tuple:
     return (math.floor((plotted.min() - 0.02) * 20) / 20, math.ceil((plotted.max() + 0.02) * 20) / 20)
 
 
-def dataset_overview_figure(df: pd.DataFrame, khop_methods: dict, walk_methods: dict, stem, height: float = 2.8):
+def dataset_overview_figure(df: pd.DataFrame, khop_methods: dict, walk_methods: dict, stem, height: float = 2.8, strict: bool = True):
     """Render the merged-axis overview for one dataset.
 
     Args:
@@ -66,7 +68,9 @@ def dataset_overview_figure(df: pd.DataFrame, khop_methods: dict, walk_methods: 
     def acc(tag, method):
         vals = df.loc[(df["feature_tag"] == tag) & (df["method"] == method), "accuracy"].to_numpy()
         if len(vals) == 0:
-            raise ValueError(f"No rows for tag={tag} method={method} — run that scope first")
+            if strict:
+                raise ValueError(f"No rows for tag={tag} method={method} — run that scope first")
+            return None
         return vals
 
     ylim = shared_ylim(df)
@@ -75,10 +79,12 @@ def dataset_overview_figure(df: pd.DataFrame, khop_methods: dict, walk_methods: 
 
     floor_vals = acc(LOCAL_TAG, "permuted")
     node_vals = acc(LOCAL_TAG, "node_struct")
-    _box(ax, floor_vals, 0.0, ps.FAMILY_COLOR["floor"])
-    _box(ax, node_vals, 1.05, NODE_COLOR)
-    ax.axhline(float(node_vals.mean()), color=NODE_COLOR, linewidth=0.6, linestyle=(0, (4, 3)), zorder=0)
-    ax.axhline(float(floor_vals.mean()), color=ps.MUTED, linewidth=0.6, linestyle=(0, (4, 3)), zorder=0)
+    if floor_vals is not None:
+        _box(ax, floor_vals, 0.0, ps.FAMILY_COLOR["floor"])
+        ax.axhline(float(floor_vals.mean()), color=ps.MUTED, linewidth=0.6, linestyle=(0, (4, 3)), zorder=0)
+    if node_vals is not None:
+        _box(ax, node_vals, 1.05, NODE_COLOR)
+        ax.axhline(float(node_vals.mean()), color=NODE_COLOR, linewidth=0.6, linestyle=(0, (4, 3)), zorder=0)
 
     khop_ticks = _pairs(ax, acc, khop_methods, 2.35)
     gap_x = khop_ticks[-1] + 0.75
