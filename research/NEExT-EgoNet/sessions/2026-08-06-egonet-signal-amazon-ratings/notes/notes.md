@@ -36,3 +36,13 @@
   Manuscript: analysis section added (sections/analysis.tex) + orange eta2
   heatmap figure + ESS table; Amazon results paragraph now forward-refs it.
   lsme==basic_expansion==degree at vlen 1 (footnoted).
+
+- k4/k5 extension landed (local 29 min re-run incl k1-3 jitter re-eval;
+  global 56 s on cache). Bag medians k4=111, k5=214 (0.87% of graph).
+  Global: .297 -> .302 (k4) -> .300 (k5) — PLATEAU at ~.30, no downturn,
+  far below coverage: consistent with distance-homophily reach thinning
+  (curve prediction CONFIRMED). Local still climbing shallowly to .299.
+  Note: local k1-3 re-run values shifted within noise (multithreaded
+  XGBoost nondeterminism, e.g. k1 .211->.203); manuscript table matches
+  current artifacts. Manuscript: exp4 table k1-5, figure regenerated,
+  Results + analysis verdict sentences updated. pdf_rev 11.
