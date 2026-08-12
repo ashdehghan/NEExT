@@ -65,3 +65,36 @@ beta=0 control isolates that channel; real-data ascending profiles
 Artifacts: results.csv (18 stages), outputs/manipulation_checks.csv,
 outputs/distance_homophily_curves.csv, figures/synth_profiles_grid.pdf,
 figures/synth_money_kstar_vs_reach.pdf, figures/synth_distance_homophily_v2.pdf.
+
+## 2026-08-12 — 10-replicate study (Ash-approved) + ring-by-ring mechanism test
+
+Motivation: Ash challenged "plateau at reach" (visual mismatch) and the
+single-draw noise in L1. Two responses:
+
+1. Ring-by-ring prediction test: from the measured agreement curve ALONE,
+   predict the k-profile shape. Two aggregation models:
+   - naive averaging  S(k)=sum(n_d e_d)/sqrt(sum n_d)  -> predicts DECLINE
+   - adaptive weighting S(k)=sqrt(sum n_d e_d^2)       -> predicts saturation
+   (code/analysis_polling_prediction.py, single-seed first pass)
+
+2. Replicates: 10 fresh worlds per wavelength (seeds 101-110, whisper ON,
+   global sweep + per-replicate checks; code/run_replicates.sh; 30 jobs,
+   ~1.5h sequential on the 4-core box). datasets.py now takes _S<seed> ids;
+   manipulation_checks.py takes cell ids via argv and merges CSVs.
+
+Replicate check stats (mean±std across 10): reach 2.9±0.2 / 5.9±0.9 /
+8.6±0.5 (dial robust across draws); deg eta2 .013/.018/.027.
+
+RESULTS (code/analysis_replicates.py, figures/polling_prediction_replicated):
+- Adaptive-polling prediction matches replicate-mean profiles: r = 0.92 /
+  0.97 / 0.99. Naive averaging refuted: r = -0.86 / -0.29 / +0.91 (its
+  predicted decline never happens). The classifier acts as an adaptive
+  poller: the profile SHAPE is predictable from the agreement curve alone.
+- L1 dip VERDICT: noise. Across 10 worlds, lift(k4)-lift(k3) = -0.001
+  (std .010, p=.70). Gone in the replicate mean; bands smooth.
+- Claim sharpened (post-Ash-challenge): not "plateau sits at reach" but
+  (a) plateau position moves monotonically with the reach dial, and
+  (b) the full profile shape is predicted by adaptive polling of the
+  measured agreement curve.
+
+Board figures now board-sized w/ readable fonts + true aspect (plot_board.py).

@@ -73,11 +73,14 @@ def first_zero_crossing(curve: pd.DataFrame) -> float:
 
 
 def main():
+    # Optional argv: explicit cell ids (e.g. replicate ids SYNTH_HR_L2_B1_S101).
+    # Results are merged into the output CSVs, replacing rows for the same id.
+    cells = sys.argv[1:] or CELLS
     outputs = SESSION_ROOT / "outputs"
     outputs.mkdir(exist_ok=True)
     rng = np.random.RandomState(SEED)
     summary, curves = [], []
-    for cell in CELLS:
+    for cell in cells:
         edges_df, nodes_df = load_single_graph_dataset(cell, label_column="field_class")
         g = ig.Graph(edges=list(zip(edges_df.src_node_id, edges_df.dest_node_id)), n=len(nodes_df))
         y = nodes_df["field_class"].to_numpy()
@@ -96,8 +99,13 @@ def main():
             }
         )
         print(summary[-1])
-    pd.DataFrame(summary).to_csv(outputs / "manipulation_checks.csv", index=False)
-    pd.concat(curves).to_csv(outputs / "distance_homophily_curves.csv", index=False)
+    summary_df, curves_df = pd.DataFrame(summary), pd.concat(curves)
+    for path, new in ((outputs / "manipulation_checks.csv", summary_df),
+                      (outputs / "distance_homophily_curves.csv", curves_df)):
+        if path.exists():
+            old = pd.read_csv(path)
+            new = pd.concat([old[~old.dataset.isin(new.dataset)], new], ignore_index=True)
+        new.to_csv(path, index=False)
     print("written:", outputs / "manipulation_checks.csv")
 
 

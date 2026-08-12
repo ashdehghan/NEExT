@@ -90,9 +90,12 @@ def dataset_overview_figure(df: pd.DataFrame, khop_methods: dict, walk_methods: 
         ax.axhline(float(node_vals.mean()), color=NODE_COLOR, linewidth=0.6, linestyle=(0, (4, 3)), zorder=0)
 
     khop_ticks = _pairs(ax, acc, khop_methods, 2.35)
-    gap_x = khop_ticks[-1] + 0.75
-    ax.axvline(gap_x, color=ps.GRID, linewidth=0.8, zorder=0)
-    walk_ticks = _pairs(ax, acc, walk_methods, gap_x + 0.75)
+    if walk_methods:
+        gap_x = khop_ticks[-1] + 0.75
+        ax.axvline(gap_x, color=ps.GRID, linewidth=0.8, zorder=0)
+        walk_ticks = _pairs(ax, acc, walk_methods, gap_x + 0.75)
+    else:
+        walk_ticks = []
 
     ax.set_xticks([0.0, 1.05] + khop_ticks + walk_ticks)
     ax.set_xticklabels(
@@ -102,8 +105,9 @@ def dataset_overview_figure(df: pd.DataFrame, khop_methods: dict, walk_methods: 
     ax.set_ylabel(metric_label)
     ax.text((khop_ticks[0] + khop_ticks[-1]) / 2, -0.24, "$k$-hop egonets",
             transform=ax.get_xaxis_transform(), ha="center", fontsize=8, color=ps.MUTED)
-    ax.text((walk_ticks[0] + walk_ticks[-1]) / 2, -0.24, "random-walk bags",
-            transform=ax.get_xaxis_transform(), ha="center", fontsize=8, color=ps.MUTED)
+    if walk_ticks:
+        ax.text((walk_ticks[0] + walk_ticks[-1]) / 2, -0.24, "random-walk bags",
+                transform=ax.get_xaxis_transform(), ha="center", fontsize=8, color=ps.MUTED)
 
     handles = [
         plt.Rectangle((0, 0), 1, 1, facecolor=ps.FAMILY_COLOR["floor"], alpha=0.35,
