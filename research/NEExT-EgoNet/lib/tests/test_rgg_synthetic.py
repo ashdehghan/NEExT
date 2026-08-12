@@ -8,7 +8,7 @@ from lib.nodeclass.synthetic import LABEL_COLUMN, rgg_homophily_graph
 
 
 def small(**kw):
-    defaults = dict(n=1200, mean_degree=8.0, wavelength=0.15, coupling=0.0, seed=7)
+    defaults = {"n": 1200, "mean_degree": 8.0, "wavelength": 0.15, "coupling": 0.0, "seed": 7}
     defaults.update(kw)
     return rgg_homophily_graph(**defaults)
 
