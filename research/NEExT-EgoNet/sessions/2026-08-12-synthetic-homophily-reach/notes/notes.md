@@ -98,3 +98,21 @@ RESULTS (code/analysis_replicates.py, figures/polling_prediction_replicated):
   measured agreement curve.
 
 Board figures now board-sized w/ readable fonts + true aspect (plot_board.py).
+
+## 2026-08-13 — full battery + manuscript section
+
+Full replicate battery (Ash-approved): 90 more jobs (B1 local, B0 both
+scopes x 10 seeds x 3 lambda), all green — every series in the grid now
+10-world. B0 replicate checks: eta2 <= .003 (dark), homophily/reach
+indistinguishable from B1 twins. Replicate-median plateau k*:
+global B1 3.5/4/6, local B1 4/5.5/6, global B0 4.5/4.5/6, local B0 3/5/6
+vs reach 2.9/5.9/8.6 — non-decreasing in all four series.
+
+Manuscript p_4a49e253: new Section "Synthetic Mechanism Validation"
+(sections/synthetic.tex, input after analysis) — series framing, generator
++ construction figure, manipulation-check table (replicate mean±std),
+setup w/ pre-registered predictions, results (dial response), ring-by-ring
+prediction figure, locality-leakage full treatment, established/limitations.
+Figures: synth_construction / synth_profiles (all series 10-world, lift
+units) / synth_prediction. Compiles 0 errors (15 pp). Multi-agent review
+workflow launched (3 lenses + adversarial verify); fixes to follow.
