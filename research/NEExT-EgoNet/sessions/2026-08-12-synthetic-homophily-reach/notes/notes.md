@@ -116,3 +116,24 @@ prediction figure, locality-leakage full treatment, established/limitations.
 Figures: synth_construction / synth_profiles (all series 10-world, lift
 units) / synth_prediction. Compiles 0 errors (15 pp). Multi-agent review
 workflow launched (3 lenses + adversarial verify); fixes to follow.
+
+## 2026-08-13 — beta-sweep results (P-B1..B4 verdicts)
+
+All 5x5 sweep worlds + nodefeat endpoints complete (chore done too:
+node_struct now exists for all 60 batch-1 replicate worlds).
+
+- P-B1 CONFIRMED, quantitatively: deg eta2 = .001/.014/.150/.379/.575 at
+  beta 0/.03/.10/.20/.40 (registered guess ~beta^2: .02/.15/.4 — dead on
+  through beta=.2; saturates at .4 under the radius clip). Homophily/reach
+  undisturbed through beta=.2; at beta=.4 h_adj dips to .499 and reach
+  measurement noisier (7.6+-2.4) — strong coupling perturbs the graph
+  itself; noted as a dial limit.
+- P-B2 CONFIRMED: node-baseline lift .098/.106/.212/.290/.365 (5 worlds
+  each). Note beta=0 node lift ~.10 = pure positional leakage baseline.
+- P-B3 CONFIRMED in direction, crossing NOT reached: bag advantage
+  .136/.137/.122/.075/.036 — monotone shrink from beta=.03, still positive
+  at beta=.4 (generator clip caps beta at .5, so full inversion to the
+  Airports sign was out of reach). The two curves cross (node lift
+  overtakes bag advantage) between beta=.03 and .10.
+- P-B4: to assess in the fuller analysis (profile flattening vs beta).
+Figure: figures/morphing_box (house style, boxes over 5 worlds).

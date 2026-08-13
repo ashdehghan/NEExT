@@ -24,7 +24,7 @@ from lib.nodeclass.synthetic import LABEL_COLUMN, rgg_homophily_graph  # noqa: E
 N = 6000
 MEAN_DEGREE = 8.0
 WAVELENGTHS = {"L1": 0.10, "L2": 0.20, "L3": 0.35}
-COUPLINGS = {"B0": 0.0, "B1": 0.03}
+COUPLINGS = {"B0": 0.0, "B1": 0.03, "B2": 0.10, "B3": 0.20, "B4": 0.40}
 SEED = 13
 
 

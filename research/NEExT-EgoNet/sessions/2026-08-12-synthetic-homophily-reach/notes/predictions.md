@@ -25,3 +25,21 @@ P4 (MONEY): the profile's plateau position k* tracks the measured homophily
   required). Refined expectation for P4: on L1 the profile may DIP after
   its early plateau (anti-correlated ring pollutes wide bags) — a sharper
   version of the polling prediction, noted here before running.
+
+## Phase 3 pre-registration: beta-sweep regime morphing (2026-08-13, BEFORE runs)
+
+Design: lambda fixed at 0.20 (L2); beta in {0, .03, .10, .20, .40}; seeds
+101-105 SHARED across beta (same points+field per seed -> paired across
+beta); khop both scopes + nodefeat + floor per world. Plus chore: nodefeat
+on all 60 batch-1 replicate worlds.
+
+- P-B1 (checks): marginal degree eta2 rises steeply with beta (~beta^2:
+  ~.02 / ~.15 / ~.4 at .03/.10/.20+, saturating under the radius clip);
+  homophily h_adj and measured reach UNDISTURBED across beta.
+- P-B2: node baseline rises with beta from just-above-floor toward a
+  strong ceiling (Airports-like readout of the node's own connectivity).
+- P-B3 (money): bag advantage = best bag minus node baseline is positive
+  in the faint regime and shrinks toward zero/negative as beta grows —
+  the Amazon regime morphs into the Airports regime along one dial.
+- P-B4: the global k-profile flattens earlier as beta grows (per-node
+  signal loud enough that breadth stops mattering sooner).

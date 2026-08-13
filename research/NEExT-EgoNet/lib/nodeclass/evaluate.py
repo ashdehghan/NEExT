@@ -48,8 +48,16 @@ def evaluate_node_representation(
     n_splits: int = DEFAULT_SPLITS,
     test_size: float = DEFAULT_TEST_SIZE,
     seed: int = 42,
+    splits=None,
 ) -> dict:
-    """Evaluate one node representation. Returns {metrics_rows, node_predictions, status}."""
+    """Evaluate one node representation. Returns {metrics_rows, node_predictions, status}.
+
+    splits: optional iterable of (name, idx_train, idx_test) overriding the
+    shared stratified splits (indices into node_table row order) — used by
+    the region-holdout leakage control. Splits whose train side misses a
+    class are skipped with status "skipped_missing_class" rather than
+    silently mis-encoded.
+    """
     X, y, node_ids, feature_cols = _merge_matrix(rep_df, node_table)
     classes = np.unique(y)
     n_classes = len(classes)
@@ -75,7 +83,11 @@ def evaluate_node_representation(
     y_enc = np.searchsorted(classes, y)
     rows, pred_frames = [], []
     t0 = time.time()
-    for i, idx_train, idx_test in shared_splits(y, n_splits=n_splits, test_size=test_size, seed=seed):
+    split_iter = splits if splits is not None else shared_splits(y, n_splits=n_splits, test_size=test_size, seed=seed)
+    for i, idx_train, idx_test in split_iter:
+        if splits is not None and len(np.unique(y[idx_train])) < n_classes:
+            rows.append({**base, "split": i, "status": "skipped_missing_class"})
+            continue
         model = XGBClassifier(
             n_estimators=200, max_depth=4, eval_metric=eval_metric, random_state=seed, n_jobs=-1
         )
@@ -167,6 +179,7 @@ def permutation_floor(
     n_splits: int = DEFAULT_SPLITS,
     test_size: float = DEFAULT_TEST_SIZE,
     seed: int = 42,
+    splits=None,
 ) -> dict:
     """Label-permutation floor: the full pipeline with the label association severed.
 
@@ -198,8 +211,9 @@ def permutation_floor(
     y_enc = np.searchsorted(classes, y)
     rows = []
     t0 = time.time()
-    for i, idx_train, idx_test in shared_splits(y, n_splits=n_splits, test_size=test_size, seed=seed):
-        y_train_perm = np.random.RandomState(seed + i).permutation(y_enc[idx_train])
+    split_iter = splits if splits is not None else shared_splits(y, n_splits=n_splits, test_size=test_size, seed=seed)
+    for perm_i, (i, idx_train, idx_test) in enumerate(split_iter):
+        y_train_perm = np.random.RandomState(seed + perm_i).permutation(y_enc[idx_train])
         model = XGBClassifier(
             n_estimators=200, max_depth=4, eval_metric=eval_metric, random_state=seed, n_jobs=-1
         )
