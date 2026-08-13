@@ -51,7 +51,13 @@ def predictions(curves, cells):
 
 
 def affine_fit(pred, target):
-    a, b = np.polyfit(pred, target, 1)
+    """Place a unit-less prediction on the target scale WITHOUT letting the
+    fit flip a wrong-shaped curve: scale is clamped non-negative, so an
+    anti-correlated prediction renders flat at the target mean (visibly
+    uninformative) instead of secretly mirrored onto the data."""
+    a = np.cov(pred, target)[0, 1] / np.var(pred)
+    a = max(0.0, a)
+    b = target.mean() - a * pred.mean()
     return a * pred + b
 
 
