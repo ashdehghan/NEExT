@@ -85,6 +85,9 @@ def evaluate_node_representation(
     t0 = time.time()
     split_iter = splits if splits is not None else shared_splits(y, n_splits=n_splits, test_size=test_size, seed=seed)
     for i, idx_train, idx_test in split_iter:
+        if splits is not None and len(idx_train) < 30:
+            rows.append({**base, "split": i, "status": "skipped_small_train"})
+            continue
         if splits is not None and len(np.unique(y[idx_train])) < n_classes:
             rows.append({**base, "split": i, "status": "skipped_missing_class"})
             continue
@@ -134,8 +137,8 @@ def evaluate_node_representation(
 
     return {
         "metrics_rows": rows,
-        "node_predictions": pd.concat(pred_frames, ignore_index=True),
-        "status": "ok",
+        "node_predictions": pd.concat(pred_frames, ignore_index=True) if pred_frames else pd.DataFrame(),
+        "status": "ok" if pred_frames else "all_splits_skipped",
     }
 
 
@@ -213,6 +216,9 @@ def permutation_floor(
     t0 = time.time()
     split_iter = splits if splits is not None else shared_splits(y, n_splits=n_splits, test_size=test_size, seed=seed)
     for perm_i, (i, idx_train, idx_test) in enumerate(split_iter):
+        if splits is not None and (len(idx_train) < 30 or len(np.unique(y[idx_train])) < n_classes):
+            rows.append({**base, "split": i, "status": "skipped_degenerate_train"})
+            continue
         y_train_perm = np.random.RandomState(seed + perm_i).permutation(y_enc[idx_train])
         model = XGBClassifier(
             n_estimators=200, max_depth=4, eval_metric=eval_metric, random_state=seed, n_jobs=-1

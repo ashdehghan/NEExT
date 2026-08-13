@@ -110,10 +110,20 @@ def main():
         if cfg["node_struct"]:
             methods.append(("node_struct", "fall-vl1"))
         for method, tag in methods:
-            path = rep_path(cfg["session"], dataset, method, tag)
-            if not path.exists():
-                raise FileNotFoundError(f"missing cached representation: {path}")
-            rep_df = pd.read_parquet(path)
+            if method == "node_struct":
+                # The nodefeat family never persisted a representation.parquet;
+                # its representation IS the cached full-graph feature table.
+                src = SESSIONS / cfg["session"] / "outputs" / f"{dataset}__source_features__fall-vl1.parquet"
+                if not src.exists():
+                    raise FileNotFoundError(f"missing cached source features: {src}")
+                feats = pd.read_parquet(src)
+                keep = [c for c in feats.columns if c != "graph_id"]
+                rep_df = feats[keep].merge(node_table[["node_id"]], on="node_id", how="inner")
+            else:
+                path = rep_path(cfg["session"], dataset, method, tag)
+                if not path.exists():
+                    raise FileNotFoundError(f"missing cached representation: {path}")
+                rep_df = pd.read_parquet(path)
             for B in BUFFERS:
                 splits, stats_rows = [], []
                 for name, idx_train, idx_test, stats in region_holdout_splits(
@@ -139,6 +149,8 @@ def main():
                 print(f"[{time.time() - t0:6.1f}s] {dataset} {method} {tag} B={B}: "
                       f"f1={mean_f1:.3f} over {len(ok)}/{N_REPEATS} splits "
                       f"(train~{stats_df.n_train.mean():.0f})")
+            # incremental checkpoint: a late failure must not discard finished work
+            pd.DataFrame(all_rows).to_csv(out_dir / f"separation_{args.target}.csv", index=False)
     result = pd.DataFrame(all_rows)
     out_path = out_dir / f"separation_{args.target}.csv"
     result.to_csv(out_path, index=False)

@@ -24,3 +24,32 @@ GATE PASSES, more strongly than registered:
 
 Next: amazon + chameleon separation evals queued AFTER the beta sweep
 (avoid CPU contention that inflated this run 3x).
+
+## 2026-08-13 — real-data separation results (P-A3 verdicts)
+
+AMAZON (train pool at B=0 is 2,100 = exactly the shared-splits training
+size, so no small-sample confound at the headline comparison):
+- Global k4 lift: +.026 at B0 (was +.103 shared) — ~75% of the lift was
+  transductive locality leakage. node_struct: ~+.01 (was +.088) — ~85-90%
+  leakage. Local k4: +.020 (was ~.093).
+- The residual ~+.02 structural share (global k3/k4) is stable across
+  buffers out to B=10 — consistent with a real but small structural
+  signal, and strikingly close to the synthetic B1-B0 gap at the plateau.
+- Reading: Amazon's LEVEL was mostly position-matching; the SHAPE story
+  (plateau at reach) was validated causally on synthetics and still stands.
+
+CHAMELEON (dense small-world graph — separation barely exists: train pool
+700/298/104/7 at B=0/1/2/4; results beyond B=1 are near-degenerate, 574 of
+980 split-rows skipped by the guards):
+- At B=0: global k2 +.203 (was +.445), node_struct +.188 (was +.442) —
+  regionalization alone halves BOTH. The interaction-code signal is partly
+  region-specific (or regional class skew); bag-over-node margin at B0
+  (+.015) is within noise — the shared-splits +.023 (p=.002) is neither
+  preserved nor refuted at 10 repeats.
+- Dense-graph limit recorded honestly: the control cannot fully separate
+  a graph whose diameter is ~bag scale.
+
+Fix log (one root cause each, no blind retries): node_struct parquet never
+persisted -> rebuilt rep from cached source features; degenerate tiny
+train sets crashed XGB -> skip guards in evaluate + floor; all-skipped
+block crashed concat -> empty guard; one path slip on relaunch.
