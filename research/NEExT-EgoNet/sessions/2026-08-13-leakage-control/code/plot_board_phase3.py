@@ -104,26 +104,28 @@ def morphing_box():
         print("morphing_box: no worlds with node_struct yet")
         return
     betas = sorted(part.beta.unique())
-    xpos = {b: i for i, b in enumerate(betas)}
-    series = [("node", ps.FAMILY_COLOR["egonet_walk"], "node-baseline lift over floor", -0.15),
-              ("bag_adv", ps.FAMILY_COLOR["structural"], "bag advantage (best bag $-$ node)", +0.15)]
+    # beta is numeric: both series sit vertically aligned AT the true beta
+    # values (side-by-side offsets are a categorical-axis idiom).
+    series = [("node", ps.FAMILY_COLOR["egonet_walk"], "node-baseline lift over floor"),
+              ("bag_adv", ps.FAMILY_COLOR["structural"], "bag advantage (best bag $-$ node)")]
     fig, ax = plt.subplots(figsize=(6.6, 3.6))
-    for col, color, label, off in series:
+    for col, color, label in series:
         meds = []
         for b in betas:
             vals = part[part.beta == b][col].to_numpy()
-            _box(ax, vals, xpos[b] + off, color, width=0.22)
+            _box(ax, vals, b, color, width=0.014)
             meds.append(float(np.median(vals)))
-        ax.plot([xpos[b] + off for b in betas], meds, color=color, lw=1.3, zorder=2, label=label)
+        ax.plot(betas, meds, color=color, lw=1.3, zorder=2, label=label)
     ax.axhline(0, color=ps.MUTED, lw=0.9)
-    ax.set_xticks(list(xpos.values()))
+    ax.set_xticks(betas)
     ax.set_xticklabels([f"{b:g}" for b in betas])
+    ax.set_xlim(-0.025, 0.425)
     ax.set_xlabel("coupling $\\beta$ (whisper volume)")
     ax.set_ylabel("macro-F1")
     counts = part.groupby("beta").size()
     ax.set_title("worlds per $\\beta$: " + ", ".join(f"{b:g}:{counts[b]}" for b in betas), fontsize=9, color=ps.MUTED)
     handles = [plt.Rectangle((0, 0), 1, 1, facecolor=c, alpha=0.4, edgecolor=c, label=lbl)
-               for _, c, lbl, _ in series]
+               for _, c, lbl in series]
     fig.legend(handles=handles, loc="upper center", bbox_to_anchor=(0.5, 1.0), ncol=2, frameon=False)
     fig.tight_layout(rect=(0, 0, 1, 0.86))
     w, h = fig.get_size_inches()
