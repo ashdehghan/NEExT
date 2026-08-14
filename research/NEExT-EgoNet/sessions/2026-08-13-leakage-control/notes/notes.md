@@ -53,3 +53,16 @@ Fix log (one root cause each, no blind retries): node_struct parquet never
 persisted -> rebuilt rep from cached source features; degenerate tiny
 train sets crashed XGB -> skip guards in evaluate + floor; all-skipped
 block crashed concat -> empty guard; one path slip on relaunch.
+
+## 2026-08-14 — Roman separation results (P-A5 verdict)
+
+P-A5 CONFIRMED, cleanly: local k1 lift +.090-.094 under separation vs
++.098 shared (~95% survives), local k2 +.103-.109 vs +.106 (~100%),
+global k1 +.060-.073 vs +.076, node_struct +.075-.081 vs +.085 — ALL
+essentially flat across B=0..10. Sparse graph separates for free (train
+pool 2100 -> 2084 at B=10; 0 skipped splits). The relational-fragment
+code is position-free, exactly as the mechanism account predicts: the
+same grammatical configurations recur in every region, so a classifier
+trained on one region reads fragments in another without loss.
+Three-way contrast complete: Roman survives ~fully / Amazon collapses to
+~+.02 / Chameleon halves at B=0 and cannot separate further.

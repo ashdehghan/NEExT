@@ -23,3 +23,16 @@ representations are the CACHED artifacts from the source sessions.
 - P-A4 (accounting): larger B shrinks the train pool; results reported
   with retained-center counts; skipped splits (missing train class)
   reported, never silently dropped.
+
+## P-A5 pre-registration: Roman Empire separation (2026-08-14, BEFORE the run)
+
+The local-fragment mechanism (analysis: a word's role is written in the
+SHAPE of its 4-7 word fragment, not in where the fragment sits) predicts:
+- Roman's LOCAL k1-2 lift largely SURVIVES separation — fragment shape is
+  a repeating grammatical pattern, not a positional signature; the same
+  configurations recur in every region of the word graph.
+- The GLOBAL scope stays collapsed/near-floor as under shared splits.
+- Sparse graph (deg 2.9, 22.6k nodes) -> regional separation is feasible
+  (unlike Chameleon); expect usable train pools out to B >= 4; 18
+  imbalanced classes may cost some skipped splits at large B (guards
+  count them).

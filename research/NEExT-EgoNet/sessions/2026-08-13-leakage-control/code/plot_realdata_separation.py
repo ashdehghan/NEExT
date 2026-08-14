@@ -30,6 +30,16 @@ SERIES = {
             ("node_struct", "fall-vl1", ps.FAMILY_COLOR["egonet_walk"], "node features", 0.088),
         ],
     },
+    "roman": {
+        "csv": "separation_roman.csv",
+        "title": "Roman Empire",
+        "buffers": [0, 1, 2, 4, 6, 8, 10],
+        "series": [
+            ("egonet_k1_wass", "fall-vl1", ps.FAMILY_COLOR["egonet_hop"], "local $k$=1", 0.098),
+            ("egonet_k2_wass", "fall-vl1", ps.FAMILY_COLOR["egonet_hop"], "local $k$=2", 0.106),
+            ("node_struct", "fall-vl1", ps.FAMILY_COLOR["egonet_walk"], "node features", 0.085),
+        ],
+    },
     "chameleon": {
         "csv": "separation_chameleon.csv",
         "title": "Wikipedia -- Chameleon",
@@ -58,7 +68,7 @@ def main():
     ps.use_style()
     plt.rcParams.update({"font.size": 11, "axes.labelsize": 11, "xtick.labelsize": 10,
                          "ytick.labelsize": 10, "legend.fontsize": 9})
-    fig, axes = plt.subplots(1, 2, figsize=(11, 3.7))
+    fig, axes = plt.subplots(1, 3, figsize=(11, 3.4))
     for ax, (key, cfg) in zip(axes, SERIES.items()):
         df = pd.read_csv(SESSION_ROOT / "outputs" / cfg["csv"])
         ok = df[df.status == "ok"]

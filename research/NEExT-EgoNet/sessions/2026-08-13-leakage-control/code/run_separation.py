@@ -64,6 +64,14 @@ TARGETS = {
         "reps": [(f"egonet_k{k}_wass", tag) for k in range(1, 4) for tag in ("fall-vl1", "fall-vl1-glob")],
         "node_struct": True,
     },
+    "roman": {
+        "session": "2026-08-06-egonet-signal-roman-empire",
+        "datasets": ["ROMAN_EMPIRE"],
+        "label_column": "syntactic_role",
+        "n_centers": 3000,
+        "reps": [(f"egonet_k{k}_wass", tag) for k in range(1, 5) for tag in ("fall-vl1", "fall-vl1-glob")],
+        "node_struct": True,
+    },
 }
 
 
