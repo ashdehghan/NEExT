@@ -57,3 +57,15 @@
   (dark grey) next to Random. Scratchpad updated (Ash ok); manuscript NOT
   touched. Open question sharpened: where does the neighborhood add signal
   beyond the node itself?
+
+## 2026-08-20 — k=4,5 extension (dedupe battery)
+
+- Ash-approved battery: --k-hops 4,5 both scopes, via lib/nodeclass/dedupe
+  (feature-stage exact dedupe; embedding NOT deduped — joint SVD needs the
+  full bag multiset). Old cells/floors untouched (appended aggregate).
+- Bags saturate to the entire graph (median 399 at both k) — 100% coverage.
+- NEW OBSERVABLE, the saturation end-state: both scopes COLLAPSE BELOW the
+  permutation floor — local .178/.121, global .186/.123 at k4/k5 vs floor
+  .245. Identical bags -> near-constant predictions, macro-F1 punishes.
+- Manuscript: table exp1 rows k4/k5, findings (ii) rewritten; overview fig
+  + deck exp1s now k=1..5; slide-3 bullet carries the below-floor datum.

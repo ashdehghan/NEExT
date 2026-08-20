@@ -54,3 +54,11 @@
   this graph; local >= global in every pair (consistent with the reversal);
   tight walks still beat node_struct (.217), wide walks fall below it.
   Board: khop + walk figures stacked (Ash-directed).
+
+## 2026-08-20 — k=5 extension (dedupe battery)
+
+- --k-hops 5, both scopes. Median bag 25 (~0.1% coverage) — still no
+  saturation regime; pure dilution continues: local .066 (from .158 peak),
+  global .058, both flattening near the floor's vicinity (.052) from k=4.
+- Manuscript: table exp2 k5 row, findings (ii) extended; overview fig +
+  deck exp2s now k=1..5.

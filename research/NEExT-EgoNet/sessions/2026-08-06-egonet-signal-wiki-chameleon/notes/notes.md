@@ -30,3 +30,16 @@
   figure floats -> 3 (one per dataset), Chameleon subsection added (table
   + overview figure + 4 findings incl. global k2 > node baseline; triptych
   framing closes the section). Compiles clean, pdf_rev 7.
+
+## 2026-08-20 — k=4,5 extension (dedupe + batched extraction)
+
+- --k-hops 4,5 both scopes. Local k4/5 was the OOM case (~1000 x ~2000-node
+  bags on the 5GB box): khop_features_batched (batch 150, cross-batch
+  member-set cache) ran it in 228s flat-memory. Runner khop path rewired to
+  the batched extractor; embedding takes a one-center stub collection (the
+  collection arg is only read for walk node_weights).
+- Coverage 86%/97% at k4/k5 (median bags 1962/2211): saturation penalty
+  DEEPENS monotonically — local .553/.484, global .547/.476. Local's brief
+  k4 plateau (.546->.553) resolves into decline at k5.
+- Manuscript: table exp3 rows k4/k5, setup + findings (i)/(iii) updated;
+  overview fig + deck exp3s now k=1..5; slide-4 bullet updated.
