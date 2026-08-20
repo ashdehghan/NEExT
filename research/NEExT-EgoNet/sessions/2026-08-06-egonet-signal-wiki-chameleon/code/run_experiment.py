@@ -47,6 +47,7 @@ from lib.nodeclass import (  # noqa: E402
     sample_centers,
     summarize_node_metrics,
 )
+from lib.nodeclass.dedupe import khop_features_batched  # noqa: E402
 from NEExT import NEExT  # noqa: E402
 
 import config as C  # noqa: E402
@@ -59,11 +60,14 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--scope", choices=["local", "global"], default="local", help="feature_scope for compute_node_features")
     parser.add_argument("--family", choices=["khop", "walk", "nodefeat"], default="khop", help="bag construction family (nodefeat = no bags: the node's own full-graph features straight to the classifier)")
+    parser.add_argument("--k-hops", default=None, help="comma-separated k override (e.g. '4,5') — runs ONLY these khop cells, appending to results.csv")
     args = parser.parse_args()
 
     cfg = dict(C.CONFIG)
     cfg["feature_scope"] = args.scope
     cfg["family"] = args.family
+    if args.k_hops:
+        cfg["k_hops"] = [int(k) for k in args.k_hops.split(",")]
     if args.scope == "global":
         cfg["feature_tag"] = f"{cfg['feature_tag']}-glob"
     t0 = time.time()
@@ -150,35 +154,61 @@ def main():
             print(f"[{time.time() - t0:6.1f}s] k={k} reach: median {reach['median']:.0f} nodes "
                   f"({reach['median_frac_of_graph']:.0%} of graph), p90 {reach['p90']:.0f}, max {reach['max']:.0f}")
 
-        bags = build_node_bags(
-            nxt, collection, centers, cfg["label_column"], method=bag_method,
-            seed=cfg["egonet_seed"], **bag_params,
-        )
-        if source_features is not None:
-            features = bags.egonets.project_source_features(source_features)
-        else:
-            features = nxt.compute_node_features(
-                bags.egonets,
-                feature_list=list(cfg["feature_list"]),
-                feature_vector_length=cfg["feature_vector_length"],
-                show_progress=False,
-                n_jobs=-1,
-                feature_scope="local",
+        if bag_method == "k_hop":
+            # Memory-bounded path: saturated-k bag sets OOM the 5GB box when
+            # materialized whole (1,000 x ~2,000-node subgraphs). Batched
+            # extraction + cross-batch member-set dedupe, exact by test.
+            features, bag_table = khop_features_batched(
+                nxt, collection, centers, cfg["label_column"],
+                k_hop=bag_params["k_hop"], seed=cfg["egonet_seed"],
+                feature_kwargs=dict(
+                    feature_list=list(cfg["feature_list"]),
+                    feature_vector_length=cfg["feature_vector_length"],
+                    show_progress=False,
+                    n_jobs=-1,
+                    feature_scope="local",
+                ),
+                source_features=source_features,
             )
-        rep_df = wasserstein_embedding(nxt, bags.egonets, features, dimension=cfg["wasserstein_dim"], seed=cfg["embed_seed"])
-        rep_node = egonet_rep_to_node_frame(rep_df, bags.table)
+            # The embedding consumes only features_df; the collection arg is
+            # read solely for walk-bag node_weights (absent on k-hop bags),
+            # so a one-center stub keeps memory flat.
+            stub = build_node_bags(nxt, collection, centers[:1], cfg["label_column"], method="k_hop", k_hop=1, seed=cfg["egonet_seed"])
+            rep_df = wasserstein_embedding(nxt, stub.egonets, features, dimension=cfg["wasserstein_dim"], seed=cfg["embed_seed"])
+            rep_node = egonet_rep_to_node_frame(rep_df, bag_table)
+            bags_table = bag_table
+        else:
+            bags = build_node_bags(
+                nxt, collection, centers, cfg["label_column"], method=bag_method,
+                seed=cfg["egonet_seed"], **bag_params,
+            )
+            if source_features is not None:
+                features = bags.egonets.project_source_features(source_features)
+            else:
+                features = nxt.compute_node_features(
+                    bags.egonets,
+                    feature_list=list(cfg["feature_list"]),
+                    feature_vector_length=cfg["feature_vector_length"],
+                    show_progress=False,
+                    n_jobs=-1,
+                    feature_scope="local",
+                )
+            rep_df = wasserstein_embedding(nxt, bags.egonets, features, dimension=cfg["wasserstein_dim"], seed=cfg["embed_seed"])
+            rep_node = egonet_rep_to_node_frame(rep_df, bags.table)
+            bags_table = bags.table
         results[method] = evaluate_node_representation(method, rep_node, node_table, **eval_kwargs)
-        bag_tables[method], reps[method] = bags.table, rep_node
-        print(f"[{time.time() - t0:6.1f}s] {method}: {len(bags.egonets.graphs)} bags "
-              f"(median size {bags.table['n_nodes'].median():.0f}) evaluated")
+        bag_tables[method], reps[method] = bags_table, rep_node
+        print(f"[{time.time() - t0:6.1f}s] {method}: {len(bags_table)} bags "
+              f"(median size {bags_table['n_nodes'].median():.0f}) evaluated")
 
     # Floors ride with the khop family only: permuted on the k=2 representation
     # (any would do — it exists to show the pipeline scores at chance without
     # true labels); the walk family reuses those floor rows at plot time.
     # Majority is recorded for the ledger but stays off the figure.
     if cfg["family"] == "khop":
-        results["permuted"] = permutation_floor("permuted", reps["egonet_k2_wass"], node_table, **eval_kwargs)
-        results["majority"] = majority_floor(node_table, **eval_kwargs)
+        if "egonet_k2_wass" in reps:
+            results["permuted"] = permutation_floor("permuted", reps["egonet_k2_wass"], node_table, **eval_kwargs)
+            results["majority"] = majority_floor(node_table, **eval_kwargs)
 
     run_config = {
         **cfg,

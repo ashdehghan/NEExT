@@ -47,6 +47,7 @@ from lib.nodeclass import (  # noqa: E402
     sample_centers,
     summarize_node_metrics,
 )
+from lib.nodeclass.dedupe import dedupe_node_features  # noqa: E402
 from NEExT import NEExT  # noqa: E402
 
 import config as C  # noqa: E402
@@ -59,11 +60,14 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--scope", choices=["local", "global"], default="local", help="feature_scope for compute_node_features")
     parser.add_argument("--family", choices=["khop", "walk", "nodefeat"], default="khop", help="bag construction family (nodefeat = no bags: the node's own full-graph features straight to the classifier)")
+    parser.add_argument("--k-hops", default=None, help="comma-separated k override (e.g. '4,5') — runs ONLY these khop cells, appending to results.csv")
     args = parser.parse_args()
 
     cfg = dict(C.CONFIG)
     cfg["feature_scope"] = args.scope
     cfg["family"] = args.family
+    if args.k_hops:
+        cfg["k_hops"] = [int(k) for k in args.k_hops.split(",")]
     if args.scope == "global":
         cfg["feature_tag"] = f"{cfg['feature_tag']}-glob"
     t0 = time.time()
@@ -157,8 +161,10 @@ def main():
         if source_features is not None:
             features = bags.egonets.project_source_features(source_features)
         else:
-            features = nxt.compute_node_features(
-                bags.egonets,
+            feature_fn = dedupe_node_features if bag_method == "k_hop" else nxt.compute_node_features
+            feature_args = (nxt, bags.egonets) if bag_method == "k_hop" else (bags.egonets,)
+            features = feature_fn(
+                *feature_args,
                 feature_list=list(cfg["feature_list"]),
                 feature_vector_length=cfg["feature_vector_length"],
                 show_progress=False,
@@ -177,8 +183,9 @@ def main():
     # true labels); the walk family reuses those floor rows at plot time.
     # Majority is recorded for the ledger but stays off the figure.
     if cfg["family"] == "khop":
-        results["permuted"] = permutation_floor("permuted", reps["egonet_k2_wass"], node_table, **eval_kwargs)
-        results["majority"] = majority_floor(node_table, **eval_kwargs)
+        if "egonet_k2_wass" in reps:
+            results["permuted"] = permutation_floor("permuted", reps["egonet_k2_wass"], node_table, **eval_kwargs)
+            results["majority"] = majority_floor(node_table, **eval_kwargs)
 
     run_config = {
         **cfg,
