@@ -66,3 +66,21 @@ same grammatical configurations recur in every region, so a classifier
 trained on one region reads fragments in another without loss.
 Three-way contrast complete: Roman survives ~fully / Amazon collapses to
 ~+.02 / Chameleon halves at B=0 and cannot separate further.
+
+## 2026-08-20 (2) — Framework section written (manuscript p_4a49e253)
+
+- New sections/framework.tex between Background and Experiments: NEExT core
+  recap (cite dehghan2024neext WAW + arXiv 2025), egonet component as THE
+  contribution (bag-per-node reduction, label promotion + exclusion, k=0
+  singleton), census vs survey bags (restart prob now α, visit floor τ),
+  feature scopes, assembled-pipeline figure (plot_framework_pipeline.py,
+  tracked + committed). refs.bib seeded (5 entries); T1 fontenc + lmodern
+  added to preamble (ogonek in Zając broke OT1).
+- 3-agent review applied: leakage-impossible claim scoped to label VALUES
+  (narrow-guarantee sentence, forward refs to locality leakage); approx
+  Wasserstein stated honestly (first-moment collapse, "poor but efficient");
+  interpretability scoped (linear mixtures of feature means); LSME gloss
+  corrected (degree profile, = degree at L=1); basic-expansion exception;
+  E→Z embedding matrix (E = edge set); S(k)→A(k) in synth prediction
+  caption; walk r→α + per-variant τ in experiments (wide uses τ=2!).
+- Exp-1 Setup trimmed to reference sec:framework. Compile rev 22, 0/0.
