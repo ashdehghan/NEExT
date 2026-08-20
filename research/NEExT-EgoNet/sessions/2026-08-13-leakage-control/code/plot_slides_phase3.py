@@ -250,6 +250,46 @@ def realdatas():
     save(fig, "realdatas")
 
 
+def predicts():
+    """Slide variant of the ring-by-ring prediction figure (replicated)."""
+    from scipy import stats  # noqa: F401  (parity with analysis module)
+    curves = pd.read_csv(SYNTH_SESSION / "outputs" / "distance_homophily_curves.csv")
+    df = pd.read_csv(SYNTH_SESSION / "results.csv")
+    df = df[df.status == "ok"]
+    N_SOURCES = 800
+    fig, axes = plt.subplots(1, 3, figsize=(9.6, 2.7))
+    for ax, (L, title) in zip(axes, WORLD_TITLES.items()):
+        n_stack, e_stack = [], []
+        for sd in SEEDS:
+            cv = curves[curves.dataset == f"SYNTH_HR_{L}_B1_S{sd}"].sort_values("d")
+            n_stack.append((cv.n_pairs / N_SOURCES).to_numpy()[:10])
+            e_stack.append(cv.excess.to_numpy()[:10])
+        n_d, e_d = np.mean(n_stack, axis=0), np.mean(e_stack, axis=0)
+        naive = np.array([np.sum(n_d[:k] * e_d[:k]) / np.sqrt(np.sum(n_d[:k])) for k in KS])
+        adapt = np.array([np.sqrt(np.sum(n_d[:k] * e_d[:k] ** 2)) for k in KS])
+        lifts = _lift_profiles(df, L, "B1", "global")
+        mean, std = lifts.mean(axis=0), lifts.std(axis=0)
+
+        def place(pred):
+            a = np.cov(pred, mean)[0, 1] / np.var(pred)
+            a = max(0.0, a)
+            return a * pred + (mean.mean() - a * pred.mean())
+
+        r_n = float(np.corrcoef(naive, mean)[0, 1])
+        r_a = float(np.corrcoef(adapt, mean)[0, 1])
+        ax.fill_between(KS, mean - std, mean + std, color=SCOPE_COLOR["global"], alpha=0.18, linewidth=0)
+        ax.plot(KS, mean, color=SCOPE_COLOR["global"], lw=1.8, marker="o", ms=4)
+        ax.plot(KS, place(adapt), color=ps.INK, lw=1.4, linestyle=(0, (5, 2)), marker="s", ms=4, fillstyle="none")
+        ax.plot(KS, place(naive), color=ps.MUTED, lw=1.2, linestyle=(0, (2, 2)), marker="^", ms=4, fillstyle="none")
+        ax.axhline(0, color=ps.MUTED, lw=0.8)
+        ax.set_title(f"{title}\n$r$: adaptive {r_a:.2f}, naive {r_n:.2f}", fontsize=11)
+        ax.set_xlabel("$k$ (hops)", fontsize=12)
+        ax.set_xticks(range(1, 7))
+    axes[0].set_ylabel("lift over floor", fontsize=12)
+    fig.tight_layout()
+    save(fig, "predicts")
+
+
 def main():
     ps.use_style()
     plt.rcParams.update({"font.size": 12, "axes.labelsize": 12, "xtick.labelsize": 11,
@@ -260,6 +300,7 @@ def main():
     morphs()
     anchors()
     realdatas()
+    predicts()
 
 
 if __name__ == "__main__":
