@@ -35,7 +35,15 @@ def accf(mean, std, acc):
     return f"\\accf{{{mean:.3f}}}{{{std:.3f}}}{{{acc:.3f}}}"
 
 
-def shared_table(tag="d16-s42"):
+def acc_only(mean, std, acc=None):
+    """Compact cell (macro-F1 mean +- std, no accuracy): the 6-column table
+    overflows the text width with \\accf cells (71 pt at footnotesize)."""
+    if not np.isfinite(mean):
+        return "---"
+    return f"\\acc{{{mean:.3f}}}{{{std:.3f}}}"
+
+
+def shared_table(tag="d16-s42", cell=accf):
     st = pd.read_csv(OUT / "stats_shared_splits.csv")
     comb = pd.read_csv(OUT / "combined_results.csv")
     st = st[st.feature_tag == tag]
@@ -51,7 +59,7 @@ def shared_table(tag="d16-s42"):
         for k in datasets:
             t = tag_of(k)
             d = comb[(comb.dataset_key == k) & (comb.method == method) & (comb.feature_tag == t)]
-            cells.append(accf(d.f1_macro.mean(), d.f1_macro.std(ddof=1), d.accuracy.mean()) if len(d) else "---")
+            cells.append(cell(d.f1_macro.mean(), d.f1_macro.std(ddof=1), d.accuracy.mean()) if len(d) else "---")
         return f"  \\multirow{{3}}{{*}}{{References}} & {label} & " + " & ".join(cells) + " \\\\" if label.startswith("Random") else f"   & {label} & " + " & ".join(cells) + " \\\\"
 
     lines.append(ref_row("Random floor (permuted)", "permuted", lambda k: "fall-vl1"))
@@ -63,7 +71,7 @@ def shared_table(tag="d16-s42"):
     for k in datasets:
         bm, bt = C.DATASETS[k]["expected_best_bag"]
         d = comb[(comb.dataset_key == k) & (comb.method == bm) & (comb.feature_tag == bt)]
-        cells.append(accf(d.f1_macro.mean(), d.f1_macro.std(ddof=1), d.accuracy.mean()))
+        cells.append(cell(d.f1_macro.mean(), d.f1_macro.std(ddof=1), d.accuracy.mean()))
     lines.append("   & Best egonet bag$^{a}$ & " + " & ".join(cells) + " \\\\")
     lines.append("  \\hline")
     for fam in ("proximity", "structural"):
@@ -79,7 +87,7 @@ def shared_table(tag="d16-s42"):
                 mark = ""
                 if np.isfinite(r.p_bestbag) and r.p_bestbag < 0.05:
                     mark = "$^{\\dagger}$" if r.diff_bestbag > 0 else "$^{\\ddagger}$"
-                cells.append(accf(r.f1_mean, r.f1_std, r.acc_mean) + mark)
+                cells.append(cell(r.f1_mean, r.f1_std, r.acc_mean) + mark)
             head = f"  \\multirow{{{len(methods)}}}{{*}}{{{FAMILY_LABEL[fam]}}}" if i == 0 else "   "
             lines.append(f"{head} & {METHOD_LABEL.get(m, m)} & " + " & ".join(cells) + " \\\\")
             if i < len(methods) - 1:
@@ -123,7 +131,8 @@ def holdout_table():
 def main():
     (OUT / "tables").mkdir(exist_ok=True)
     (OUT / "tables" / "baselines_shared.tex").write_text(shared_table())
-    print((OUT / "tables" / "baselines_shared.tex").read_text())
+    (OUT / "tables" / "baselines_shared_compact.tex").write_text(shared_table(cell=acc_only))
+    print((OUT / "tables" / "baselines_shared_compact.tex").read_text())
     t = holdout_table()
     if t:
         (OUT / "tables" / "baselines_holdout.tex").write_text(t)

@@ -43,3 +43,10 @@
   paragraph in Analysis; holdout half → structural_share ("The same instrument applied to the
   node embeddings", tab:baselines-holdout + fig:baselines-separation). rev 25 compiles 0/0.
   Review pass (style/em-dash + numbers/structure) launched.
+- Review pass applied (style: 0 em dashes in new text; majors fixed: Air Traffic assortativity
+  exception stated, Roman struc2vec/Role2Vec not "role readers", "competitive" → precise,
+  Chameleon retention "a third to three fifths", holdout closing softened, Synthesis sentence;
+  numbers: robustness has two Air Traffic exceptions 0.072/0.038). Layout: tab:baselines-shared
+  overflowed 71 pt → cells now \acc (no accuracy; kept in artifacts, `make_tables.py` emits
+  `baselines_shared_compact.tex`), tabcolsep 3pt; Chameleon subsection title shortened (6 pt).
+  rev 27: 0 errors / 0 warnings / 0 overfull / 0 underfull, 30 pages.
