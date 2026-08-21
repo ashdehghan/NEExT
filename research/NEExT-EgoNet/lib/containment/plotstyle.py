@@ -63,6 +63,10 @@ FAMILY_COLOR = {
     "kc_baseline": "#52514e",
     "structural": "#eb6834",
     "floor": "#898781",
+    # external node-embedding baselines (2026-08-21 session): two new slots,
+    # distinct from the scope blue/orange and the node-features green
+    "emb_proximity": "#7a7a7a",
+    "emb_structural": "#8e5bd6",
 }
 FAMILY_LABEL = {
     "egonet_hop": "Egonet (hop)",
@@ -70,6 +74,8 @@ FAMILY_LABEL = {
     "kc_baseline": "Node embedding (karateclub)",
     "structural": "Structural features (full graph)",
     "floor": "Floors",
+    "emb_proximity": "Proximity embedding",
+    "emb_structural": "Structural embedding",
 }
 
 RC = {

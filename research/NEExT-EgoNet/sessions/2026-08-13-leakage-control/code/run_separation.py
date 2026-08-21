@@ -12,6 +12,10 @@ Targets (--target):
             (the calibration anchors; P-A1 gate)
   amazon  : AMAZON_RATINGS, khop k1..5 both scopes + node_struct
   chameleon: WIKIPEDIA_ARTICLES_CHAMELEON, khop k1..3 both scopes + node_struct
+  roman   : ROMAN_EMPIRE, khop k1..4 both scopes + node_struct
+  *_emb   : the external node-embedding baselines of session
+            2026-08-21-embedding-baselines on the same centers (amazon_emb,
+            roman_emb, chameleon_emb, synth_emb)
 
 Run from the repo root.
 """
@@ -72,6 +76,25 @@ TARGETS = {
         "reps": [(f"egonet_k{k}_wass", tag) for k in range(1, 5) for tag in ("fall-vl1", "fall-vl1-glob")],
         "node_struct": True,
     },
+}
+
+# External node-embedding baselines (session 2026-08-21-embedding-baselines):
+# same centers / node tables, representation.parquet per method, tag d16-s42.
+EMB_SESSION = "2026-08-21-embedding-baselines"
+EMB_METHODS = ["deepwalk", "node2vec_bfs", "node2vec_dfs", "struc2vec", "role2vec", "graphwave"]
+EMB_TAG = "d16-s42"
+for _key, _base in (("amazon_emb", "amazon"), ("roman_emb", "roman"), ("chameleon_emb", "chameleon")):
+    TARGETS[_key] = {
+        **TARGETS[_base],
+        "session": EMB_SESSION,
+        "reps": [(m, EMB_TAG) for m in EMB_METHODS],
+        "node_struct": False,
+    }
+TARGETS["synth_emb"] = {
+    **TARGETS["synth"],
+    "session": EMB_SESSION,
+    "reps": [(m, EMB_TAG) for m in EMB_METHODS],
+    "node_struct": False,
 }
 
 
