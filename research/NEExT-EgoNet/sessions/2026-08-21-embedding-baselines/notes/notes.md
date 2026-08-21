@@ -50,3 +50,9 @@
   overflowed 71 pt → cells now \acc (no accuracy; kept in artifacts, `make_tables.py` emits
   `baselines_shared_compact.tex`), tabcolsep 3pt; Chameleon subsection title shortened (6 pt).
   rev 27: 0 errors / 0 warnings / 0 overfull / 0 underfull, 30 pages.
+- Float pile-up fix (Ash): main.tex now loads `placeins` with [section] barriers and permissive
+  float parameters (topfraction .9, bottomfraction .8, textfraction .07, floatpagefraction .8,
+  topnumber 3, bottomnumber 2, totalnumber 5); every figure/table is `[!htbp]`; `\FloatBarrier`
+  before each Experiments subsection. rev 28: 0/0, 0 overfull, 29 pages; aux check shows every
+  float within its section's page range (exp tables/figs p6–11, baselines p12–13, analysis
+  p14/16, synthetic p18–22, structural share p24–28).
