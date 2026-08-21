@@ -18,7 +18,7 @@ what was fit. Families:
 Word2Vec objective per method follows its reference implementation: DeepWalk
 hierarchical softmax; node2vec negative sampling (5); struc2vec hs=1 with the
 gensim-era default negative=5 left on (as the reference code did); Role2Vec
-negative sampling.
+likewise hs=1 with negative=5 (the `train_skipgram` defaults).
 """
 
 import os

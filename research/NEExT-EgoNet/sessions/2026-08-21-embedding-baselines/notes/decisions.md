@@ -21,7 +21,7 @@
   (100 = 2 × 25 t-points × 2 scales); sensitivity dim = 128 on airports + chameleon.
 - seed 42 primary; 43/44 on airports + chameleon (seed sensitivity).
 - Word2Vec objective per method = its reference: DeepWalk hs; node2vec neg-5; struc2vec hs=1
-  (+ gensim-era default neg=5, as the reference code); Role2Vec neg-5. Epochs: struc2vec 5
+  (+ gensim-era default neg=5, as the reference code); Role2Vec hs=1 + neg=5 (train_skipgram defaults — as run). Epochs: struc2vec 5
   (reference default), others 1. 10 walks × 80, window 10.
 - struc2vec: OPT1 (compressed sequences, exact DTW — not FastDTW), OPT2 (2⌊log2 n⌋+1 candidates,
   seeded within-degree order), OPT3 (k* = largest k ≤ 6 whose mean ring is still populated),

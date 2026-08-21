@@ -24,3 +24,11 @@
   technical vs code, clarity/overclaims).
 - Predictions scorecard: P4 ✓ (Airports), P3 ✓ (Roman), P2 ✓ (Amazon; proximity lift decays
   .045→.033→.008), P5 ✓ (anchors), P1 ✗ on Chameleon (bags beat all embeddings), ✓ on Amazon.
+- Review pass applied (3 agents): stats check = 0 table discrepancies, 7 prose fixes (Amazon
+  GraphWave +.055 is position — dies at B=0; DeepWalk Amazon B=4 significantly negative; bag
+  Chameleon lift .44 over its paired global floor; D=128 structural ≤ +.016; "ordering" claim
+  narrowed to family level); technical = 11 precision fixes (k* rule wording, Role2Vec reduced
+  features, DeepWalk first-order, objectives sentence, floor-row scope footnote, |V| notation,
+  GraphWave native width); clarity = P1–P5 scored explicitly, closing softened, GraphWave named
+  on β=0 anchor. plot_baselines_separation: bag reference lift now over the same-scope floor.
+  Manuscript rev 24 compiles 0/0.

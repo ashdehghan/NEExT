@@ -25,8 +25,10 @@ FAMILIES = {"proximity": ps.FAMILY_COLOR["emb_proximity"], "structural": ps.FAMI
 def shared_lift(comb, key, method, tag):
     d = comb[comb.dataset_key == key]
     m = d.loc[(d.method == method) & (d.feature_tag == tag), "f1_macro"].mean()
+    # embeddings: their own per-method floor; bags / node features: the signal
+    # session's floor under the SAME scope tag (the paired floor of structural_share)
     floor_name = f"permuted_{method}" if method in C.CORE_METHODS or method in C.OPTIONAL_METHODS else "permuted"
-    floor_tag = tag if floor_name != "permuted" else "fall-vl1"
+    floor_tag = tag if (floor_name != "permuted" or ((d.method == "permuted") & (d.feature_tag == tag)).any()) else "fall-vl1"
     f = d.loc[(d.method == floor_name) & (d.feature_tag == floor_tag), "f1_macro"].mean()
     return float(m - f)
 
