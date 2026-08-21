@@ -17,8 +17,8 @@ from lib.nodeclass.figures import baselines_overview_figure  # noqa: E402
 TITLES = {"airports": "(a) Air Traffic -- Europe", "roman": "(b) Roman Empire", "chameleon": "(c) Wikipedia -- Chameleon", "amazon": "(d) Amazon Ratings"}
 METHODS = {
     "deepwalk": ("proximity", "DeepWalk"),
-    "node2vec_bfs": ("proximity", "node2vec (BFS)"),
-    "node2vec_dfs": ("proximity", "node2vec (DFS)"),
+    "node2vec_bfs": ("proximity", "n2v BFS"),
+    "node2vec_dfs": ("proximity", "n2v DFS"),
     "struc2vec": ("structural", "struc2vec"),
     "role2vec": ("structural", "Role2Vec"),
     "graphwave": ("structural", "GraphWave"),

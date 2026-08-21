@@ -135,11 +135,39 @@ EMB_FAMILY_COLOR = {"proximity": ps.FAMILY_COLOR["emb_proximity"], "structural":
 BEST_BAG_COLOR = ps.FAMILY_COLOR["egonet_hop"]
 
 
-def baselines_overview_figure(comb: pd.DataFrame, panels: list, methods: dict, stem, metric: str = "f1_macro", metric_label: str = "macro-F1", ncols: int = 2, height: float = 4.8):
-    """One panel per dataset: a box per embedding method (values over the 10
-    shared splits), colored by family, against three dashed references read
-    from the same combined frame — the paper's permutation floor (grey), the
-    node-features baseline (green) and the best egonet bag (blue).
+def _ylim_from_data(ax, arrays, pad=0.05, headroom=0.16):
+    """Explicit limits from the plotted data (boxes and whiskers never exceed the
+    data range) with headroom above for the in-axes panel tag."""
+    allv = np.concatenate([np.asarray(a, float) for a in arrays if len(a)])
+    lo, hi = allv.min(), allv.max()
+    rng = hi - lo
+    ax.set_ylim(lo - pad * rng, hi + headroom * rng)
+
+
+def _hatched_box(ax, values, position, color, width=0.55, hatch=None):
+    b = ax.boxplot([values], positions=[position], widths=width, showfliers=False, patch_artist=True, zorder=3)
+    patch, med = b["boxes"][0], b["medians"][0]
+    patch.set_facecolor(color)
+    patch.set_alpha(0.35)
+    patch.set_edgecolor(color)
+    if hatch:
+        patch.set_hatch(hatch)
+    med.set_color(ps.INK)
+    for part in ("whiskers", "caps"):
+        for line in b[part]:
+            line.set_color(color)
+
+
+REF_COLOR = {"floor": ps.FAMILY_COLOR["floor"], "node": NODE_COLOR, "bag": BEST_BAG_COLOR}
+
+
+def baselines_overview_figure(comb: pd.DataFrame, panels: list, methods: dict, stem, metric: str = "f1_macro", metric_label: str = "macro-F1", ncols: int = 2, height: float = 5.2):
+    """One panel per dataset. Left block: the paper's three references as BOXES
+    over the 10 shared splits (hatched permutation floor, node features, best
+    egonet bag) with dashed (floor, best bag) / dotted (node features) guide
+    lines at their means; right block: one box per embedding method colored by
+    family. Y-limits come from the plotted data with headroom for the panel tag
+    (Ash, 2026-08-21).
 
     Args:
         comb: combined_results.csv frame (status == "ok").
@@ -150,35 +178,50 @@ def baselines_overview_figure(comb: pd.DataFrame, panels: list, methods: dict, s
     ps.use_style()
     nrows = math.ceil(len(panels) / ncols)
     fig, axes = plt.subplots(nrows, ncols, figsize=(ps.FULL_W, height), squeeze=False)
+    n_emb = len(methods)
+    emb_x0 = 3.5
     for ax, panel in zip(axes.ravel(), panels):
         d = comb[comb.dataset_key == panel["key"]]
-        floor = d.loc[(d.method == "permuted") & (d.feature_tag == "fall-vl1"), metric]
-        node = d.loc[(d.method == "node_struct") & (d.feature_tag == "fall-vl1"), metric]
         bm, bt = panel["best_bag"]
-        bag = d.loc[(d.method == bm) & (d.feature_tag == bt), metric]
-        for x, (method, (family, _label)) in enumerate(methods.items()):
+        refs = {
+            "floor": d.loc[(d.method == "permuted") & (d.feature_tag == "fall-vl1"), metric].to_numpy(),
+            "node": d.loc[(d.method == "node_struct") & (d.feature_tag == "fall-vl1"), metric].to_numpy(),
+            "bag": d.loc[(d.method == bm) & (d.feature_tag == bt), metric].to_numpy(),
+        }
+        plotted = []
+        for x, name in enumerate(("floor", "node", "bag")):
+            if len(refs[name]):
+                _hatched_box(ax, refs[name], x, REF_COLOR[name], hatch="////" if name == "floor" else None)
+                plotted.append(refs[name])
+        if len(refs["floor"]):
+            ax.axhline(float(refs["floor"].mean()), color=REF_COLOR["floor"], linewidth=0.8, linestyle=(0, (4, 3)), zorder=0)
+        if len(refs["bag"]):
+            ax.axhline(float(refs["bag"].mean()), color=REF_COLOR["bag"], linewidth=0.8, linestyle=(0, (4, 3)), zorder=0)
+        if len(refs["node"]):
+            ax.axhline(float(refs["node"].mean()), color=REF_COLOR["node"], linewidth=0.8, linestyle=(0, (1, 1.6)), zorder=0)
+        ax.axvline(emb_x0 - 0.75, color=ps.GRID, linewidth=0.8, zorder=0)
+        if n_emb > 3:
+            ax.axvline(emb_x0 + 2.75, color=ps.GRID, linewidth=0.8, zorder=0)
+        for i, (method, (family, _label)) in enumerate(methods.items()):
             vals = d.loc[(d.method == method) & (d.feature_tag == panel["emb_tag"]), metric].to_numpy()
             if len(vals):
-                _box(ax, vals, x, EMB_FAMILY_COLOR[family], width=0.55)
-        for vals, color in ((floor, ps.MUTED), (node, NODE_COLOR), (bag, BEST_BAG_COLOR)):
-            if len(vals):
-                ax.axhline(float(vals.mean()), color=color, linewidth=0.8, linestyle=(0, (4, 3)), zorder=0)
-        ax.set_xticks(range(len(methods)))
-        ax.set_xticklabels([lab for _, lab in methods.values()], rotation=30, ha="right")
-        ax.set_xlim(-0.6, len(methods) - 0.4)
+                _hatched_box(ax, vals, emb_x0 + i, EMB_FAMILY_COLOR[family])
+                plotted.append(vals)
+        ax.set_xticks([0, 1, 2] + [emb_x0 + i for i in range(n_emb)])
+        ax.set_xticklabels(["floor", "node feat.", "best bag"] + [lab for _, lab in methods.values()], rotation=35, ha="right", fontsize=6.5)
+        ax.set_xlim(-0.6, emb_x0 + n_emb - 0.4)
+        _ylim_from_data(ax, plotted)
         ps.panel_tag(ax, panel["title"])
-        if len(methods) > 3:
-            ax.axvline(2.5, color=ps.GRID, linewidth=0.8, zorder=0)
     for ax in axes[:, 0]:
         ax.set_ylabel(metric_label)
     for ax in axes.ravel()[len(panels):]:
         ax.set_visible(False)
     handles = [
+        plt.Rectangle((0, 0), 1, 1, facecolor=REF_COLOR["floor"], alpha=0.35, edgecolor=REF_COLOR["floor"], hatch="////", label="Permutation floor"),
+        plt.Rectangle((0, 0), 1, 1, facecolor=REF_COLOR["node"], alpha=0.35, edgecolor=REF_COLOR["node"], label="Node features"),
+        plt.Rectangle((0, 0), 1, 1, facecolor=REF_COLOR["bag"], alpha=0.35, edgecolor=REF_COLOR["bag"], label="Best egonet bag"),
         plt.Rectangle((0, 0), 1, 1, facecolor=EMB_FAMILY_COLOR["proximity"], alpha=0.35, edgecolor=EMB_FAMILY_COLOR["proximity"], label="Proximity embedding"),
         plt.Rectangle((0, 0), 1, 1, facecolor=EMB_FAMILY_COLOR["structural"], alpha=0.35, edgecolor=EMB_FAMILY_COLOR["structural"], label="Structural embedding"),
-        plt.Line2D([], [], color=ps.MUTED, linewidth=0.8, linestyle=(0, (4, 3)), label="Permutation floor"),
-        plt.Line2D([], [], color=NODE_COLOR, linewidth=0.8, linestyle=(0, (4, 3)), label="Node features"),
-        plt.Line2D([], [], color=BEST_BAG_COLOR, linewidth=0.8, linestyle=(0, (4, 3)), label="Best egonet bag"),
     ]
     fig.legend(handles=handles, loc="lower center", bbox_to_anchor=(0.5, 1.0), ncol=5, frameon=False)
     fig.tight_layout()

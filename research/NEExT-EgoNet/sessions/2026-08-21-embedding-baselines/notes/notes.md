@@ -32,3 +32,14 @@
   GraphWave native width); clarity = P1–P5 scored explicitly, closing softened, GraphWave named
   on β=0 anchor. plot_baselines_separation: bag reference lift now over the same-scope floor.
   Manuscript rev 24 compiles 0/0.
+- Figure pass with Ash: overview redrawn with floor / node features / best bag as BOXES
+  (hatched floor) + guide lines, explicit y-limits (all whiskers visible); promoted into
+  lib `baselines_overview_figure`; prototypes B–E (`code/plot_protos.py`: structure-vs-position
+  scatter, retention bars, synthetic anchors boxes, seed/dim sensitivity) parked for a later
+  appendix decision.
+- Manuscript restructure (Ash): standalone sec:baselines dissolved. Shared-split comparison →
+  `sec:exp-baselines` (last subsection of Experiments, plain prose, no em dashes) with
+  tab:baselines-shared + fig:baselines-overview; "Why each embedding family wins where it does"
+  paragraph in Analysis; holdout half → structural_share ("The same instrument applied to the
+  node embeddings", tab:baselines-holdout + fig:baselines-separation). rev 25 compiles 0/0.
+  Review pass (style/em-dash + numbers/structure) launched.
