@@ -21,6 +21,7 @@ from .data import (
     filter_rare_classes,
     sample_centers,
 )
+from .embed_registry import EMBEDDERS, FAMILY_OF, available_methods, embed
 from .evaluate import evaluate_node_representation, majority_floor, permutation_floor, summarize_node_metrics
 
 __all__ = [
@@ -33,6 +34,10 @@ __all__ = [
     "to_networkx",
     "center_structural_features",
     "degree_only",
+    "EMBEDDERS",
+    "FAMILY_OF",
+    "available_methods",
+    "embed",
     "MIN_CLASS_COUNT",
     "build_node_table",
     "filter_rare_classes",
