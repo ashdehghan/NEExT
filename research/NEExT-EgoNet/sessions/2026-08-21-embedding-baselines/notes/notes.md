@@ -14,3 +14,13 @@
   embeddings reach the node-features ceiling and beat every bag; proximity barely clears the
   floor.
 - Timing probe launched (chameleon all; roman deepwalk/role2vec/graphwave/struc2vec).
+- **Battery complete (04:58 UTC), exit 0.** Measured: Roman struc2vec 23 min (all skip-gram,
+  5 epochs hs+neg), DeepWalk 2.5 min, GraphWave 85 s / 1.9 GB peak; Amazon struc2vec 24 min,
+  GraphWave 138 s / 2.0 GB. Whole battery ≈ 2.5 h.
+- Shared-split results: see README key findings / outputs/stats_shared_splits.csv. Region
+  holdout: outputs/stats_region_holdout.csv. Figures: figures/baselines_{overview,separation}.
+- Manuscript: sections/baselines.tex written + main.tex \input after structural_share; 16 bib
+  entries added; compiles 0/0 (rev 23). Three-agent review pass launched (stats vs CSV,
+  technical vs code, clarity/overclaims).
+- Predictions scorecard: P4 ✓ (Airports), P3 ✓ (Roman), P2 ✓ (Amazon; proximity lift decays
+  .045→.033→.008), P5 ✓ (anchors), P1 ✗ on Chameleon (bags beat all embeddings), ✓ on Amazon.

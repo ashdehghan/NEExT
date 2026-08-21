@@ -1,0 +1,62 @@
+\section{Egonet Bags Among Node Embeddings}
+\label{sec:baselines}
+
+The experiments so far compare egonet bags against two references only:
+the permutation floor and the node's own feature profile. This section
+places them among the classic node-embedding methods --- and uses the
+instrument of Section~\ref{sec:structural-share} to ask of every method
+the question that section asks of ours: how much of its performance is
+structure, and how much is position? Node embeddings fall into two
+families that differ in exactly this respect. \emph{Proximity} methods ---
+DeepWalk \citep{perozzi2014deepwalk}, node2vec \citep{grover2016node2vec},
+and their matrix-factorization relatives \citep{qiu2018netmf} --- place
+nodes that co-occur on short random walks close together, so the
+embedding encodes \emph{where} a node sits in the graph; under a
+spatially smooth label field this is the locality-leakage pathway of
+Section~\ref{sec:synthetic} turned into a representation. \emph{Structural}
+(role) methods --- struc2vec \citep{ribeiro2017struc2vec}, Role2Vec
+\citep{ahmed2018role2vec}, GraphWave \citep{donnat2018graphwave}, and the
+recursive-feature lineage of ReFeX/RolX
+\citep{henderson2011refex,henderson2012rolx,rossi2015roles} --- place nodes
+with similar \emph{surroundings} close together regardless of distance,
+and are position-free by construction. Egonet bags belong, in intent, to
+the second family. The comparison therefore doubles as a test of the
+mechanism account: the same region-holdout evaluation that separated
+structure from position for our bags should separate the two embedding
+families from each other.
+
+\paragraph{Methods and protocol.}
+%% (drafted before results; numbers and findings filled from
+%% outputs/stats_*.csv via make_tables.py)
+We fit six embeddings on every dataset. DeepWalk and node2vec (two
+biased settings: breadth-first $p{=}0.25,\,q{=}4$ and depth-first
+$p{=}4,\,q{=}0.25$) use second-order walks with the exact transition
+probabilities of \citet{grover2016node2vec} and a skip-gram
+\citep{mikolov2013word2vec} trained with gensim \citep{rehurek2010gensim}.
+struc2vec, Role2Vec and GraphWave have no maintained implementation we
+were willing to depend on, so we implemented each from its paper:
+struc2vec with the authors' optimizations (compressed degree sequences
+with exact dynamic time warping, $2\lfloor\log_2 n\rfloor{+}1$
+similar-degree candidates per node, hierarchy capped at six layers;
+$q{=}0.3$ as in the reference code); Role2Vec in its original form
+(structural features --- degree, triangles, open wedges, core number ---
+log-binned into node types, walks rewritten as type sequences, one vector
+per type); GraphWave following the reference implementation (heat
+wavelets of the normalized Laplacian at the reference's automatic scales,
+Chebyshev-approximated, empirical characteristic function at 25 sample
+points, 100 features). Every learned embedding has width $D{=}16$ ---
+wider than the bags' $D{=}11$, so dimension cannot favor our method ---
+and all walk methods use 10 walks of length 80 with window 10. Each
+embedding is fit unsupervised on the full graph, exactly as the bags and
+the node features are, and is then evaluated on the identical center sets
+and the identical ten stratified splits of
+Section~\ref{sec:experiments}, with a permutation floor computed per
+method; all comparisons are therefore paired. Predictions were registered
+before evaluation: proximity embeddings should be strongest on the
+homophilous, position-rich graphs and collapse under region holdout;
+structural embeddings should be strongest where the label is a role
+(Air Traffic is struc2vec's own benchmark) and survive separation.
+
+%% RESULTS — to be written from the CSVs
+%% \input{tables/baselines_shared}  figure baselines_overview
+%% \input{tables/baselines_holdout} figure baselines_separation

@@ -4,7 +4,7 @@
 |---|---|
 | **Started** | 2026-08-21 |
 | **Last active** | 2026-08-21 |
-| **Status** | active |
+| **Status** | active (battery complete 2026-08-21; manuscript section written) |
 
 ## Goal
 
@@ -35,11 +35,23 @@ bash research/NEExT-EgoNet/sessions/2026-08-21-embedding-baselines/code/battery.
 
 ## Key findings
 
-(pending)
+Shared splits (macro-F1, seed 42, D=16): structural embeddings win where the label is a role
+(Airports: struc2vec .584 / GraphWave .587 ≈ node features .590, > best bag .554, p≈.02;
+Roman: GraphWave .148 > node .137, ≈ local k2 bag .158, proximity ON the floor .048–.058);
+proximity wins where the label is homophilous (Amazon: node2vec-DFS .299 ≈ best bag .302,
+structural at/below floor); on Chameleon every embedding is below node features .635 and the
+global k2 bag .658 (GraphWave .601 best) — P1 did not hold there. Region holdout: Roman
+structural lifts survive in full (GraphWave +.098/.101/.101 at B=0/2/4, Role2Vec +.050,
+struc2vec +.025) while proximity ≤ +.013; Amazon node2vec-DFS lift .108 → .045/.033/.008
+(mostly position); Chameleon everyone halves at B=0; synthetic β=0: proximity +.35 shared →
+≤ +.07 at B=0, 0 at B=2, structural at floor; β=.03: GraphWave +.074 → +.033 at every buffer.
+Seed range ≤ .024 (one .072), D=128 adds ≤ .056 to proximity, 0 to structural; no ordering
+change. Manuscript: sections/baselines.tex (rev 23, compiles 0/0).
 
 ## Next steps
 
-(pending — see notes/notes.md)
+- Review-pass findings applied? (see notes/notes.md) · background/related-work paragraph
+- Optional: karateclub cross-checks (walklets/netmf/role2vec_kc/graphwave_kc), RolX/ReFeX
 
 ## Layout
 
