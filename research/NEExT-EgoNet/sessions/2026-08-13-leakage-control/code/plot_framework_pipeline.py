@@ -1,11 +1,18 @@
 """Manuscript pipeline figure for the Framework section (fig:framework-pipeline).
 
-One row, four stages with arrows: source graph with a highlighted center ->
-the two bag constructions (census k-hop egonet / survey walk bag with
-visit-weighted members) -> member features under the two scopes -> weighted
-distribution -> Wasserstein embedding -> classifier. Colors follow the house
-language: blue = local scope, orange = global scope, accent for the center;
-bag membership itself is neutral ink so it cannot be confused with scope.
+Redesigned 2026-09-12 around one idea per stage, read left to right:
+
+  graph G with a few highlighted nodes  ->  one ego-net per node  ->  each
+  ego-net becomes a cloud of member feature vectors in R^p  ->  each cloud
+  becomes one vector z_v in R^D (the node embedding)  ->  any downstream
+  model.
+
+Three nodes are followed through the pipeline in three colours so the
+"collection of distributions" idea is visible. All labels are symbolic (k, p,
+D); nothing in the figure is tied to one experimental configuration. The
+feature-space panel plots two real full-graph measurements of the toy
+graph's nodes (degree and clustering coefficient), so the clouds are what
+the method actually sees, not decoration.
 
 Run from the repo root; outputs into this session's figures/.
 """
@@ -18,124 +25,137 @@ RESEARCH_ROOT = SESSION_ROOT.parents[1]
 sys.path.insert(0, str(RESEARCH_ROOT))
 
 from lib.containment import plotstyle as ps
-from lib.nodeclass.figures import NODE_COLOR, SCOPE_COLOR
 
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
 import networkx as nx
 import numpy as np
 
-ACCENT = "#E07016"
-BAG_FILL = "#B8B6B0"
+TRACK = ["#eb6834", "#2a78d6", "#1baf7a"]  # the three followed nodes (validated palette slots)
+NODE_FILL = "#e4e2dc"
+EDGE_INK = "#b9b7b0"
 
 
-def toy_graph(seed=7, n=46, radius=0.21):
+def toy_graph(seed=7, n=60, radius=0.19):
     rng = np.random.RandomState(seed)
     pos = rng.rand(n, 2)
     G = nx.random_geometric_graph(n, radius, pos={i: pos[i] for i in range(n)}, seed=seed)
     G = G.subgraph(max(nx.connected_components(G), key=len)).copy()
-    center = min(G.nodes, key=lambda i: np.hypot(*(pos[i] - 0.48)))
-    hops = nx.single_source_shortest_path_length(G, center)
-    return G, {i: pos[i] for i in G.nodes}, center, hops
+    pos = {i: pos[i] for i in G.nodes}
+    targets = [(0.22, 0.72), (0.75, 0.68), (0.5, 0.2)]
+    centres = []
+    for t in targets:
+        cand = sorted(G.nodes, key=lambda i: np.hypot(*(pos[i] - t)))
+        centres.append(next(c for c in cand if c not in centres))
+    return G, pos, centres
 
 
-def draw_graph(ax, G, pos, center, hops, k=2, weights=None, title=""):
-    members = {u for u, h in hops.items() if h <= k}
+def draw_edges(ax, G, pos, nodes=None, color=EDGE_INK, lw=0.5, alpha=1.0):
     for u, v in G.edges:
-        inside = u in members and v in members
-        ax.plot(*zip(pos[u], pos[v]), color=ps.INK if inside else ps.MUTED,
-                lw=0.8 if inside else 0.4, alpha=0.9 if inside else 0.35, zorder=1)
-    for u in G.nodes:
-        if u == center:
-            c, s, z = ACCENT, 90, 3
-        elif u in members:
-            c = BAG_FILL
-            s = 26 if weights is None else 12 + 240 * weights.get(u, 0.0)
-            z = 2
-        else:
-            c, s, z = "#E4E2DC", 14, 1
-        ax.scatter(*pos[u], s=s, color=c, edgecolors=ps.INK, linewidths=0.4, zorder=z)
-    ax.set_title(title, fontsize=9.5)
-    ax.set_aspect("equal")
-    ax.axis("off")
+        if nodes is not None and (u not in nodes or v not in nodes):
+            continue
+        ax.plot(*zip(pos[u], pos[v]), color=color, lw=lw, alpha=alpha, zorder=1, solid_capstyle="round")
+
+
+def draw_nodes(ax, pos, nodes, color, size, z=2, edge=ps.INK):
+    xy = np.array([pos[u] for u in nodes])
+    ax.scatter(xy[:, 0], xy[:, 1], s=size, color=color, edgecolors=edge, linewidths=0.4, zorder=z)
+
+
+def stage_title(ax, text):
+    fig = ax.figure
+    ax._stage_title = text  # placed after layout by place_titles()
+
+
+def place_titles(fig, gs, cols):
+    for col, text in cols:
+        bb = gs[:, col].get_position(fig)
+        fig.text((bb.x0 + bb.x1) / 2, 0.93, text, fontsize=8, ha="center", va="center", color=ps.INK)
 
 
 def main():
     ps.use_style()
-    G, pos, center, hops = toy_graph()
+    G, pos, centres = toy_graph()
+    k = 1
+    egonets = [set(nx.single_source_shortest_path_length(G, c, cutoff=k)) for c in centres]
+    deg = dict(G.degree())
+    clu = nx.clustering(G)
 
-    # survey weights: actual short random walks with restart from the center
-    rng = np.random.RandomState(3)
-    counts = {center: 40}
-    adj = {u: list(G.neighbors(u)) for u in G.nodes}
-    for _ in range(40):
-        u = center
-        for _ in range(10):
-            u = center if rng.rand() < 0.15 else adj[u][rng.randint(len(adj[u]))]
-            counts[u] = counts.get(u, 0) + 1
-    kept = {u: c for u, c in counts.items() if c >= 3}
-    total = sum(kept.values())
-    weights = {u: c / total for u, c in kept.items()}
-    walk_hops = {u: 0 for u in kept}
+    fig = plt.figure(figsize=(ps.FULL_W, 2.55))
+    gs = fig.add_gridspec(
+        3, 4, width_ratios=[1.25, 0.8, 1.05, 0.95],
+        left=0.01, right=0.99, top=0.86, bottom=0.08, wspace=0.45, hspace=0.35,
+    )
 
-    fig = plt.figure(figsize=(10.8, 3.4))
-    gs = fig.add_gridspec(2, 4, width_ratios=[1.15, 1.0, 1.05, 1.0],
-                          left=0.01, right=0.99, top=0.86, bottom=0.04,
-                          wspace=0.28, hspace=0.3)
+    # Stage 1: the graph with three followed nodes
+    ax = fig.add_subplot(gs[:, 0])
+    draw_edges(ax, G, pos)
+    draw_nodes(ax, pos, list(G.nodes), NODE_FILL, 11, z=2)
+    for c, col in zip(centres, TRACK):
+        draw_nodes(ax, pos, [c], col, 55, z=3)
+    ax.set_aspect("equal"); ax.axis("off")
+    stage_title(ax, "graph $G$")
 
-    ax_src = fig.add_subplot(gs[:, 0])
-    draw_graph(ax_src, G, pos, center, hops, k=-1,
-               title="source graph $G$, center $v$\nlabel $y(v)$")
+    # Stage 2: one ego-net per node (three shown)
+    for row, (c, members, col) in enumerate(zip(centres, egonets, TRACK)):
+        ax = fig.add_subplot(gs[row, 1])
+        draw_edges(ax, G, pos, nodes=members, color=col, lw=0.8, alpha=0.7)
+        draw_nodes(ax, pos, [u for u in members if u != c], col, 16, z=2)
+        draw_nodes(ax, pos, [c], col, 42, z=3)
+        xy = np.array([pos[u] for u in members])
+        pad = 0.05
+        ax.set_xlim(xy[:, 0].min() - pad, xy[:, 0].max() + pad)
+        ax.set_ylim(xy[:, 1].min() - pad, xy[:, 1].max() + pad)
+        ax.set_aspect("equal"); ax.axis("off")
+        if row == 0:
+            stage_title(ax, "ego-nets $S_k(v)$")
 
-    ax_cen = fig.add_subplot(gs[0, 1])
-    draw_graph(ax_cen, G, pos, center, hops, k=2, title="census: $S_k(v)$, equal mass")
-    ax_sur = fig.add_subplot(gs[1, 1])
-    draw_graph(ax_sur, G, pos, center, walk_hops, k=0, weights=weights,
-               title="survey: walk bag, visit mass")
+    # Stage 3: each ego-net as a cloud of member feature vectors
+    ax = fig.add_subplot(gs[:, 2])
+    allx = np.array([deg[u] for u in G.nodes], dtype=float)
+    ally = np.array([clu[u] for u in G.nodes], dtype=float)
+    rng = np.random.RandomState(1)
+    jitter = lambda a, s: a + rng.uniform(-s, s, size=len(a))
+    ax.scatter(jitter(allx, 0.18), ally, s=7, color=NODE_FILL, edgecolors="none", zorder=1)
+    for members, col in zip(egonets, TRACK):
+        mx = np.array([deg[u] for u in members], dtype=float)
+        my = np.array([clu[u] for u in members], dtype=float)
+        ax.scatter(jitter(mx, 0.18), my, s=16, color=col, edgecolors=ps.INK, linewidths=0.3, alpha=0.9, zorder=3)
+    ax.set_xticks([]); ax.set_yticks([])
+    ax.grid(False)
+    for s in ("top", "right"):
+        ax.spines[s].set_visible(False)
+    stage_title(ax, r"member features $\phi(u)\in\mathbb{R}^{p}$")
+    ax.text(0.5, -0.04, "two of the $p$ feature axes; one cloud per ego-net", transform=ax.transAxes,
+            ha="center", va="top", fontsize=6.5, color=ps.MUTED)
 
-    # stage 3: member features under the two scopes (schematic strips)
-    ax_feat = fig.add_subplot(gs[:, 2])
-    rng2 = np.random.RandomState(1)
-    for row, (scope, y0) in enumerate([("local", 0.58), ("global", 0.08)]):
-        color = SCOPE_COLOR[scope]
-        vals = rng2.rand(6, 11)
-        for i in range(6):
-            for j in range(11):
-                ax_feat.add_patch(mpatches.Rectangle(
-                    (0.08 + j * 0.075, y0 + i * 0.045), 0.068, 0.038,
-                    facecolor=color, alpha=0.25 + 0.6 * vals[i, j], edgecolor="none"))
-        ax_feat.text(0.5, y0 + 0.30, f"{scope} scope", color=color,
-                     fontsize=9.5, ha="center")
-    ax_feat.text(0.5, 0.985, "members $\\times$ 11 features $\\phi(u)$",
-                 fontsize=9.5, ha="center", va="top")
-    ax_feat.set_xlim(0, 1); ax_feat.set_ylim(0, 1); ax_feat.axis("off")
+    # Stage 4: one vector per node, then a downstream model
+    ax = fig.add_subplot(gs[:, 3])
+    ax.set_xlim(0, 1); ax.set_ylim(0, 1); ax.axis("off")
+    D = 7
+    for row, (members, col) in enumerate(zip(egonets, TRACK)):
+        y0 = 0.84 - row * 0.19
+        mx = np.mean([deg[u] for u in members]); my = np.mean([clu[u] for u in members])
+        vals = np.abs(np.sin(np.arange(D) * (0.7 + 0.4 * row) + 3.0 * mx / 10 + my))
+        for j in range(D):
+            ax.add_patch(mpatches.Rectangle((0.08 + j * 0.10, y0), 0.09, 0.11,
+                                            facecolor=col, alpha=0.25 + 0.7 * vals[j], edgecolor="none"))
+        ax.text(0.03, y0 + 0.055, "$z_v$", ha="right", va="center", fontsize=7, color=col)
+    ax.text(0.43, 0.36, r"one vector per node, $z_v\in\mathbb{R}^{D}$", ha="center", va="center", fontsize=7, color=ps.INK)
+    ax.annotate("", xy=(0.43, 0.20), xytext=(0.43, 0.30),
+                arrowprops=dict(arrowstyle="->", color=ps.INK, lw=0.9))
+    ax.add_patch(mpatches.FancyBboxPatch((0.02, 0.04), 0.82, 0.13, boxstyle="round,pad=0.01",
+                                         facecolor="white", edgecolor=ps.INK, lw=0.7, clip_on=False))
+    ax.text(0.43, 0.105, "downstream model", ha="center", va="center", fontsize=6.5, color=ps.INK)
+    stage_title(ax, "Wasserstein embedding")
 
-    # stage 4: distribution -> embedding -> classifier
-    ax_out = fig.add_subplot(gs[:, 3])
-    pts = rng2.randn(24, 2) * 0.09 + [0.30, 0.72]
-    sz = 10 + 60 * rng2.rand(24)
-    ax_out.scatter(pts[:, 0], pts[:, 1], s=sz, color=BAG_FILL,
-                   edgecolors=ps.INK, linewidths=0.4)
-    ax_out.text(0.30, 0.92, "weighted distribution $\\mu_v$", fontsize=9.5, ha="center")
-    ax_out.annotate("", xy=(0.30, 0.44), xytext=(0.30, 0.56),
-                    arrowprops=dict(arrowstyle="->", color=ps.INK, lw=1.0))
-    emb = rng2.rand(11)
-    for j in range(11):
-        ax_out.add_patch(mpatches.Rectangle(
-            (0.06 + j * 0.045, 0.32), 0.04, 0.09,
-            facecolor=NODE_COLOR, alpha=0.25 + 0.65 * emb[j], edgecolor="none"))
-    ax_out.text(0.30, 0.26, "Wasserstein embedding $\\in \\mathbb{R}^{D}$",
-                fontsize=9.5, ha="center")
-    ax_out.annotate("", xy=(0.30, 0.115), xytext=(0.30, 0.21),
-                    arrowprops=dict(arrowstyle="->", color=ps.INK, lw=1.0))
-    ax_out.text(0.30, 0.05, "XGBoost $\\rightarrow \\hat{y}(v)$", fontsize=10,
-                ha="center", color=ACCENT)
-    ax_out.set_xlim(0, 0.62); ax_out.set_ylim(0, 1); ax_out.axis("off")
+    place_titles(fig, gs, [(0, "graph $G$"), (1, "ego-nets $S_k(v)$"),
+                           (2, r"member features $\phi(u)\in\mathbb{R}^{p}$"), (3, "Wasserstein embedding")])
 
-    # inter-stage arrows on the figure canvas
-    for x in [0.265, 0.505, 0.75]:
-        fig.text(x, 0.47, "$\\rightarrow$", fontsize=17, ha="center", va="center",
-                 color=ps.INK)
+    # Arrows between stages, with the operation named on top
+    for x, label in [(0.300, "extract"), (0.513, "measure"), (0.764, "embed")]:
+        fig.text(x, 0.50, r"$\rightarrow$", fontsize=14, ha="center", va="center", color=ps.INK)
+        fig.text(x, 0.60, label, fontsize=6.5, ha="center", va="bottom", color=ps.MUTED)
 
     ps.save(fig, SESSION_ROOT / "figures" / "framework_pipeline")
     print("saved framework_pipeline")
