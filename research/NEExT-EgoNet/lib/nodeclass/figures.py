@@ -112,7 +112,7 @@ def dataset_overview_figure(df: pd.DataFrame, khop_methods: dict, walk_methods: 
 
     handles = [
         plt.Rectangle((0, 0), 1, 1, facecolor=ps.FAMILY_COLOR["floor"], alpha=0.35,
-                      edgecolor=ps.FAMILY_COLOR["floor"], label="Random floor"),
+                      edgecolor=ps.FAMILY_COLOR["floor"], label="Permutation floor"),
         plt.Rectangle((0, 0), 1, 1, facecolor=NODE_COLOR, alpha=0.35,
                       edgecolor=NODE_COLOR, label="Node features"),
         plt.Rectangle((0, 0), 1, 1, facecolor=SCOPE_COLOR["local"], alpha=0.35,
