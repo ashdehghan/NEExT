@@ -46,13 +46,13 @@ def main(tag="d16-s42"):
         khop_methods={f"egonet_k{k}_wass": f"$k{{=}}{k}$" for k in [1, 2, 3, 4, 5]},
         walk_methods={"walk_tight_wass": "tight", "walk_default_wass": "default", "walk_wide_wass": "wide"},
         stem=out / "exp2_overview",
-        height=2.4,
+        height=2.8,
     )
     print(f"written {stem}.pdf/.png")
 
     comb = pd.read_csv(SESSION_ROOT / "outputs" / "combined_results.csv")
     panels = [{"key": "roman", "title": "Roman Empire", "best_bag": C.DATASETS["roman"]["expected_best_bag"], "emb_tag": tag}]
-    stem = baselines_overview_figure(comb, panels, METHODS, out / "baselines_roman", ncols=1, height=2.6)
+    stem = baselines_overview_figure(comb, panels, METHODS, out / "baselines_roman", ncols=1, height=2.7)
     print(f"written {stem}.pdf/.png")
 
 
