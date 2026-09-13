@@ -100,11 +100,11 @@ def dataset_overview_figure(df: pd.DataFrame, khop_methods: dict, walk_methods: 
 
     ax.set_xticks([0.0, 1.05] + khop_ticks + walk_ticks)
     ax.set_xticklabels(
-        ["Random\n(permuted)", "Node feat.\n(full graph)"] + list(khop_methods.values()) + list(walk_methods.values())
+        ["floor", "node feat."] + list(khop_methods.values()) + list(walk_methods.values())
     )
     ax.set_ylim(*ylim)
     ax.set_ylabel(metric_label)
-    ax.text((khop_ticks[0] + khop_ticks[-1]) / 2, -0.24, "$k$-hop egonets",
+    ax.text((khop_ticks[0] + khop_ticks[-1]) / 2, -0.24, "$k$-hop ego-nets",
             transform=ax.get_xaxis_transform(), ha="center", fontsize=8, color=ps.MUTED)
     if walk_ticks:
         ax.text((walk_ticks[0] + walk_ticks[-1]) / 2, -0.24, "random-walk bags",
@@ -219,7 +219,7 @@ def baselines_overview_figure(comb: pd.DataFrame, panels: list, methods: dict, s
     handles = [
         plt.Rectangle((0, 0), 1, 1, facecolor=REF_COLOR["floor"], alpha=0.35, edgecolor=REF_COLOR["floor"], hatch="////", label="Permutation floor"),
         plt.Rectangle((0, 0), 1, 1, facecolor=REF_COLOR["node"], alpha=0.35, edgecolor=REF_COLOR["node"], label="Node features"),
-        plt.Rectangle((0, 0), 1, 1, facecolor=REF_COLOR["bag"], alpha=0.35, edgecolor=REF_COLOR["bag"], label="Best egonet bag"),
+        plt.Rectangle((0, 0), 1, 1, facecolor=REF_COLOR["bag"], alpha=0.35, edgecolor=REF_COLOR["bag"], label="Best ego-net bag"),
         plt.Rectangle((0, 0), 1, 1, facecolor=EMB_FAMILY_COLOR["proximity"], alpha=0.35, edgecolor=EMB_FAMILY_COLOR["proximity"], label="Proximity embedding"),
         plt.Rectangle((0, 0), 1, 1, facecolor=EMB_FAMILY_COLOR["structural"], alpha=0.35, edgecolor=EMB_FAMILY_COLOR["structural"], label="Structural embedding"),
     ]
