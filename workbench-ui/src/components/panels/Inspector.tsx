@@ -493,7 +493,19 @@ export function Inspector({
               <InspectorRow label="Reindex Nodes" value={boolText(Boolean(dataset.operation.params.reindex_nodes))} />
               {dataset.source_graph_shape === "single_graph" ? (
                 <>
-                  <InspectorRow label="K-Hop" value={String(dataset.operation.params.k_hop)} />
+                  <InspectorRow
+                    label="Egonet Method"
+                    value={dataset.operation.params.egonet_method === "random_walk" ? "Random walk" : "K-hop"}
+                  />
+                  {dataset.operation.params.egonet_method === "random_walk" ? (
+                    <>
+                      <InspectorRow label="Walk Length" value={String(dataset.operation.params.walk_length)} />
+                      <InspectorRow label="Walks per Node" value={String(dataset.operation.params.n_walks)} />
+                      <InspectorRow label="Restart Probability" value={String(dataset.operation.params.restart_prob)} />
+                    </>
+                  ) : (
+                    <InspectorRow label="K-Hop" value={String(dataset.operation.params.k_hop)} />
+                  )}
                   <InspectorRow label="Node Selection" value={String(dataset.operation.params.node_selection).replace(/_/g, " ")} />
                   <InspectorRow label="Sample Fraction" value={String(dataset.operation.params.sample_fraction)} />
                   <InspectorRow label="Random Seed" value={String(dataset.operation.params.random_seed)} />

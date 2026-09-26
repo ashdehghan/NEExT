@@ -940,7 +940,14 @@ def test_single_graph_dataset_intake_validates_creates_prepares_and_feeds_downst
                 "graph_type": "networkx",
                 "reindex_nodes": True,
                 "filter_largest_component": True,
+                "egonet_method": "k_hop",
                 "k_hop": 1,
+                "walk_length": 10,
+                "n_walks": 100,
+                "restart_prob": 0.15,
+                "min_visits": 3,
+                "max_egonet_size": None,
+                "weight_by_visits": True,
                 "node_selection": "all_nodes",
                 "sample_fraction": 1.0,
                 "random_seed": 13,
@@ -985,6 +992,7 @@ def test_single_graph_dataset_intake_validates_creates_prepares_and_feeds_downst
             "source_graph_shape": "single_graph",
             "operation_id": "neext.prepare_single_graph_egonets",
             "operation_version": "1",
+            "egonet_method": "k_hop",
             "k_hop": 1,
             "node_selection": "all_nodes",
             "sample_fraction": 1.0,
@@ -1631,7 +1639,14 @@ def test_single_graph_dataset_prepares_egonet_collection_and_feeds_downstream_ar
                 "graph_type": "networkx",
                 "reindex_nodes": True,
                 "filter_largest_component": True,
+                "egonet_method": "k_hop",
                 "k_hop": 1,
+                "walk_length": 10,
+                "n_walks": 100,
+                "restart_prob": 0.15,
+                "min_visits": 3,
+                "max_egonet_size": None,
+                "weight_by_visits": True,
                 "node_selection": "all_nodes",
                 "sample_fraction": 1.0,
                 "random_seed": 13,
@@ -1680,6 +1695,7 @@ def test_single_graph_dataset_prepares_egonet_collection_and_feeds_downstream_ar
             "source_graph_shape": "single_graph",
             "operation_id": "neext.prepare_single_graph_egonets",
             "operation_version": "1",
+            "egonet_method": "k_hop",
             "k_hop": 1,
             "node_selection": "all_nodes",
             "sample_fraction": 1.0,
@@ -5504,3 +5520,128 @@ def test_embedding_similarity_graph_endpoint():
         assert len(capped_payload["edges"]) == 5
         touched = {edge["source"] for edge in capped_payload["edges"]} | {edge["target"] for edge in capped_payload["edges"]}
         assert {node["id"] for node in capped_payload["nodes"]} <= touched
+
+
+# ---------------------------------------------------------------------------
+# Random-walk egonet datasets: the egonet_method discriminator added alongside
+# compute_random_walk_egonets. Covers the full round trip (params -> manifest
+# -> prepare -> analysis metadata -> mapping parquet), legacy manifests that
+# predate the method fields, and parameter validation.
+# ---------------------------------------------------------------------------
+
+
+def test_single_graph_random_walk_dataset_prepares_and_reports_metadata():
+    pytest.importorskip("fastapi")
+    pytest.importorskip("pyarrow")
+
+    import pandas as pd
+    from fastapi.testclient import TestClient
+
+    from NEExT.workbench.app import create_app
+
+    payload = single_graph_intake_payload(
+        params={
+            "egonet_method": "random_walk",
+            "walk_length": 6,
+            "n_walks": 40,
+            "restart_prob": 0.2,
+            "node_selection": "all_nodes",
+            "target_node_attribute": "role",
+        }
+    )
+
+    with TemporaryDirectory() as tmpdir:
+        client = TestClient(create_app(tmpdir))
+        project_id = client.post("/api/projects", json={"name": "Walk Egonets"}).json()["id"]
+
+        validation = client.post(f"/api/projects/{project_id}/dataset-intake/validate", json=payload)
+        assert validation.status_code == 200
+        assert validation.json()["valid"] is True
+
+        dataset = client.post(f"/api/projects/{project_id}/dataset-intake/create", json=payload).json()
+        dataset_id = dataset["id"]
+        assert dataset["operation"]["params"]["egonet_method"] == "random_walk"
+        assert dataset["operation"]["params"]["walk_length"] == 6
+        assert dataset["operation"]["params"]["n_walks"] == 40
+        assert dataset["operation"]["params"]["restart_prob"] == 0.2
+
+        run = client.post(f"/api/projects/{project_id}/datasets/{dataset_id}/run")
+        assert run.status_code == 200
+        job = wait_for_job(client, project_id, run.json()["id"])
+        assert job["status"] == "completed"
+        assert "Computing random-walk egonets (40x6 steps, restart=0.2) for Imported Graph" in job["log"]
+
+        dataset = client.get(f"/api/projects/{project_id}/datasets/{dataset_id}").json()
+        assert dataset["status"] == "completed"
+        assert dataset["prepared_stats"]["graph_count"] == 8
+
+        artifact_path = Path(tmpdir) / "projects" / project_id / "artifacts" / "datasets" / dataset_id
+        graph_mapping = pd.read_parquet(artifact_path / "mappings" / "graph_mapping.parquet")
+        assert set(graph_mapping["egonet_method"]) == {"random_walk"}
+        assert graph_mapping["k_hop"].isna().all()
+        assert graph_mapping["internal_graph_id"].tolist() == list(range(8))
+
+        analysis = client.get(f"/api/projects/{project_id}/datasets/{dataset_id}/analysis").json()
+        metadata = analysis["egonet_metadata"]
+        assert metadata["egonet_method"] == "random_walk"
+        assert metadata["walk_length"] == 6
+        assert metadata["n_walks"] == 40
+        assert metadata["restart_prob"] == 0.2
+        assert "k_hop" not in metadata
+
+
+def test_legacy_manifest_without_method_fields_prepares_as_k_hop():
+    pytest.importorskip("fastapi")
+    pytest.importorskip("pyarrow")
+
+    import json as json_module
+
+    from fastapi.testclient import TestClient
+
+    from NEExT.workbench.app import create_app
+
+    payload = single_graph_intake_payload()
+
+    with TemporaryDirectory() as tmpdir:
+        client = TestClient(create_app(tmpdir))
+        project_id = client.post("/api/projects", json={"name": "Legacy Manifest"}).json()["id"]
+        dataset_id = client.post(f"/api/projects/{project_id}/dataset-intake/create", json=payload).json()["id"]
+
+        # Simulate a manifest written before egonet_method/walk params existed.
+        manifest_path = Path(tmpdir) / "projects" / project_id / "artifacts" / "datasets" / dataset_id / "artifact.json"
+        manifest = json_module.loads(manifest_path.read_text())
+        legacy_keys = {"k_hop", "node_selection", "sample_fraction", "random_seed", "source_node_ids", "target_node_attribute", "graph_type", "filter_largest_component", "reindex_nodes"}
+        manifest["operation"]["params"] = {k: v for k, v in manifest["operation"]["params"].items() if k in legacy_keys}
+        manifest_path.write_text(json_module.dumps(manifest))
+
+        run = client.post(f"/api/projects/{project_id}/datasets/{dataset_id}/run")
+        assert run.status_code == 200
+        job = wait_for_job(client, project_id, run.json()["id"])
+        assert job["status"] == "completed"
+        assert "Computing 1-hop egonets for Imported Graph" in job["log"]
+
+        metadata = client.get(f"/api/projects/{project_id}/datasets/{dataset_id}/analysis").json()["egonet_metadata"]
+        assert metadata["egonet_method"] == "k_hop"
+        assert metadata["k_hop"] == 1
+
+
+def test_random_walk_params_validation_rejections():
+    pytest.importorskip("fastapi")
+
+    from fastapi.testclient import TestClient
+
+    from NEExT.workbench.app import create_app
+
+    with TemporaryDirectory() as tmpdir:
+        client = TestClient(create_app(tmpdir))
+        project_id = client.post("/api/projects", json={"name": "Validation"}).json()["id"]
+        for bad_params in (
+            {"egonet_method": "random_walk", "restart_prob": 1.0},
+            {"egonet_method": "random_walk", "walk_length": 0},
+            {"egonet_method": "random_walk", "n_walks": 0},
+            {"egonet_method": "random_walk", "min_visits": 0},
+            {"egonet_method": "teleport"},
+        ):
+            payload = single_graph_intake_payload(params={**bad_params, "node_selection": "all_nodes"})
+            response = client.post(f"/api/projects/{project_id}/dataset-intake/validate", json=payload)
+            assert response.status_code == 422, bad_params

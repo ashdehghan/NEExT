@@ -14,6 +14,12 @@ import {
   type DatasetPreviewTable,
   type TabularPreview
 } from "../../api";
+import {
+  DEFAULT_EGONET_PARAMS,
+  EgonetParamsFields,
+  egonetParamsPayload,
+  type EgonetParamsState
+} from "./EgonetParamsFields";
 import { EmptyState } from "../../components/primitives/EmptyState";
 import { FcIcon } from "../../components/primitives/FcIcon";
 import { DatasetGraphTab, formatCount, formatValue } from "./DatasetGraphTab";
@@ -176,12 +182,7 @@ export function DatasetImportView({ activeProjectId, onCreated }: DatasetImportV
   const [importMode, setImportMode] = useState<DatasetImportMode>("graph_collection");
   const [graphType, setGraphType] = useState<"networkx" | "igraph">("networkx");
   const [filterLargestComponent, setFilterLargestComponent] = useState(true);
-  const [kHop, setKHop] = useState(1);
-  const [nodeSelection, setNodeSelection] = useState<"all_nodes" | "sample_fraction" | "specific_node_ids">("all_nodes");
-  const [sampleFraction, setSampleFraction] = useState(1);
-  const [randomSeed, setRandomSeed] = useState(13);
-  const [sourceNodeIdsText, setSourceNodeIdsText] = useState("");
-  const [targetNodeAttribute, setTargetNodeAttribute] = useState("");
+  const [egonetParams, setEgonetParams] = useState<EgonetParamsState>(DEFAULT_EGONET_PARAMS);
   const [tables, setTables] = useState<Partial<Record<DatasetImportTableName, string>>>({});
   const [fileError, setFileError] = useState("");
   const [validation, setValidation] = useState<DatasetIntakeValidationResponse | null>(null);
@@ -191,7 +192,12 @@ export function DatasetImportView({ activeProjectId, onCreated }: DatasetImportV
   const requiredTables = isSingleGraph ? REQUIRED_SINGLE_GRAPH_INTAKE_TABLES : REQUIRED_DATASET_INTAKE_TABLES;
   const missingRequiredTables = activeTables.filter((table) => requiredTables.has(table) && !tables[table]);
   const hasRequiredTables = missingRequiredTables.length === 0;
-  const sourceNodeIds = parseSourceNodeIds(sourceNodeIdsText);
+  const sourceNodeIds = parseSourceNodeIds(egonetParams.sourceNodeIdsText);
+
+  const patchEgonetParams = (patch: Partial<EgonetParamsState>) => {
+    setEgonetParams((current) => ({ ...current, ...patch }));
+    resetValidation();
+  };
 
   const nodeAttributeColumns = useMemo(() => {
     const csv = tables.nodes;
@@ -217,16 +223,7 @@ export function DatasetImportView({ activeProjectId, onCreated }: DatasetImportV
       ])
     ) as DatasetIntakePayload["tables"],
     params: isSingleGraph
-      ? {
-          graph_type: "networkx",
-          filter_largest_component: filterLargestComponent,
-          k_hop: kHop,
-          node_selection: nodeSelection,
-          sample_fraction: nodeSelection === "sample_fraction" ? sampleFraction : 1,
-          random_seed: randomSeed,
-          source_node_ids: nodeSelection === "specific_node_ids" ? sourceNodeIds : [],
-          target_node_attribute: targetNodeAttribute || null
-        }
+      ? egonetParamsPayload(egonetParams, filterLargestComponent, sourceNodeIds)
       : {
           graph_type: graphType,
           filter_largest_component: filterLargestComponent
@@ -254,7 +251,7 @@ export function DatasetImportView({ activeProjectId, onCreated }: DatasetImportV
   const parseFiles = async (files: FileList | null) => {
     resetValidation();
     setFileError("");
-    setTargetNodeAttribute("");
+    setEgonetParams((current) => ({ ...current, targetNodeAttribute: "" }));
     if (!files?.length) {
       setTables({});
       return;
@@ -297,7 +294,7 @@ export function DatasetImportView({ activeProjectId, onCreated }: DatasetImportV
     activeProjectId &&
       name.trim() &&
       hasRequiredTables &&
-      (!isSingleGraph || nodeSelection !== "specific_node_ids" || sourceNodeIds.length > 0) &&
+      (!isSingleGraph || egonetParams.nodeSelection !== "specific_node_ids" || sourceNodeIds.length > 0) &&
       !validateImport.isPending &&
       !createDataset.isPending
   );
@@ -343,7 +340,7 @@ export function DatasetImportView({ activeProjectId, onCreated }: DatasetImportV
                 setImportMode(event.target.value as DatasetImportMode);
                 setTables({});
                 setFileError("");
-                setTargetNodeAttribute("");
+                setEgonetParams((current) => ({ ...current, targetNodeAttribute: "" }));
                 resetValidation();
               }}
             >
@@ -394,93 +391,7 @@ export function DatasetImportView({ activeProjectId, onCreated }: DatasetImportV
           </label>
           {isSingleGraph ? (
             <>
-              <label className="field">
-                <span>K-Hop</span>
-                <input
-                  type="number"
-                  min={0}
-                  max={10}
-                  value={kHop}
-                  onChange={(event) => {
-                    setKHop(Number(event.target.value));
-                    resetValidation();
-                  }}
-                />
-              </label>
-              <label className="field">
-                <span>Node Selection</span>
-                <select
-                  value={nodeSelection}
-                  onChange={(event) => {
-                    setNodeSelection(event.target.value as "all_nodes" | "sample_fraction" | "specific_node_ids");
-                    resetValidation();
-                  }}
-                >
-                  <option value="all_nodes">All nodes</option>
-                  <option value="sample_fraction">Sample fraction</option>
-                  <option value="specific_node_ids">Specific node IDs</option>
-                </select>
-              </label>
-              <label className="field">
-                <span>Target Attribute</span>
-                <select
-                  value={targetNodeAttribute}
-                  onChange={(event) => {
-                    setTargetNodeAttribute(event.target.value);
-                    resetValidation();
-                  }}
-                >
-                  <option value="">None</option>
-                  {nodeAttributeColumns.map((column) => (
-                    <option key={column} value={column}>
-                      {column}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              {nodeSelection === "sample_fraction" ? (
-                <>
-                  <label className="field">
-                    <span>Sample Fraction</span>
-                    <input
-                      type="number"
-                      min={0.01}
-                      max={1}
-                      step={0.01}
-                      value={sampleFraction}
-                      onChange={(event) => {
-                        setSampleFraction(Number(event.target.value));
-                        resetValidation();
-                      }}
-                    />
-                  </label>
-                  <label className="field">
-                    <span>Random Seed</span>
-                    <input
-                      type="number"
-                      min={0}
-                      value={randomSeed}
-                      onChange={(event) => {
-                        setRandomSeed(Number(event.target.value));
-                        resetValidation();
-                      }}
-                    />
-                  </label>
-                </>
-              ) : null}
-              {nodeSelection === "specific_node_ids" ? (
-                <label className="field field-wide">
-                  <span>Source Node IDs</span>
-                  <textarea
-                    value={sourceNodeIdsText}
-                    rows={4}
-                    onChange={(event) => {
-                      setSourceNodeIdsText(event.target.value);
-                      resetValidation();
-                    }}
-                  />
-                </label>
-              ) : null}
+              <EgonetParamsFields state={egonetParams} onChange={patchEgonetParams} attributeOptions={nodeAttributeColumns} />
               <label className="checkbox-field">
                 <input
                   type="checkbox"
@@ -673,12 +584,8 @@ export function ConfigureDatasetView({ activeProjectId, entry, draft, onBack, on
   const queryClient = useQueryClient();
   const [graphType, setGraphType] = useState<"networkx" | "igraph">("networkx");
   const [filterLargestComponent, setFilterLargestComponent] = useState(true);
-  const [kHop, setKHop] = useState(1);
-  const [nodeSelection, setNodeSelection] = useState<"all_nodes" | "sample_fraction" | "specific_node_ids">("all_nodes");
-  const [sampleFraction, setSampleFraction] = useState(1);
-  const [randomSeed, setRandomSeed] = useState(13);
-  const [sourceNodeIdsText, setSourceNodeIdsText] = useState("");
-  const [targetNodeAttribute, setTargetNodeAttribute] = useState("");
+  const [egonetParams, setEgonetParams] = useState<EgonetParamsState>(DEFAULT_EGONET_PARAMS);
+  const patchEgonetParams = (patch: Partial<EgonetParamsState>) => setEgonetParams((current) => ({ ...current, ...patch }));
 
   useEffect(() => {
     if (!draft) return;
@@ -686,20 +593,30 @@ export function ConfigureDatasetView({ activeProjectId, entry, draft, onBack, on
     if (nextGraphType === "networkx" || nextGraphType === "igraph") setGraphType(nextGraphType);
     const nextFilter = draftBoolean(draft, "filter_largest_component");
     if (nextFilter !== undefined) setFilterLargestComponent(nextFilter);
+    const patch: Partial<EgonetParamsState> = {};
+    const nextMethod = draftString(draft, "egonet_method");
+    if (nextMethod === "k_hop" || nextMethod === "random_walk") patch.egonetMethod = nextMethod;
     const nextKHop = draftNumber(draft, "k_hop");
-    if (nextKHop !== undefined) setKHop(nextKHop);
+    if (nextKHop !== undefined) patch.kHop = nextKHop;
+    const nextWalkLength = draftNumber(draft, "walk_length");
+    if (nextWalkLength !== undefined) patch.walkLength = nextWalkLength;
+    const nextNWalks = draftNumber(draft, "n_walks");
+    if (nextNWalks !== undefined) patch.nWalks = nextNWalks;
+    const nextRestartProb = draftNumber(draft, "restart_prob");
+    if (nextRestartProb !== undefined) patch.restartProb = nextRestartProb;
     const nextNodeSelection = draftString(draft, "node_selection");
     if (nextNodeSelection === "all_nodes" || nextNodeSelection === "sample_fraction" || nextNodeSelection === "specific_node_ids") {
-      setNodeSelection(nextNodeSelection);
+      patch.nodeSelection = nextNodeSelection;
     }
     const nextSampleFraction = draftNumber(draft, "sample_fraction");
-    if (nextSampleFraction !== undefined) setSampleFraction(nextSampleFraction);
+    if (nextSampleFraction !== undefined) patch.sampleFraction = nextSampleFraction;
     const nextRandomSeed = draftNumber(draft, "random_seed");
-    if (nextRandomSeed !== undefined) setRandomSeed(nextRandomSeed);
+    if (nextRandomSeed !== undefined) patch.randomSeed = nextRandomSeed;
     const sourceNodeIds = draft?.source_node_ids;
-    if (Array.isArray(sourceNodeIds)) setSourceNodeIdsText(sourceNodeIds.map(String).join("\n"));
+    if (Array.isArray(sourceNodeIds)) patch.sourceNodeIdsText = sourceNodeIds.map(String).join("\n");
     const nextTargetAttribute = draftString(draft, "target_node_attribute");
-    if (nextTargetAttribute !== undefined) setTargetNodeAttribute(nextTargetAttribute);
+    if (nextTargetAttribute !== undefined) patch.targetNodeAttribute = nextTargetAttribute;
+    setEgonetParams((current) => ({ ...current, ...patch }));
   }, [activeProjectId, entry?.id, draft]);
 
   const createDataset = useMutation({
@@ -722,12 +639,12 @@ export function ConfigureDatasetView({ activeProjectId, entry, draft, onBack, on
     );
   }
 
-  const sourceNodeIds = parseSourceNodeIds(sourceNodeIdsText);
+  const sourceNodeIds = parseSourceNodeIds(egonetParams.sourceNodeIdsText);
   const isSingleGraph = entry.source_graph_shape === "single_graph";
   const canSave = Boolean(
     activeProjectId &&
       !createDataset.isPending &&
-      (!isSingleGraph || nodeSelection !== "specific_node_ids" || sourceNodeIds.length > 0)
+      (!isSingleGraph || egonetParams.nodeSelection !== "specific_node_ids" || sourceNodeIds.length > 0)
   );
 
   return (
@@ -739,16 +656,7 @@ export function ConfigureDatasetView({ activeProjectId, entry, draft, onBack, on
         if (isSingleGraph) {
           createDataset.mutate({
             catalog_id: entry.id,
-            params: {
-              graph_type: "networkx",
-              filter_largest_component: filterLargestComponent,
-              k_hop: kHop,
-              node_selection: nodeSelection,
-              sample_fraction: nodeSelection === "sample_fraction" ? sampleFraction : 1,
-              random_seed: randomSeed,
-              source_node_ids: nodeSelection === "specific_node_ids" ? sourceNodeIds : [],
-              target_node_attribute: targetNodeAttribute || null
-            }
+            params: egonetParamsPayload(egonetParams, filterLargestComponent, sourceNodeIds)
           });
         } else {
           createDataset.mutate({
@@ -793,72 +701,11 @@ export function ConfigureDatasetView({ activeProjectId, entry, draft, onBack, on
               </div>
             </div>
             <div className="field-grid">
-              <label className="field">
-                <span>K-Hop</span>
-                <input
-                  type="number"
-                  min={0}
-                  max={10}
-                  value={kHop}
-                  onChange={(event) => setKHop(Number(event.target.value))}
-                />
-              </label>
-              <label className="field">
-                <span>Node Selection</span>
-                <select
-                  value={nodeSelection}
-                  onChange={(event) => setNodeSelection(event.target.value as "all_nodes" | "sample_fraction" | "specific_node_ids")}
-                >
-                  <option value="all_nodes">All nodes</option>
-                  <option value="sample_fraction">Sample fraction</option>
-                  <option value="specific_node_ids">Specific node IDs</option>
-                </select>
-              </label>
-              <label className="field">
-                <span>Target Attribute</span>
-                <select value={targetNodeAttribute} onChange={(event) => setTargetNodeAttribute(event.target.value)}>
-                  <option value="">None</option>
-                  {entry.node_attribute_columns.map((column) => (
-                    <option key={column} value={column}>
-                      {column}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              {nodeSelection === "sample_fraction" ? (
-                <>
-                  <label className="field">
-                    <span>Sample Fraction</span>
-                    <input
-                      type="number"
-                      min={0.01}
-                      max={1}
-                      step={0.01}
-                      value={sampleFraction}
-                      onChange={(event) => setSampleFraction(Number(event.target.value))}
-                    />
-                  </label>
-                  <label className="field">
-                    <span>Random Seed</span>
-                    <input
-                      type="number"
-                      min={0}
-                      value={randomSeed}
-                      onChange={(event) => setRandomSeed(Number(event.target.value))}
-                    />
-                  </label>
-                </>
-              ) : null}
-              {nodeSelection === "specific_node_ids" ? (
-                <label className="field field-wide">
-                  <span>Source Node IDs</span>
-                  <textarea
-                    value={sourceNodeIdsText}
-                    onChange={(event) => setSourceNodeIdsText(event.target.value)}
-                    rows={4}
-                  />
-                </label>
-              ) : null}
+              <EgonetParamsFields
+                state={egonetParams}
+                onChange={patchEgonetParams}
+                attributeOptions={entry.node_attribute_columns}
+              />
               <label className="checkbox-field">
                 <input
                   type="checkbox"
@@ -1452,9 +1299,29 @@ export function DatasetExploreView({
                           <td>{analysis.data.egonet_metadata.operation_version}</td>
                         </tr>
                         <tr>
-                          <th>K-Hop</th>
-                          <td>{formatCount(analysis.data.egonet_metadata.k_hop)}</td>
+                          <th>Method</th>
+                          <td>{analysis.data.egonet_metadata.egonet_method === "random_walk" ? "random walk" : "k-hop"}</td>
                         </tr>
+                        {analysis.data.egonet_metadata.egonet_method === "random_walk" ? (
+                          <>
+                            <tr>
+                              <th>Walks x Length</th>
+                              <td>
+                                {formatCount(analysis.data.egonet_metadata.n_walks ?? 0)} x{" "}
+                                {formatCount(analysis.data.egonet_metadata.walk_length ?? 0)}
+                              </td>
+                            </tr>
+                            <tr>
+                              <th>Restart Probability</th>
+                              <td>{analysis.data.egonet_metadata.restart_prob}</td>
+                            </tr>
+                          </>
+                        ) : (
+                          <tr>
+                            <th>K-Hop</th>
+                            <td>{formatCount(analysis.data.egonet_metadata.k_hop ?? 0)}</td>
+                          </tr>
+                        )}
                         <tr>
                           <th>Node Selection</th>
                           <td>{analysis.data.egonet_metadata.node_selection.replace(/_/g, " ")}</td>

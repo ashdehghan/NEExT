@@ -4,11 +4,80 @@ from typing import Dict, List, Optional, Set, Union
 
 import igraph as ig
 import networkx as nx
+import numpy as np
 
 
 def divide_chunks(list, chunks):
     for i in range(0, len(list), chunks):
-        yield list[i:i + chunks]
+        yield list[i : i + chunks]
+
+
+def build_adjacency_lists(G: Union[nx.Graph, ig.Graph]) -> Dict[int, np.ndarray]:
+    """
+    Build a node -> neighbor-array adjacency map for either backend.
+
+    Random-walk simulation steps through this structure instead of the
+    backend's own walk routines: igraph's random_walk draws from a
+    process-global C RNG, which would break the library's self-contained
+    randomness guarantee, and NetworkX has no walk routine at all. A plain
+    dict of numpy arrays gives both backends identical, seedable behavior.
+
+    Args:
+        G: Graph object (NetworkX or iGraph)
+
+    Returns:
+        Dict[int, np.ndarray]: Sorted neighbor IDs per node.
+    """
+    if isinstance(G, nx.Graph):
+        return {node: np.fromiter(sorted(G.neighbors(node)), dtype=np.int64) for node in G.nodes()}
+    return {v.index: np.fromiter(sorted(G.neighbors(v.index)), dtype=np.int64) for v in G.vs}
+
+
+def random_walk_visit_counts(
+    adjacency: Dict[int, np.ndarray],
+    start: int,
+    walk_length: int,
+    n_walks: int,
+    restart_prob: float,
+    rng: np.random.RandomState,
+) -> Dict[int, int]:
+    """
+    Visit counts from repeated random walks with restart, started at one node.
+
+    Each walk contributes walk_length + 1 visit events (the start counts as
+    position zero). At every step the walker restarts at `start` with
+    probability `restart_prob` (personalized-PageRank-style homing), otherwise
+    moves to a uniformly random neighbor; a walker on an isolated node
+    restarts. All randomness comes from the caller's RNG instance.
+
+    Args:
+        adjacency: Output of build_adjacency_lists for the parent graph
+        start: Center node ID the walks start (and restart) from
+        walk_length: Number of steps per walk
+        n_walks: Number of independent walks
+        restart_prob: Per-step probability of jumping back to `start`
+        rng: Self-contained random state (never the global RNG)
+
+    Returns:
+        Dict[int, int]: Node ID -> number of visit events.
+    """
+    counts: Dict[int, int] = defaultdict(int)
+    counts[start] = n_walks
+    total_steps = walk_length * n_walks
+    restart_draws = rng.random_sample(total_steps) < restart_prob if restart_prob > 0.0 else np.zeros(total_steps, dtype=bool)
+    step_draws = rng.random_sample(total_steps)
+    i = 0
+    for _ in range(n_walks):
+        current = start
+        for _ in range(walk_length):
+            neighbors = adjacency.get(current)
+            if restart_draws[i] or neighbors is None or len(neighbors) == 0:
+                current = start
+            else:
+                current = int(neighbors[int(step_draws[i] * len(neighbors))])
+            counts[current] += 1
+            i += 1
+    return dict(counts)
 
 
 def get_numb_of_nb_x_hops_away(G: Union[nx.Graph, ig.Graph], node: int, max_hop_length: int) -> List[int]:
@@ -59,18 +128,18 @@ def get_nodes_x_hops_away(G: Union[nx.Graph, ig.Graph], node: int, max_hop_lengt
 def get_all_neighborhoods_nx(G, max_hops: int, nodes_to_process: Optional[List[int]] = None) -> Dict:
     """
     Get neighborhoods for all specified nodes in a NetworkX graph.
-    
+
     Args:
         G: NetworkX graph
         max_hops: Maximum number of hops to consider
         nodes_to_process: List of nodes to get neighborhoods for. If None, process all nodes.
-        
+
     Returns:
         Dict: Dictionary mapping each node to its neighborhood at each hop
     """
     if nodes_to_process is None:
         nodes_to_process = list(G.nodes())
-        
+
     neighborhoods = {}
     for node in nodes_to_process:
         neighborhoods[node] = get_nodes_x_hops_away(G, node, max_hops)
@@ -80,18 +149,18 @@ def get_all_neighborhoods_nx(G, max_hops: int, nodes_to_process: Optional[List[i
 def get_all_neighborhoods_ig(G, max_hops: int, nodes_to_process: Optional[List[int]] = None) -> Dict:
     """
     Get neighborhoods for all specified nodes in an iGraph graph.
-    
+
     Args:
         G: iGraph graph
         max_hops: Maximum number of hops to consider
         nodes_to_process: List of nodes to get neighborhoods for. If None, process all nodes.
-        
+
     Returns:
         Dict: Dictionary mapping each node to its neighborhood at each hop
     """
     if nodes_to_process is None:
         nodes_to_process = list(range(G.vcount()))
-        
+
     neighborhoods = {}
     for node in nodes_to_process:
         neighborhoods[node] = {}
@@ -109,8 +178,7 @@ def get_all_neighborhoods_ig(G, max_hops: int, nodes_to_process: Optional[List[i
     return neighborhoods
 
 
-def get_specific_in_community_degree(G, node_id, community_partition: List[List[int]],
-                                     community_id: int) -> int:
+def get_specific_in_community_degree(G, node_id, community_partition: List[List[int]], community_id: int) -> int:
     """
     This method will compute the community degree of a node for a specific community.
 
@@ -129,9 +197,7 @@ def get_all_in_community_degrees(G, node_id, community_partition: List[List[int]
     """
     in_community_degrees = []
     for i, community in enumerate(community_partition):
-        in_community_degrees.append(
-            get_specific_in_community_degree(G, node_id, community_partition, i)
-            )
+        in_community_degrees.append(get_specific_in_community_degree(G, node_id, community_partition, i))
 
     return in_community_degrees
 
@@ -147,8 +213,7 @@ def get_own_in_community_degree(G, node_id, community_partition: List[List[int]]
             return get_specific_in_community_degree(G, node_id, community_partition, i)
 
 
-def get_specific_community_volume(G, community_partition: List[List[int]],
-                                  community_id: int) -> int:
+def get_specific_community_volume(G, community_partition: List[List[int]], community_id: int) -> int:
     """
     This method will compute the volume of a specific community in the graph.
     The volume is the sum of all the degrees of the nodes in the community.
@@ -168,9 +233,7 @@ def get_all_community_volumes(G, community_partition: List[List[int]]) -> List[i
 
     community_volumes = []
     for i in range(len(community_partition)):
-        community_volumes.append(
-            get_specific_community_volume(G, community_partition, i)
-            )
+        community_volumes.append(get_specific_community_volume(G, community_partition, i))
 
     return community_volumes
 

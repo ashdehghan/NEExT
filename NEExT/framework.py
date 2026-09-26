@@ -250,6 +250,7 @@ class NEExT:
         my_feature_methods: list = None,
         parallel_backend: Literal["loky", "threading"] = "loky",
         profile_features: bool = False,
+        feature_scope: Literal["local", "global"] = "local",
         joblib_kwargs: Optional[dict[str, Any]] = None,
     ) -> Features:
         """
@@ -265,15 +266,47 @@ class NEExT:
             my_feature_methods: Optional list of custom feature method definitions
             parallel_backend: Joblib backend for parallel execution, either "loky" or "threading" (default: "loky")
             profile_features: Whether to log per graph-feature timing records at INFO level (default: False)
+            feature_scope: Where features are computed (default: "local").
+                "local" computes features within each graph of the collection —
+                for an EgonetCollection that means within each egonet subgraph,
+                so centralities are relative to the extracted bag.
+                "global" (EgonetCollection only) computes features once on the
+                source GraphCollection the egonets were built from — true
+                full-graph values, with feature_vector_length hop aggregations
+                over the real neighborhoods — then projects each source node's
+                vector onto every egonet it is a member of. With
+                normalize_features=True the normalization is fit on the source
+                rows (one row per source node) before projection, so bag
+                overlap cannot skew it; a k_hop=0 singleton bag carries the
+                node's true full-graph features.
             joblib_kwargs: Optional advanced keyword arguments passed to joblib.Parallel for parallel execution
 
         Returns:
             Features: Container with computed feature data for all nodes
         """
-        self.logger.info(f"Computing node features: {feature_list}")
+        if feature_scope not in ("local", "global"):
+            raise ValueError(f"feature_scope must be 'local' or 'global', got {feature_scope!r}")
+        target_collection = graph_collection
+        if feature_scope == "global":
+            if not isinstance(graph_collection, EgonetCollection):
+                raise ValueError(
+                    "feature_scope='global' requires an EgonetCollection (features are computed on the "
+                    "source graphs and projected onto egonet members); for a plain GraphCollection use "
+                    "the default feature_scope='local'."
+                )
+            source = getattr(graph_collection, "source_graph_collection", None)
+            if source is None:
+                raise ValueError(
+                    "This EgonetCollection has no source_graph_collection. Rebuild the egonets with "
+                    "compute_k_hop_egonets / compute_random_walk_egonets / compute_leiden_egonets, or "
+                    "set egonet_collection.source_graph_collection to the source GraphCollection."
+                )
+            target_collection = source
+
+        self.logger.info(f"Computing node features: {feature_list} (scope: {feature_scope})")
 
         node_features = StructuralNodeFeatures(
-            graph_collection=graph_collection,
+            graph_collection=target_collection,
             feature_list=feature_list,
             feature_vector_length=feature_vector_length,
             normalize_features=normalize_features,
@@ -289,6 +322,8 @@ class NEExT:
                 node_features.register_metric(entry["feature_name"], entry["feature_function"])
 
         features = node_features.compute()
+        if feature_scope == "global":
+            features = graph_collection.project_source_features(features)
         self.logger.info(f"Computed features for {len(features.features_df)} nodes")
 
         return features
@@ -474,6 +509,75 @@ class NEExT:
         egonet_collection.compute_k_hop_egonets(
             graph_collection=graph_collection,
             k_hop=k_hop,
+            nodes_to_sample=nodes_to_sample,
+            sample_fraction=sample_fraction,
+            random_seed=random_seed,
+        )
+
+        self.logger.info(f"Created {len(egonet_collection.graphs)} egonets")
+        return egonet_collection
+
+    def compute_random_walk_egonets(
+        self,
+        graph_collection: GraphCollection,
+        walk_length: int = 10,
+        n_walks: int = 100,
+        restart_prob: float = 0.15,
+        min_visits: int = 3,
+        max_egonet_size: Optional[int] = None,
+        weight_by_visits: bool = True,
+        egonet_feature_target: Optional[str] = None,
+        skip_features: Optional[List[str]] = None,
+        nodes_to_sample: Optional[Dict[int, List[int]]] = None,
+        sample_fraction: float = 1.0,
+        random_seed: int = 13,
+    ) -> EgonetCollection:
+        """
+        Decompose graphs into random-walk egonets (visited-node subgraphs).
+
+        Runs n_walks walks of walk_length steps from each sampled center, with
+        per-step restart probability restart_prob (personalized-PageRank-style
+        homing). Visited nodes form the egonet; normalized visit frequencies
+        become membership weights (Egonet.node_weights) consumed by graph
+        embeddings as the bag's distribution mass. Neighborhoods conform to
+        community structure and vary smoothly between adjacent centers.
+
+        Args:
+            graph_collection: Collection of graphs to decompose
+            walk_length: Steps per walk (default: 10)
+            n_walks: Walks per center (default: 100)
+            restart_prob: Per-step probability of returning to the center;
+                0.0 gives pure walks (default: 0.15)
+            min_visits: Minimum visit events for membership; noise floor
+                against the one-visit fringe (default: 3)
+            max_egonet_size: Keep only the top-N most visited members
+                (default: None)
+            weight_by_visits: Attach normalized visit frequencies as
+                node_weights (default: True)
+            egonet_feature_target: Node attribute to use as egonet label (default: None)
+            skip_features: Node features to exclude from egonets (default: None)
+            nodes_to_sample: Dict mapping graph_id to list of nodes to always include
+            sample_fraction: Fraction of nodes to sample egonets for (default: 1.0)
+            random_seed: Random seed for node sampling and walks (default: 13)
+
+        Returns:
+            EgonetCollection: Collection of egonets
+        """
+        self.logger.info(f"Computing random-walk egonets ({n_walks}x{walk_length} steps, restart={restart_prob})")
+
+        egonet_collection = EgonetCollection(
+            graph_type=graph_collection.graph_type,
+            egonet_feature_target=egonet_feature_target,
+            skip_features=skip_features or [],
+        )
+        egonet_collection.compute_random_walk_egonets(
+            graph_collection=graph_collection,
+            walk_length=walk_length,
+            n_walks=n_walks,
+            restart_prob=restart_prob,
+            min_visits=min_visits,
+            max_egonet_size=max_egonet_size,
+            weight_by_visits=weight_by_visits,
             nodes_to_sample=nodes_to_sample,
             sample_fraction=sample_fraction,
             random_seed=random_seed,
