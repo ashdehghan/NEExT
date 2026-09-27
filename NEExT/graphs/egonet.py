@@ -9,15 +9,12 @@ class Egonet(Graph):
     """
     Attributes:
         node_mapping Optional[Dict[int, int]]: Mapping from original graph node IDs to internal egonet node IDs
-        node_weights Optional[Dict[int, float]]: Optional membership weights keyed by INTERNAL egonet node ID
-            (e.g. normalized random-walk visit frequencies). None means uniform membership; when present the
-            weights are consumed as the egonet's distribution mass in graph embeddings.
+        node_weights Optional[Dict[int, float]]: Inherited from Graph; keyed by INTERNAL egonet node ID.
     """
 
     original_graph_id: Optional[Union[int, str]] = Field(default=None)
     original_node_id: int = Field(default=None)
     node_mapping: Optional[Dict[int, int]] = Field(default_factory=dict)
-    node_weights: Optional[Dict[int, float]] = Field(default=None)
 
     def reindex_nodes(self) -> "Egonet":
         """Reindex nodes to be consecutive integers starting from 0."""

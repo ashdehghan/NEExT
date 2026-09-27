@@ -264,8 +264,10 @@ class EgonetCollection(GraphCollection):
 
         Walks are simulated over precomputed adjacency lists with a
         self-contained RNG (igraph's own random_walk uses a process-global C
-        RNG); per-center seeds are derived from the call's seed so results do
-        not depend on iteration order. The center is always a member.
+        RNG). Each center gets its own walk RNG, seeded from a draw of the
+        call's RNG, so results are reproducible for a given random_seed and
+        sampled center set (a center's walks depend on its position in that
+        set). The center is always a member.
 
         Args:
             graph_collection (GraphCollection): The collection of graphs from
@@ -320,8 +322,8 @@ class EgonetCollection(GraphCollection):
             parent_index = self._build_parent_index(graph)
             adjacency = build_adjacency_lists(graph.G)
             for node_id in valid_nodes[graph.graph_id]:
-                # Per-center seed derived from the shared rng: reproducible and
-                # independent of center iteration order.
+                # Per-center seed drawn from the shared rng: reproducible for a
+                # given seed and center set (draws follow center order).
                 walk_rng = np.random.RandomState(rng.randint(0, 1_000_000))
                 counts = random_walk_visit_counts(adjacency, node_id, walk_length, n_walks, restart_prob, walk_rng)
 

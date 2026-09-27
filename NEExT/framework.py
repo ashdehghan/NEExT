@@ -250,8 +250,8 @@ class NEExT:
         my_feature_methods: list = None,
         parallel_backend: Literal["loky", "threading"] = "loky",
         profile_features: bool = False,
-        feature_scope: Literal["local", "global"] = "local",
         joblib_kwargs: Optional[dict[str, Any]] = None,
+        feature_scope: Literal["local", "global"] = "local",
     ) -> Features:
         """
         Compute node features for all graphs in the collection.
@@ -266,6 +266,7 @@ class NEExT:
             my_feature_methods: Optional list of custom feature method definitions
             parallel_backend: Joblib backend for parallel execution, either "loky" or "threading" (default: "loky")
             profile_features: Whether to log per graph-feature timing records at INFO level (default: False)
+            joblib_kwargs: Optional advanced keyword arguments passed to joblib.Parallel for parallel execution
             feature_scope: Where features are computed (default: "local").
                 "local" computes features within each graph of the collection —
                 for an EgonetCollection that means within each egonet subgraph,
@@ -279,7 +280,6 @@ class NEExT:
                 rows (one row per source node) before projection, so bag
                 overlap cannot skew it; a k_hop=0 singleton bag carries the
                 node's true full-graph features.
-            joblib_kwargs: Optional advanced keyword arguments passed to joblib.Parallel for parallel execution
 
         Returns:
             Features: Container with computed feature data for all nodes

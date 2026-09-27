@@ -28,6 +28,9 @@ class Graph(BaseModel):
         graph_type (str): Backend graph library to use ("networkx" or "igraph")
         G (Union[nx.Graph, ig.Graph]): The actual graph instance (set automatically)
         sampled_nodes (Optional[List[int]]): List of sampled nodes for feature computation
+        node_weights (Optional[Dict[int, float]]): Optional membership weights keyed by node ID
+            (e.g. normalized random-walk visit frequencies). None means uniform membership; when
+            present the weights are used as the graph's distribution mass in graph embeddings.
     """
 
     model_config = {
@@ -47,6 +50,7 @@ class Graph(BaseModel):
     source_to_internal_node_id: Dict[Any, int] = Field(default_factory=dict)
     dropped_source_node_ids: List[Any] = Field(default_factory=list)
     drop_reasons_by_source_node_id: Dict[Any, str] = Field(default_factory=dict)
+    node_weights: Optional[Dict[int, float]] = Field(default=None)
 
     def initialize_graph(self):
         """Initialize the graph with the specified backend."""
