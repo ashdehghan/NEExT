@@ -635,6 +635,7 @@ class NEExT:
         n_iterations: int = 5,
         n_jobs: int = -1,
         parallel_backend: str = "process",
+        holdout_size: Optional[float] = None,
     ) -> pd.DataFrame:
         """
         Compute feature importance for graph embeddings.
@@ -647,6 +648,9 @@ class NEExT:
             embedding_algorithm: Algorithm to use for embedding computation
             random_state: Random seed for reproducibility
             n_iterations: Number of iterations for computing average performance
+            holdout_size: Optional fraction of graphs held out before selection. Selection
+                then uses only the remaining graphs, and the result gains a
+                ``heldout_performance`` column scored on the held-out graphs.
 
         Returns:
             pd.DataFrame: DataFrame containing feature importance results
@@ -662,6 +666,7 @@ class NEExT:
             n_iterations=n_iterations,
             n_jobs=n_jobs,
             parallel_backend=parallel_backend,
+            holdout_size=holdout_size,
         )
 
         results_df = feature_importance.compute()
