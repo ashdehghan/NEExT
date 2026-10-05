@@ -236,3 +236,6 @@ notes/
 
 # Session handoff notes between agent sessions (local only).
 /HANDOFF.md
+
+# Local archive of removed files (never committed)
+/archive/
