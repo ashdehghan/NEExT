@@ -202,6 +202,9 @@ local
 mlruns
 mlartifacts
 
+# Brainstorming directory (one subdirectory per session or research direction, kept locally)
+/brainstorming/
+
 # Test and debug directory for optimization testing
 test_and_debug/
 
