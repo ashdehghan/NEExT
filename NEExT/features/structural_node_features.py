@@ -602,11 +602,15 @@ class StructuralNodeFeatures:
             community_detection = nx.community.louvain_communities(G, seed=13)
             node_community_mapping = {node: i for i, community in enumerate(community_detection) for node in community}
         else:  # igraph
-            # Use local RNG for deterministic community detection
+            # Use local RNG for deterministic community detection, then hand igraph
+            # back its default (Python's random module) so later Leiden calls
+            # elsewhere in the process are not silently pinned to this RNG.
             ig.set_random_number_generator(local_rng)
-
-            # generate communities using leiden
-            community_detection = G.community_leiden(objective_function="modularity", n_iterations=10, resolution=1.0)
+            try:
+                # generate communities using leiden
+                community_detection = G.community_leiden(objective_function="modularity", n_iterations=10, resolution=1.0)
+            finally:
+                ig.set_random_number_generator(random)
             node_community_mapping = {k: v for k, v in enumerate(community_detection.membership)}
 
         for k, v in node_community_mapping.items():
