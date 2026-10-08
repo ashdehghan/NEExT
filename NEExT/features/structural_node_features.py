@@ -374,6 +374,9 @@ class StructuralNodeFeatures:
 
             # Calculate expansion ratios
             vector = []
+            if avg_degree == 0:  # edgeless graph (e.g. a patch that is one isolated node): no expansion anywhere
+                feature_vectors.append([0.0] * len(nr_neighbors))
+                continue
             vector.append(nr_neighbors[0] / avg_degree)  # First hop
 
             # Subsequent hops

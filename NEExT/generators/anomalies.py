@@ -22,6 +22,12 @@ class AnomalyInjector:
     - structural_rewire: Rewire edges of selected nodes to unusual targets.
     - contextual_feature: Push feature values to distribution extremes.
     - contextual_mixed: Both structural + feature anomalies on same nodes.
+    - contextual_regime_swap: Flip whole blocks of a ``regime_graph`` to the other regime's block type (an A block
+      inside a run of B blocks or the reverse). Degree sequence and every non-anomalous node's 1-hop ego-net
+      unchanged (collateral-free); all nodes of a flipped block are labelled.
+    - contextual_combination: Flip the block type of rule-bound blocks (needs a graph from
+      ``combination_rule_graph``); the block becomes locally normal but breaks the context rule. Degree
+      sequence unchanged; anomalies are whole blocks, chosen stratified by context cell.
 
     Args:
         seed: Random seed for reproducibility.
@@ -44,6 +50,15 @@ class AnomalyInjector:
         Returns:
             The graph with injected anomalies.
         """
+        if config.anomaly_type in ("contextual_combination", "contextual_regime_swap"):
+            for node in G.nodes():
+                G.nodes[node].setdefault("is_outlier", 0)
+            if config.anomaly_type == "contextual_combination":
+                self._inject_combination(G, config.fraction)
+            else:
+                self._inject_regime_blocks(G, config.fraction)
+            return G
+
         nodes = sorted(G.nodes())
         n = len(nodes)
         n_anomalies = max(1, int(n * config.fraction))
@@ -195,3 +210,158 @@ class AnomalyInjector:
         self._inject_rewire(G, anomaly_nodes, severity)
         # Contextual: perturb features
         self._inject_contextual_feature(G, anomaly_nodes, severity)
+
+    # ── Contextual anomalies that preserve the degree sequence ────────
+
+    def _inject_regime_blocks(self, G: nx.Graph, fraction: float) -> None:
+        """Flip whole blocks of a ``regime_graph`` to the other regime's block type, collateral-free.
+
+        A block is eligible if both ring neighbours belong to its own regime; chosen blocks are pairwise
+        non-adjacent. Only edges inside a flipped block change and every block keeps its degree sequence, so the
+        1-hop ego-net (induced subgraph) of every node outside the flipped blocks is unchanged. All nodes of a
+        flipped block are labelled ``is_outlier = 1``. Records ``G.graph['anomaly_report']`` with requested and
+        realised counts (blocks and nodes) and an empty ``collateral`` list.
+        """
+        if any("block" not in G.nodes[n] for n in G.nodes()) or "regime" not in G.graph.get("blocks", [{}])[0]:
+            raise ValueError("contextual_regime_swap needs a graph built with regime_graph")
+        blocks = G.graph["blocks"]
+        nb = len(blocks)
+        n_flip = max(1, int(round(fraction * G.number_of_nodes() / G.graph["block_size"])))
+        eligible = [i for i in range(nb) if blocks[(i - 1) % nb]["regime"] == blocks[i]["regime"] == blocks[(i + 1) % nb]["regime"]]
+        chosen: List[int] = []
+        for i in self._rng.permutation(eligible):
+            if len(chosen) >= n_flip:
+                break
+            if any(min(abs(i - j), nb - abs(i - j)) <= 1 for j in chosen):
+                continue
+            chosen.append(int(i))
+        for i in chosen:
+            b = blocks[i]
+            new_type = "B" if b["type"] == "A" else "A"
+            _set_block_type(G, b, new_type, self._rng)
+            b["type"] = new_type
+            b["anomalous"] = True
+            for n in b["nodes"]:
+                G.nodes[n]["is_outlier"] = 1
+                G.nodes[n]["block_type"] = new_type
+        G.graph["anomaly_report"] = {
+            "requested_blocks": int(n_flip),
+            "realised_blocks": len(chosen),
+            "requested_nodes": int(n_flip * G.graph["block_size"]),
+            "realised": int(sum(len(blocks[i]["nodes"]) for i in chosen)),
+            "collateral": [],
+        }
+
+    def _inject_combination(self, G: nx.Graph, fraction: float) -> None:
+        """Flip the type of rule-bound blocks of a ``combination_rule_graph``, stratified by context cell."""
+        if any("block" not in G.nodes[n] for n in G.nodes()):
+            raise ValueError("contextual_combination needs a graph built with combination_rule_graph")
+        blocks = G.graph["blocks"]
+        bound = [b for b in blocks if b["role"] == "rule"]
+        n_flip = max(1, int(round(fraction * G.number_of_nodes() / G.graph["block_size"])))
+        cells: Dict[tuple, List[dict]] = {}
+        for b in bound:
+            cells.setdefault(tuple(b["context_counts"]), []).append(b)
+        # stratified: allocate flips to cells in proportion to their size (largest remainders)
+        sizes = {c: len(v) for c, v in cells.items()}
+        quota = {c: n_flip * s / len(bound) for c, s in sizes.items()}
+        alloc = {c: int(np.floor(q)) for c, q in quota.items()}
+        for c in sorted(quota, key=lambda c: quota[c] - alloc[c], reverse=True)[: n_flip - sum(alloc.values())]:
+            alloc[c] += 1
+        G.graph["anomaly_report"] = {"requested_blocks": int(n_flip), "requested_nodes": int(n_flip * G.graph["block_size"])}
+        for c, k in alloc.items():
+            chosen = self._rng.choice(len(cells[c]), size=min(k, len(cells[c])), replace=False)
+            for idx in chosen:
+                b = cells[c][idx]
+                new_type = "B" if b["type"] == "A" else "A"
+                _set_block_type(G, b, new_type, self._rng)
+                b["type"] = new_type
+                b["anomalous"] = True
+                for n in b["nodes"]:
+                    G.nodes[n]["is_outlier"] = 1
+                    G.nodes[n]["block_type"] = new_type
+        flipped = [b for b in blocks if b.get("anomalous")]
+        G.graph["anomaly_report"].update({"realised_blocks": len(flipped), "realised": sum(len(b["nodes"]) for b in flipped), "collateral": []})
+
+
+# ── Base graphs for the degree-preserving contextual anomalies ────────
+
+
+def _block_edges(nodes: List[int], kind: str, rng: np.random.RandomState) -> List[tuple]:
+    """4-regular block: 'A' = circulant C_n(1, 2) (clustering 0.5), 'B' = random 4-regular (low clustering)."""
+    n = len(nodes)
+    if kind == "A":
+        local = [(i, (i + s) % n) for i in range(n) for s in (1, 2)]
+    else:
+        g = nx.random_regular_graph(4, n, seed=int(rng.randint(0, 2**31 - 1)))
+        local = list(g.edges())
+    return [(nodes[a], nodes[b]) for a, b in local]
+
+
+def _set_block_type(G: nx.Graph, block: dict, kind: str, rng: np.random.RandomState) -> None:
+    nodes = block["nodes"]
+    internal = [(a, b) for a, b in G.edges(nodes) if a in set(nodes) and b in set(nodes)]
+    G.remove_edges_from(internal)
+    G.add_edges_from(_block_edges(nodes, kind, rng))
+
+
+def _ring_of_blocks(types: List[str], block_size: int, rng: np.random.RandomState, extra: Optional[List[dict]] = None) -> nx.Graph:
+    """Ring of 4-regular blocks of the given types; port nodes 0 and block_size // 2 link consecutive blocks, so every
+    block has the same degree sequence (two degree-5 ports, the rest degree 4) whatever its type."""
+    n_blocks = len(types)
+    blocks = []
+    for i, t in enumerate(types):
+        rec = {"index": i, "nodes": list(range(i * block_size, (i + 1) * block_size)), "type": t, "anomalous": False}
+        if extra is not None:
+            rec.update(extra[i])
+        blocks.append(rec)
+    G = nx.Graph(blocks=blocks, block_size=block_size)
+    for b in blocks:
+        G.add_nodes_from(b["nodes"], block=b["index"], block_type=b["type"], **{k: b[k] for k in ("regime", "block_role") if k in b})
+        G.add_edges_from(_block_edges(b["nodes"], b["type"], rng))
+    half = block_size // 2
+    for i in range(n_blocks):
+        G.add_edge(blocks[i]["nodes"][half], blocks[(i + 1) % n_blocks]["nodes"][0])
+    return G
+
+
+def regime_graph(n_blocks: int = 60, block_size: int = 20, run_length: int = 10, seed: int = 0) -> nx.Graph:
+    """Ring of blocks in alternating regimes of ``run_length`` blocks: regime 'H' = type-A blocks (circulant
+    C_n(1, 2), clustering 0.5), regime 'L' = type-B blocks (random 4-regular, low clustering). Every block has the
+    same degree sequence. Node attributes ``block``, ``block_type``, ``regime``; ``G.graph['blocks']`` holds the
+    per-block records (nodes, type, regime, anomalous)."""
+    rng = np.random.RandomState(seed)
+    regimes = ["H" if (i // run_length) % 2 == 0 else "L" for i in range(n_blocks)]
+    types = ["A" if r == "H" else "B" for r in regimes]
+    return _ring_of_blocks(types, block_size, rng, [{"regime": r} for r in regimes])
+
+
+def combination_rule_graph(n_periods: int = 20, block_size: int = 20, seed: int = 0) -> nx.Graph:
+    """Ring of blocks in periods of five: context, context, rule, context, context. Every block is 4-regular
+    internally (type 'A' = circulant, high clustering; 'B' = random 4-regular); block port nodes 0 and
+    block_size // 2 link to the neighbouring blocks, so every block has the same degree sequence whatever its type.
+
+    Context blocks get a random type. A rule block's type is a non-linear function of its context:
+    'A' iff the number of type-A blocks among its two adjacent blocks (band 1) equals the number among the two
+    blocks at distance two (band 2); otherwise 'B'. The rule is non-monotone in the band means, so a linear model
+    of context cannot express it. Node attributes: ``block``, ``block_role`` ('context' or 'rule'),
+    ``block_type``. ``G.graph['blocks']`` holds per-block records (nodes, role, type, context_counts).
+    """
+    rng = np.random.RandomState(seed)
+    n_blocks = 5 * n_periods
+    roles = ["context", "context", "rule", "context", "context"] * n_periods
+    types = [None] * n_blocks
+    for i, r in enumerate(roles):
+        if r == "context":
+            types[i] = "A" if rng.rand() < 0.5 else "B"
+    extra = []
+    for i, r in enumerate(roles):
+        counts = None
+        if r == "rule":
+            band1 = [types[(i - 1) % n_blocks], types[(i + 1) % n_blocks]]
+            band2 = [types[(i - 2) % n_blocks], types[(i + 2) % n_blocks]]
+            counts = (band1.count("A"), band2.count("A"))
+            types[i] = "A" if counts[0] == counts[1] else "B"
+        extra.append({"role": r, "block_role": r, "context_counts": counts})
+    G = _ring_of_blocks(types, block_size, rng, extra)
+    return G

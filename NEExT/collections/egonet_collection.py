@@ -498,48 +498,87 @@ class EgonetCollection(GraphCollection):
 
             membership, merge_log = merge_small_communities(graph.edges, raw_membership, min_patch_size)
             membership = relabel_contiguous(membership)
-            self.patch_memberships[graph.graph_id] = membership
             self.patch_merge_log[graph.graph_id] = merge_log
+            patch_id = self._add_patches(graph, membership, expand_one_hop, patch_label, purity_threshold, patch_id)
 
-            members_by_patch: Dict[int, List[int]] = defaultdict(list)
-            for node_id, com_id in enumerate(membership):
-                members_by_patch[com_id].append(node_id)
-            degrees = graph.G.degree()
-            parent_index = self._build_parent_index(graph)
+        self.egonet_node_features = self._create_egonet_features_df(graph_collection)
+        self.source_graph_collection = graph_collection
 
-            for com_id in sorted(members_by_patch):
-                members = members_by_patch[com_id]
-                centre = min(members, key=lambda n: (-degrees[n], n))
-                patch_nodes = list(members)
-                if expand_one_hop:
-                    expanded = set(members)
-                    for neighbourhood in graph.G.neighborhood(members, order=1):
-                        expanded.update(neighbourhood)
-                    patch_nodes = sorted(expanded)
+    def _add_patches(self, graph, membership, expand_one_hop, patch_label, purity_threshold, patch_id):
+        """Build one patch per membership class of `graph` (centre = highest-degree member, ties to the lowest id),
+        optionally expanded by one hop, append them to this collection and return the next free patch id."""
+        self.patch_memberships[graph.graph_id] = membership
+        members_by_patch: Dict[int, List[int]] = defaultdict(list)
+        for node_id, com_id in enumerate(membership):
+            members_by_patch[com_id].append(node_id)
+        degrees = graph.G.degree()
+        parent_index = self._build_parent_index(graph)
 
-                label = None
-                if self.egonet_feature_target:
-                    node_labels = [_python_scalar(graph.node_attributes[n][self.egonet_feature_target]) for n in members]
-                    centre_label = _python_scalar(graph.node_attributes[centre][self.egonet_feature_target])
-                    label, fraction, histogram = compute_patch_label(
-                        node_labels, patch_label, centre_label=centre_label, purity_threshold=purity_threshold
-                    )
-                    self.patch_label_fraction[patch_id] = fraction
-                    self.patch_label_histogram[patch_id] = histogram
+        for com_id in sorted(members_by_patch):
+            members = members_by_patch[com_id]
+            centre = min(members, key=lambda n: (-degrees[n], n))
+            patch_nodes = list(members)
+            if expand_one_hop:
+                expanded = set(members)
+                for neighbourhood in graph.G.neighborhood(members, order=1):
+                    expanded.update(neighbourhood)
+                patch_nodes = sorted(expanded)
 
-                egonet = self._build_egonet(
-                    graph=graph,
-                    node_id=centre,
-                    egonet_nodes=patch_nodes,
-                    egonet_id=patch_id,
-                    egonet_label=label,
-                    parent_index=parent_index,
+            label = None
+            if self.egonet_feature_target:
+                node_labels = [_python_scalar(graph.node_attributes[n][self.egonet_feature_target]) for n in members]
+                centre_label = _python_scalar(graph.node_attributes[centre][self.egonet_feature_target])
+                label, fraction, histogram = compute_patch_label(
+                    node_labels, patch_label, centre_label=centre_label, purity_threshold=purity_threshold
                 )
-                self.graphs.append(egonet)
-                self.graph_id_node_array.extend([patch_id] * len(egonet.nodes))
-                self.egonet_to_graph_node_mapping[patch_id] = (graph.graph_id, centre)
-                patch_id += 1
+                self.patch_label_fraction[patch_id] = fraction
+                self.patch_label_histogram[patch_id] = histogram
 
+            egonet = self._build_egonet(
+                graph=graph,
+                node_id=centre,
+                egonet_nodes=patch_nodes,
+                egonet_id=patch_id,
+                egonet_label=label,
+                parent_index=parent_index,
+            )
+            self.graphs.append(egonet)
+            self.graph_id_node_array.extend([patch_id] * len(egonet.nodes))
+            self.egonet_to_graph_node_mapping[patch_id] = (graph.graph_id, centre)
+            patch_id += 1
+        return patch_id
+
+    def compute_membership_patches(
+        self,
+        graph_collection: GraphCollection,
+        memberships: Dict[int, List[int]],
+        expand_one_hop: bool = False,
+        patch_label: Literal["majority", "centre", "purity", "distribution"] = "majority",
+        purity_threshold: float = 0.8,
+    ):
+        """
+        Tile every graph into patches from a given partition: one patch per class of ``memberships[graph_id]``
+        (a list giving each node's part, node ids 0..n-1 of the source graph), e.g. METIS parts. Patches are built
+        exactly as in ``compute_leiden_patches`` (centre, optional one-hop expansion, labels), without merging.
+        Requires the igraph backend.
+        """
+        if any(g.graph_type == "networkx" for g in graph_collection.graphs):
+            raise NotImplementedError("Membership patches require iGraph backend. Use graph_type='igraph' when loading graphs.")
+        self.graphs = []
+        self.graph_id_node_array = []
+        self.egonet_to_graph_node_mapping = {}
+        self.patch_memberships = {}
+        self.patch_label_fraction = {}
+        self.patch_label_histogram = {}
+        self.patch_merge_log = {}
+        patch_id = 0
+        for graph in graph_collection.graphs:
+            membership = memberships[graph.graph_id]
+            if len(membership) != len(graph.nodes):
+                raise ValueError(f"graph {graph.graph_id}: membership has {len(membership)} entries for {len(graph.nodes)} nodes")
+            membership = relabel_contiguous(list(membership))
+            self.patch_merge_log[graph.graph_id] = []
+            patch_id = self._add_patches(graph, membership, expand_one_hop, patch_label, purity_threshold, patch_id)
         self.egonet_node_features = self._create_egonet_features_df(graph_collection)
         self.source_graph_collection = graph_collection
 

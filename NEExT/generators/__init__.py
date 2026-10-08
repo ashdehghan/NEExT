@@ -12,7 +12,7 @@ feeding directly into ``nxt.load_from_networkx()``.
 
 from ._adapters import GraphAdapter
 from ._config import AnomalyConfig, AttributeConfig, CollectionSpec, GeneratorSpec
-from .anomalies import AnomalyInjector
+from .anomalies import AnomalyInjector, combination_rule_graph, regime_graph
 from .attributes import AttributeGenerator
 from .builder import GraphBuilder
 from .generator import GraphGenerator
@@ -29,4 +29,6 @@ __all__ = [
     "CollectionSpec",
     "AttributeConfig",
     "AnomalyConfig",
+    "regime_graph",
+    "combination_rule_graph",
 ]

@@ -680,6 +680,39 @@ class NEExT:
         self.logger.info(f"Created {len(patch_collection.graphs)} patches")
         return patch_collection
 
+    def compute_membership_patches(
+        self,
+        graph_collection: GraphCollection,
+        memberships: Dict[int, List[int]],
+        egonet_feature_target: Optional[str] = None,
+        skip_features: Optional[List[str]] = None,
+        expand_one_hop: bool = False,
+        patch_label: Literal["majority", "centre", "purity", "distribution"] = "majority",
+        purity_threshold: float = 0.8,
+    ) -> EgonetCollection:
+        """
+        Tile each graph into patches from a given partition (for example METIS parts): one patch per class of
+        ``memberships[graph_id]``, a list with each node's part. Requires iGraph backend. Patches are built as in
+        ``compute_leiden_patches`` (centre, optional one-hop expansion, labels), without merging small parts.
+
+        Returns:
+            EgonetCollection: one Egonet per patch, with ``patch_memberships`` per source graph
+        """
+        patch_collection = EgonetCollection(
+            graph_type=graph_collection.graph_type,
+            egonet_feature_target=egonet_feature_target,
+            skip_features=skip_features or [],
+        )
+        patch_collection.compute_membership_patches(
+            graph_collection=graph_collection,
+            memberships=memberships,
+            expand_one_hop=expand_one_hop,
+            patch_label=patch_label,
+            purity_threshold=purity_threshold,
+        )
+        self.logger.info(f"Created {len(patch_collection.graphs)} patches")
+        return patch_collection
+
     def compute_feature_importance(
         self,
         graph_collection: GraphCollection,

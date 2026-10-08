@@ -338,3 +338,54 @@ def test_compute_leiden_egonets_unchanged():
         centre = egonets.egonet_to_graph_node_mapping[egonet.graph_id][1]
         assert set(egonet.node_mapping) == set(range((centre // 6) * 6, (centre // 6) * 6 + 6))
         assert egonet.graph_label == centre // 6
+
+
+# ---------------------------------------------------------------------------
+# Patches from a given partition (compute_membership_patches)
+# ---------------------------------------------------------------------------
+
+
+def test_membership_patches_match_leiden_patches_on_the_same_partition():
+    edges_df, nodes_df = cliques_in_a_ring()
+    nxt, coll = load(edges_df, nodes_df)
+    leiden = tile(nxt, coll, expand_one_hop=True)
+    given = nxt.compute_membership_patches(coll, dict(leiden.patch_memberships), egonet_feature_target="lbl", expand_one_hop=True)
+    assert given.patch_memberships == leiden.patch_memberships
+    assert [sorted(p.nodes) for p in given.graphs] == [sorted(p.nodes) for p in leiden.graphs]
+    assert given.egonet_to_graph_node_mapping == leiden.egonet_to_graph_node_mapping
+    assert [p.graph_label for p in given.graphs] == [p.graph_label for p in leiden.graphs]
+
+
+def test_membership_patches_partition_and_expansion():
+    edges_df, nodes_df = cliques_in_a_ring(n_cliques=4, size=6)
+    nxt, coll = load(edges_df, nodes_df)
+    gid = coll.graphs[0].graph_id
+    membership = [n // 12 for n in range(24)]  # two parts of two cliques each
+    plain = nxt.compute_membership_patches(coll, {gid: membership})
+    assert len(plain.graphs) == 2 and sorted(len(p.nodes) for p in plain.graphs) == [12, 12]
+    assert plain.patch_merge_log[gid] == []
+    expanded = nxt.compute_membership_patches(coll, {gid: membership}, expand_one_hop=True)
+    assert all(len(p.nodes) == 14 for p in expanded.graphs)  # each part gains the two ring neighbours across the cut
+
+
+def test_membership_patches_rejects_wrong_length():
+    edges_df, nodes_df = cliques_in_a_ring()
+    nxt, coll = load(edges_df, nodes_df)
+    with pytest.raises(ValueError):
+        nxt.compute_membership_patches(coll, {coll.graphs[0].graph_id: [0, 1]})
+
+
+def test_membership_patches_singleton_and_edgeless_parts():
+    # path 0-1-2 plus an isolated node 3; parts: {0,1}, {2} (singleton), {3} (edgeless)
+    edges_df = pd.DataFrame([(0, 1), (1, 2)], columns=["src_node_id", "dest_node_id"])
+    nodes_df = pd.DataFrame({"node_id": [0, 1, 2, 3], "lbl": [0, 0, 1, 1]})
+    nxt = NEExT()
+    nxt.set_log_level("WARNING")
+    coll = nxt.load_single_graph_from_dfs(edges_df=edges_df, nodes_df=nodes_df, graph_type="igraph", filter_largest_component=False)
+    gid = coll.graphs[0].graph_id
+    patches = nxt.compute_membership_patches(coll, {gid: [0, 0, 1, 2]}, egonet_feature_target="lbl")
+    assert [len(p.nodes) for p in patches.graphs] == [2, 1, 1]
+    expanded = nxt.compute_membership_patches(coll, {gid: [0, 0, 1, 2]}, expand_one_hop=True)
+    assert [len(p.nodes) for p in expanded.graphs] == [3, 2, 1]  # the isolated part stays a single node
+    feats = nxt.compute_node_features(expanded, feature_list=["degree_centrality", "basic_expansion"], feature_vector_length=2, show_progress=False)
+    assert np.isfinite(feats.features_df[feats.feature_columns].to_numpy(dtype=float)).all()
