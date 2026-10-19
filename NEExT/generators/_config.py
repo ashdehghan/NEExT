@@ -95,6 +95,8 @@ class AnomalyConfig(BaseModel):
         "structural_rewire",
         "contextual_feature",
         "contextual_mixed",
+        "contextual_regime_swap",
+        "contextual_combination",
     ] = "structural_hub"
     fraction: float = Field(default=0.05, gt=0.0, lt=1.0)
     severity: float = Field(default=3.0, gt=0.0)

@@ -16,7 +16,7 @@ import time
 import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path, PurePosixPath
-from typing import Any, Callable
+from typing import Any, Callable, Optional
 
 from pydantic import ValidationError
 
@@ -2298,7 +2298,7 @@ class WorkbenchStore:
                 walk_length=walk_length,
                 n_walks=n_walks,
                 restart_prob=restart_prob,
-                min_visits=int(params.get("min_visits", 1)),
+                min_visits=int(params.get("min_visits", 3)),
                 max_egonet_size=params.get("max_egonet_size"),
                 weight_by_visits=bool(params.get("weight_by_visits", True)),
                 nodes_to_sample=nodes_to_sample,
@@ -2670,9 +2670,17 @@ class WorkbenchStore:
         node_feature_records = []
         edge_feature_records = []
 
+        # Membership weights (random-walk visit frequencies) travel with the
+        # prepared nodes table so embeddings computed later still use them.
+        has_node_weights = any(getattr(graph, "node_weights", None) for graph in collection.graphs)
+
         for graph in collection.graphs:
+            node_weights = getattr(graph, "node_weights", None) or {}
             for node_id in graph.nodes:
-                nodes_records.append({"graph_id": graph.graph_id, "node_id": node_id})
+                record = {"graph_id": graph.graph_id, "node_id": node_id}
+                if has_node_weights:
+                    record["membership_weight"] = node_weights.get(node_id, 1.0)
+                nodes_records.append(record)
                 node_attrs = graph.node_attributes.get(node_id, {})
                 if node_attrs:
                     node_feature_records.append({"graph_id": graph.graph_id, "node_id": node_id, **node_attrs})
@@ -2691,7 +2699,8 @@ class WorkbenchStore:
             if graph.graph_label is not None:
                 graph_label_records.append({"graph_id": graph.graph_id, "graph_label": graph.graph_label})
 
-        nodes_out = pd.DataFrame(nodes_records, columns=["graph_id", "node_id"])
+        nodes_columns = ["graph_id", "node_id", "membership_weight"] if has_node_weights else ["graph_id", "node_id"]
+        nodes_out = pd.DataFrame(nodes_records, columns=nodes_columns)
         edges_out = pd.DataFrame(edges_records, columns=["graph_id", "src_node_id", "dest_node_id"])
         nodes_out.to_parquet(prepared_dir / "nodes.parquet", index=False)
         edges_out.to_parquet(prepared_dir / "edges.parquet", index=False)
@@ -3315,6 +3324,12 @@ class WorkbenchStore:
             filter_largest_component=False,
             node_sample_rate=1.0,
         )
+        if "membership_weight" in nodes_df.columns:
+            weights_by_graph: dict[Any, dict[int, float]] = {}
+            for graph_id, node_id, weight in nodes_df[["graph_id", "node_id", "membership_weight"]].itertuples(index=False, name=None):
+                weights_by_graph.setdefault(graph_id, {})[int(node_id)] = float(weight)
+            for graph in collection.graphs:
+                graph.node_weights = weights_by_graph.get(graph.graph_id)
         if use_job_cache and cache is not None:
             cache[cache_key] = collection
         return collection

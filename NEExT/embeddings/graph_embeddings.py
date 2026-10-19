@@ -154,6 +154,12 @@ class GraphEmbeddings:
 
     def _embeddings_output_df(self, embeddings, graph_ids) -> pd.DataFrame:
         """Assemble the output frame (graph_id first, then emb_* columns)."""
+        if embeddings.shape[1] < self.config.embedding_dimension:
+            raise ValueError(
+                f"embedding_dimension={self.config.embedding_dimension} exceeds what {self.config.embedding_algorithm} can produce "
+                f"from {embeddings.shape[1]} feature column(s); the optimal-transport vectorizers cannot emit more dimensions "
+                f"than the node feature space has. Use embedding_dimension <= {embeddings.shape[1]} or add features."
+            )
         embeddings_df = pd.DataFrame()
         embeddings_df["graph_id"] = graph_ids
 

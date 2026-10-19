@@ -202,6 +202,9 @@ local
 mlruns
 mlartifacts
 
+# Brainstorming directory (one subdirectory per session or research direction, kept locally)
+/brainstorming/
+
 # Test and debug directory for optimization testing
 test_and_debug/
 
@@ -233,3 +236,9 @@ notes/
 
 # Reference/example scripts: kept local.
 /examples/
+
+# Session handoff notes between agent sessions (local only).
+/HANDOFF.md
+
+# Local archive of removed files (never committed)
+/archive/

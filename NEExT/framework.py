@@ -250,8 +250,8 @@ class NEExT:
         my_feature_methods: list = None,
         parallel_backend: Literal["loky", "threading"] = "loky",
         profile_features: bool = False,
-        feature_scope: Literal["local", "global"] = "local",
         joblib_kwargs: Optional[dict[str, Any]] = None,
+        feature_scope: Literal["local", "global"] = "local",
     ) -> Features:
         """
         Compute node features for all graphs in the collection.
@@ -266,6 +266,7 @@ class NEExT:
             my_feature_methods: Optional list of custom feature method definitions
             parallel_backend: Joblib backend for parallel execution, either "loky" or "threading" (default: "loky")
             profile_features: Whether to log per graph-feature timing records at INFO level (default: False)
+            joblib_kwargs: Optional advanced keyword arguments passed to joblib.Parallel for parallel execution
             feature_scope: Where features are computed (default: "local").
                 "local" computes features within each graph of the collection —
                 for an EgonetCollection that means within each egonet subgraph,
@@ -279,7 +280,6 @@ class NEExT:
                 rows (one row per source node) before projection, so bag
                 overlap cannot skew it; a k_hop=0 singleton bag carries the
                 node's true full-graph features.
-            joblib_kwargs: Optional advanced keyword arguments passed to joblib.Parallel for parallel execution
 
         Returns:
             Features: Container with computed feature data for all nodes
@@ -625,6 +625,94 @@ class NEExT:
         self.logger.info(f"Created {len(egonet_collection.graphs)} egonets")
         return egonet_collection
 
+    def compute_leiden_patches(
+        self,
+        graph_collection: GraphCollection,
+        egonet_feature_target: Optional[str] = None,
+        skip_features: Optional[List[str]] = None,
+        resolution: float = 1.0,
+        n_iterations: int = 10,
+        min_patch_size: int = 5,
+        expand_one_hop: bool = False,
+        random_seed: int = 13,
+        patch_label: Literal["majority", "centre", "purity", "distribution"] = "majority",
+        purity_threshold: float = 0.8,
+    ) -> EgonetCollection:
+        """
+        Tile each graph into patches: one subgraph per Leiden community.
+
+        Requires iGraph backend. See ``EgonetCollection.compute_leiden_patches`` for the
+        merge, expansion, centre and labelling rules.
+
+        Args:
+            graph_collection: Collection of graphs to tile
+            egonet_feature_target: Node attribute from which patch labels are derived (default: None)
+            skip_features: Node features to exclude from the patches (default: None)
+            resolution: Leiden resolution; higher gives more, smaller patches (default: 1.0)
+            n_iterations: Leiden iterations (default: 10)
+            min_patch_size: Communities below this size are merged into a neighbour (default: 5)
+            expand_one_hop: Add one-hop neighbours to every patch (default: False)
+            random_seed: Seed for Leiden (default: 13)
+            patch_label: "majority", "centre", "purity" or "distribution" (default: "majority")
+            purity_threshold: Threshold for the "purity" scheme (default: 0.8)
+
+        Returns:
+            EgonetCollection: one Egonet per patch, with ``patch_memberships`` per source graph
+        """
+        self.logger.info("Computing Leiden patches")
+
+        patch_collection = EgonetCollection(
+            graph_type=graph_collection.graph_type,
+            egonet_feature_target=egonet_feature_target,
+            skip_features=skip_features or [],
+        )
+        patch_collection.compute_leiden_patches(
+            graph_collection=graph_collection,
+            resolution=resolution,
+            n_iterations=n_iterations,
+            min_patch_size=min_patch_size,
+            expand_one_hop=expand_one_hop,
+            random_seed=random_seed,
+            patch_label=patch_label,
+            purity_threshold=purity_threshold,
+        )
+
+        self.logger.info(f"Created {len(patch_collection.graphs)} patches")
+        return patch_collection
+
+    def compute_membership_patches(
+        self,
+        graph_collection: GraphCollection,
+        memberships: Dict[int, List[int]],
+        egonet_feature_target: Optional[str] = None,
+        skip_features: Optional[List[str]] = None,
+        expand_one_hop: bool = False,
+        patch_label: Literal["majority", "centre", "purity", "distribution"] = "majority",
+        purity_threshold: float = 0.8,
+    ) -> EgonetCollection:
+        """
+        Tile each graph into patches from a given partition (for example METIS parts): one patch per class of
+        ``memberships[graph_id]``, a list with each node's part. Requires iGraph backend. Patches are built as in
+        ``compute_leiden_patches`` (centre, optional one-hop expansion, labels), without merging small parts.
+
+        Returns:
+            EgonetCollection: one Egonet per patch, with ``patch_memberships`` per source graph
+        """
+        patch_collection = EgonetCollection(
+            graph_type=graph_collection.graph_type,
+            egonet_feature_target=egonet_feature_target,
+            skip_features=skip_features or [],
+        )
+        patch_collection.compute_membership_patches(
+            graph_collection=graph_collection,
+            memberships=memberships,
+            expand_one_hop=expand_one_hop,
+            patch_label=patch_label,
+            purity_threshold=purity_threshold,
+        )
+        self.logger.info(f"Created {len(patch_collection.graphs)} patches")
+        return patch_collection
+
     def compute_feature_importance(
         self,
         graph_collection: GraphCollection,
@@ -635,6 +723,7 @@ class NEExT:
         n_iterations: int = 5,
         n_jobs: int = -1,
         parallel_backend: str = "process",
+        holdout_size: Optional[float] = None,
     ) -> pd.DataFrame:
         """
         Compute feature importance for graph embeddings.
@@ -647,6 +736,9 @@ class NEExT:
             embedding_algorithm: Algorithm to use for embedding computation
             random_state: Random seed for reproducibility
             n_iterations: Number of iterations for computing average performance
+            holdout_size: Optional fraction of graphs held out before selection. Selection
+                then uses only the remaining graphs, and the result gains a
+                ``heldout_performance`` column scored on the held-out graphs.
 
         Returns:
             pd.DataFrame: DataFrame containing feature importance results
@@ -662,6 +754,7 @@ class NEExT:
             n_iterations=n_iterations,
             n_jobs=n_jobs,
             parallel_backend=parallel_backend,
+            holdout_size=holdout_size,
         )
 
         results_df = feature_importance.compute()

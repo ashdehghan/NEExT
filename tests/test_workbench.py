@@ -5581,6 +5581,18 @@ def test_single_graph_random_walk_dataset_prepares_and_reports_metadata():
         assert graph_mapping["k_hop"].isna().all()
         assert graph_mapping["internal_graph_id"].tolist() == list(range(8))
 
+        # Visit weights are persisted with the prepared nodes and reattached on load.
+        prepared_nodes = pd.read_parquet(artifact_path / "prepared" / "nodes.parquet")
+        assert "membership_weight" in prepared_nodes.columns
+        assert prepared_nodes.groupby("graph_id")["membership_weight"].sum().round(9).eq(1.0).all()
+        from NEExT.workbench.storage import WorkbenchStore
+
+        collection = WorkbenchStore(Path(tmpdir), run_worker=False)._load_prepared_collection(project_id, dataset_id)
+        for graph in collection.graphs:
+            assert graph.node_weights is not None
+            assert set(graph.node_weights) == set(graph.nodes)
+            assert abs(sum(graph.node_weights.values()) - 1.0) < 1e-9
+
         analysis = client.get(f"/api/projects/{project_id}/datasets/{dataset_id}/analysis").json()
         metadata = analysis["egonet_metadata"]
         assert metadata["egonet_method"] == "random_walk"
