@@ -116,7 +116,7 @@ DOC_TOPICS: list[dict[str, Any]] = [
                     "Optional: 'nodes' with a unique node_id column; extra columns become node attributes. Without a nodes table the node set is inferred from edge endpoints, so isolated nodes require a nodes table.",
                     "Other table names (node_graph_mapping, graph_labels, node_features, edge_features) are rejected in single-graph mode.",
                     "Egonet settings are supplied in params at import time: egonet_method (k_hop, random_walk), k_hop, walk_length, n_walks, restart_prob, min_visits, max_egonet_size, weight_by_visits, node_selection (all_nodes, sample_fraction, specific_node_ids), sample_fraction, random_seed, source_node_ids, target_node_attribute.",
-                    "egonet_method=random_walk builds each egonet from n_walks random walks of walk_length steps with restart_prob homing; visit frequencies are carried as membership weights into the graph embeddings.",
+                    "egonet_method=random_walk builds each egonet from one random walk with restart of n_walks * walk_length steps (restart_prob is the per-step jump back to the centre); visit frequencies are carried as membership weights into the graph embeddings.",
                     "target_node_attribute promotes one nodes-table attribute column to each egonet's graph label; it must exist and have no missing values.",
                     "Preparation computes one egonet per selected node and the resulting egonet collection flows through Features, Embeddings, and Models like any other prepared dataset.",
                 ],

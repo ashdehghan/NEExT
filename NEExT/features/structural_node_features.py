@@ -2,7 +2,7 @@ import logging
 import random
 import time
 from collections import defaultdict
-from typing import Any, List, Literal, Optional
+from typing import Any, Dict, List, Literal, Optional
 
 import igraph as ig
 import networkx as nx
@@ -91,8 +91,16 @@ class StructuralNodeFeatures:
         parallel_backend: Literal["loky", "threading"] = "loky",
         profile_features: bool = False,
         joblib_kwargs: Optional[dict[str, Any]] = None,
+        node_embedding_params: Optional[Dict[str, Dict[str, Any]]] = None,
     ):
-        """Initialize the NodeFeatures processor."""
+        """Initialize the NodeFeatures processor.
+
+        ``feature_list`` may also name the structural node embeddings of ``NEExT.node_embeddings``
+        ("struc2vec", "role2vec", "graphwave"). Each adds a block of columns ``<name>_0 ..`` computed on the whole
+        graph (no hop aggregation; ``feature_vector_length`` does not apply), recorded as one feature group.
+        ``node_embedding_params`` maps an embedding name to keyword arguments for it (e.g. ``{"struc2vec":
+        {"dim": 32, "seed": 1}}``). "all" does not include them: name them explicitly.
+        """
         self.graph_collection = graph_collection
 
         # Define available features
@@ -123,6 +131,7 @@ class StructuralNodeFeatures:
             suffix=suffix,
         )
         self.features_df = None
+        self.node_embedding_params = dict(node_embedding_params or {})
 
         # Cache for neighborhoods to avoid redundant computation
         self._neighborhood_cache = {}
@@ -699,13 +708,25 @@ class StructuralNodeFeatures:
 
         if any(f.lower() == "all" for f in original_feature_list):
             # Add all available features
-            resolved_feature_list.extend(self.available_features.keys())
+            from NEExT.node_embeddings import NODE_EMBEDDING_FEATURES as _embedding_names
+
+            resolved_feature_list.extend(name for name in self.available_features if name not in _embedding_names)
             # Add any other explicitly mentioned features that aren't "all"
             for feature_name in original_feature_list:
                 if feature_name.lower() != "all" and feature_name not in resolved_feature_list:
                     resolved_feature_list.append(feature_name)
         else:
             resolved_feature_list = list(original_feature_list)
+
+        # Structural node embeddings are registered on demand (never through "all"); each is one feature group.
+        from NEExT.node_embeddings import NODE_EMBEDDING_FEATURES, node_embedding_feature
+
+        embedding_names = [f for f in resolved_feature_list if f in NODE_EMBEDDING_FEATURES and f not in self.available_features]
+        for name in embedding_names:
+            self.available_features[name] = node_embedding_feature(name, self.node_embedding_params.get(name))
+        unknown_params = sorted(set(self.node_embedding_params) - set(NODE_EMBEDDING_FEATURES))
+        if unknown_params:
+            raise ValueError(f"node_embedding_params names unknown embeddings {unknown_params}; available: {list(NODE_EMBEDDING_FEATURES)}")
 
         # Validate resolved list
         for feature in resolved_feature_list:
@@ -760,7 +781,12 @@ class StructuralNodeFeatures:
             self._normalize_features()
             features_df = self.features_df
 
-        return Features(features_df, feature_columns)
+        suffix = f"_{self.config.suffix}" if self.config.suffix else ""
+        feature_groups = {}
+        for name in resolved_feature_list:
+            if name in NODE_EMBEDDING_FEATURES:
+                feature_groups[name] = [col for col in feature_columns if col.startswith(f"{name}_") and col.endswith(suffix)]
+        return Features(features_df, feature_columns, feature_groups)
 
     def _compute_graph_node_features(self, graph, resolved_feature_list: List[str]):
         # Clear neighborhood cache for previous graphs to save memory

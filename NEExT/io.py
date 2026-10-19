@@ -31,6 +31,7 @@ class GraphIO:
         reindex_nodes: bool = True,
         filter_largest_component: bool = True,
         node_sample_rate: float = 1.0,
+        random_seed: int = 13,
     ) -> GraphCollection:
         """
         Read graph data from CSV files and create a GraphCollection.
@@ -47,6 +48,7 @@ class GraphIO:
                                     component of each graph (default: True)
             node_sample_rate: Rate at which to sample nodes from each graph (default: 1.0).
                             Must be between 0 and 1.
+            random_seed: Seed for node sampling when node_sample_rate < 1 (default: 13)
 
         Returns:
             GraphCollection: Collection of graphs created from the CSV data
@@ -96,6 +98,7 @@ class GraphIO:
             reindex_nodes=reindex_nodes,
             filter_largest_component=filter_largest_component,
             node_sample_rate=node_sample_rate,
+            random_seed=random_seed,
         )
 
         return collection
@@ -111,6 +114,7 @@ class GraphIO:
         reindex_nodes: bool = True,
         filter_largest_component: bool = True,
         node_sample_rate: float = 1.0,
+        random_seed: int = 13,
     ) -> GraphCollection:
         # Validate required columns
         if not {"src_node_id", "dest_node_id"}.issubset(edges_df.columns):
@@ -152,6 +156,7 @@ class GraphIO:
             reindex_nodes=reindex_nodes,
             filter_largest_component=filter_largest_component,
             node_sample_rate=node_sample_rate,
+            random_seed=random_seed,
         )
 
         return collection
@@ -165,6 +170,7 @@ class GraphIO:
         reindex_nodes: bool = True,
         filter_largest_component: bool = True,
         node_sample_rate: float = 1.0,
+        random_seed: int = 13,
     ) -> GraphCollection:
         """
         Load a single graph from DataFrames without a node-graph mapping.
@@ -183,6 +189,7 @@ class GraphIO:
             reindex_nodes: Whether to reindex nodes starting from 0
             filter_largest_component: Whether to keep only the largest component
             node_sample_rate: Rate at which to sample nodes (1.0 = all nodes)
+            random_seed: Seed for node sampling when node_sample_rate < 1 (default: 13)
 
         Returns:
             GraphCollection containing the single graph
@@ -229,6 +236,7 @@ class GraphIO:
             reindex_nodes=reindex_nodes,
             filter_largest_component=filter_largest_component,
             node_sample_rate=node_sample_rate,
+            random_seed=random_seed,
         )
 
     def _organize_graph_data(
@@ -366,6 +374,7 @@ class GraphIO:
         reindex_nodes: bool = True,
         filter_largest_component: bool = True,
         node_sample_rate: float = 1.0,
+        random_seed: int = 13,
     ) -> GraphCollection:
         """
         Create a GraphCollection from a list of NetworkX graphs.
@@ -378,6 +387,7 @@ class GraphIO:
                                            component of each graph (default: True)
             node_sample_rate (float): Rate at which to sample nodes from each graph (default: 1.0).
                                     Must be between 0 and 1.
+            random_seed: Seed for node sampling when node_sample_rate < 1 (default: 13)
 
         Returns:
             GraphCollection: Collection of graphs created from the NetworkX graphs
@@ -399,6 +409,7 @@ class GraphIO:
             reindex_nodes=reindex_nodes,
             filter_largest_component=filter_largest_component,
             node_sample_rate=node_sample_rate,
+            random_seed=random_seed,
         )
 
         return collection

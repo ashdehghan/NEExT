@@ -242,27 +242,31 @@ class Graph(BaseModel):
             if len(components) > 1:
                 component_sizes = components.sizes()
                 largest_cc_idx = component_sizes.index(max(component_sizes))
-                subgraph = self.G.subgraph(components[largest_cc_idx])
+                kept_vertices = list(components[largest_cc_idx])
+                subgraph = self.G.subgraph(kept_vertices)
             else:
                 # Already connected
                 return self.nodes, self.edges, self.node_attributes, self.edge_attributes
 
-            # Extract nodes and edges from subgraph
-            nodes = [v.index for v in subgraph.vs]
-            edges = [(e.source, e.target) for e in subgraph.es]
+            # igraph renumbers the subgraph's vertices 0..m-1 in ascending order of the kept
+            # vertex ids; map them back so nodes, edges and attributes keep the parent's ids,
+            # as the networkx branch does (provenance and drop records compare against them).
+            original_id = sorted(kept_vertices)
+            nodes = list(original_id)
+            edges = [(original_id[e.source], original_id[e.target]) for e in subgraph.es]
 
             # Extract node and edge attributes
             node_attrs = {}
             for v in subgraph.vs:
                 attrs = {attr: v[attr] for attr in v.attributes() if attr != "name"}
                 if attrs:
-                    node_attrs[v.index] = attrs
+                    node_attrs[original_id[v.index]] = attrs
 
             edge_attrs = {}
             for e in subgraph.es:
                 attrs = {attr: e[attr] for attr in e.attributes()}
                 if attrs:
-                    edge_attrs[(e.source, e.target)] = attrs
+                    edge_attrs[(original_id[e.source], original_id[e.target])] = attrs
         return nodes, edges, node_attrs, edge_attrs
 
     def get_graph_info(self):

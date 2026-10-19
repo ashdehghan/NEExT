@@ -129,9 +129,7 @@ def test_load_from_dfs_scopes_edges_by_graph_id_without_contamination():
 
     # Two graphs, BOTH using local node ids {0, 1, 2}, but different edges.
     node_graph_df = pd.DataFrame({"node_id": [0, 1, 2, 0, 1, 2], "graph_id": [0, 0, 0, 1, 1, 1]})
-    edges_df = pd.DataFrame(
-        {"graph_id": [0, 0, 1], "src_node_id": [0, 1, 0], "dest_node_id": [1, 2, 2]}
-    )
+    edges_df = pd.DataFrame({"graph_id": [0, 0, 1], "src_node_id": [0, 1, 0], "dest_node_id": [1, 2, 2]})
 
     collection = GraphIO().load_from_dfs(
         edges_df=edges_df,
@@ -158,3 +156,20 @@ def test_load_from_dfs_scopes_edges_by_graph_id_without_contamination():
     )
     legacy_graph0 = {graph.graph_id: graph for graph in legacy.graphs}[0]
     assert frozenset((0, 2)) in {frozenset(edge) for edge in legacy_graph0.edges}
+
+
+def test_largest_component_filter_provenance_matches_across_backends():
+    """igraph renumbers subgraph vertices; the filter must still record the parent ids, like networkx."""
+    edges = [(0, 3), (3, 4), (4, 0), (1, 2)]
+    attrs = {n: {"lbl": n * 10} for n in range(5)}
+    results = {}
+    for backend in ("networkx", "igraph"):
+        graph = Graph(graph_id=1, nodes=[0, 1, 2, 3, 4], edges=edges, node_attributes=attrs, graph_type=backend)
+        graph.initialize_graph()
+        filtered = graph.filter_largest_component()
+        results[backend] = filtered
+        assert filtered.source_to_internal_node_id == {0: 0, 3: 1, 4: 2}
+        assert sorted(filtered.dropped_source_node_ids) == [1, 2]
+        labels = {source: filtered.node_attributes[internal]["lbl"] for source, internal in filtered.source_to_internal_node_id.items()}
+        assert labels == {0: 0, 3: 30, 4: 40}
+    assert sorted(map(sorted, results["networkx"].edges)) == sorted(map(sorted, results["igraph"].edges))

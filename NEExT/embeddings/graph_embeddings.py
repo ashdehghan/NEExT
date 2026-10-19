@@ -1,3 +1,4 @@
+import logging
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
 from multiprocessing import cpu_count
 from typing import Dict, List, Literal, Optional, Union
@@ -11,6 +12,12 @@ from NEExT.collections import GraphCollection
 from NEExT.embeddings.embeddings import Embeddings
 from NEExT.features import Features
 
+logger = logging.getLogger(__name__)
+
+# Ground metric and per-graph point cap of the exact LOT and Sinkhorn vectorizers.
+DEFAULT_OT_METRIC = "euclidean"
+DEFAULT_MAX_DISTRIBUTION_SIZE: Optional[int] = None  # None: no truncation (the largest graph's size)
+
 
 class GraphEmbeddingConfig(BaseModel):
     """Configuration for graph embedding computation"""
@@ -21,6 +28,8 @@ class GraphEmbeddingConfig(BaseModel):
     random_state: int = 42
     memory_size: str = "4G"
     suffix: str = ""
+    metric: str = DEFAULT_OT_METRIC
+    max_distribution_size: Optional[int] = DEFAULT_MAX_DISTRIBUTION_SIZE
 
     @validator("embedding_algorithm")
     def validate_embedding_algorithm(cls, v):
@@ -54,8 +63,16 @@ class GraphEmbeddings:
         random_state: int = 42,
         memory_size: str = "4G",
         suffix: str = "",
+        metric: str = DEFAULT_OT_METRIC,
+        max_distribution_size: Optional[int] = DEFAULT_MAX_DISTRIBUTION_SIZE,
     ):
-        """Initialize the GraphEmbeddings processor."""
+        """Initialize the GraphEmbeddings processor.
+
+        ``metric`` is the ground metric between node feature vectors used by the exact LOT ("wasserstein") and
+        Sinkhorn vectorizers (any metric the vectorizers library accepts, e.g. "euclidean" or "cosine");
+        ``max_distribution_size`` caps the number of nodes per graph kept by exact LOT (None keeps every node).
+        The approximate vectorizer ignores both.
+        """
         self.config = GraphEmbeddingConfig(
             embedding_algorithm=embedding_algorithm,
             embedding_dimension=embedding_dimension,
@@ -63,6 +80,8 @@ class GraphEmbeddings:
             random_state=random_state,
             memory_size=memory_size,
             suffix=suffix,
+            metric=metric,
+            max_distribution_size=max_distribution_size,
         )
         self.graph_collection = graph_collection
         self.features = features
@@ -155,10 +174,19 @@ class GraphEmbeddings:
     def _embeddings_output_df(self, embeddings, graph_ids) -> pd.DataFrame:
         """Assemble the output frame (graph_id first, then emb_* columns)."""
         if embeddings.shape[1] < self.config.embedding_dimension:
+            if self.config.embedding_algorithm == "approx_wasserstein":
+                reason = (
+                    f"the approximate vectorizer embeds each graph's mean feature vector, so it cannot emit more dimensions "
+                    f"than there are feature columns ({len(self.config.feature_columns)}) or graphs"
+                )
+            else:
+                reason = (
+                    f"{self.config.embedding_algorithm} reduces a (graphs x reference points x features) matrix by SVD, so the "
+                    f"dimension is bounded by the number of graphs and by reference size x feature columns"
+                )
             raise ValueError(
-                f"embedding_dimension={self.config.embedding_dimension} exceeds what {self.config.embedding_algorithm} can produce "
-                f"from {embeddings.shape[1]} feature column(s); the optimal-transport vectorizers cannot emit more dimensions "
-                f"than the node feature space has. Use embedding_dimension <= {embeddings.shape[1]} or add features."
+                f"embedding_dimension={self.config.embedding_dimension} exceeds the {embeddings.shape[1]} component(s) "
+                f"{self.config.embedding_algorithm} produced here: {reason}. Use embedding_dimension <= {embeddings.shape[1]}."
             )
         embeddings_df = pd.DataFrame()
         embeddings_df["graph_id"] = graph_ids
@@ -203,8 +231,21 @@ class GraphEmbeddings:
         incidence_matrix, feature_matrix, graph_ids = self._prepare_incidence_matrix(node_features_df)
 
         # Compute embeddings
+        max_size = self.config.max_distribution_size
+        if max_size is None:
+            max_size = max(1, int(np.diff(incidence_matrix.indptr).max()))
+            if max_size > 1000:
+                logger.warning(
+                    "Exact LOT on graphs of up to %d nodes: each transport costs O(n^3 log n). "
+                    "Set max_distribution_size to cap the points kept per graph.",
+                    max_size,
+                )
         embeddings = self.vectorizers.WassersteinVectorizer(
-            memory_size=self.config.memory_size, random_state=self.config.random_state, n_components=self.config.embedding_dimension
+            memory_size=self.config.memory_size,
+            random_state=self.config.random_state,
+            n_components=self.config.embedding_dimension,
+            metric=self.config.metric,
+            max_distribution_size=max_size,
         ).fit_transform(incidence_matrix, vectors=feature_matrix)
 
         return self._embeddings_output_df(embeddings, graph_ids)
@@ -224,7 +265,10 @@ class GraphEmbeddings:
 
         # Compute embeddings
         embeddings = self.vectorizers.SinkhornVectorizer(
-            memory_size=self.config.memory_size, random_state=self.config.random_state, n_components=self.config.embedding_dimension
+            memory_size=self.config.memory_size,
+            random_state=self.config.random_state,
+            n_components=self.config.embedding_dimension,
+            metric=self.config.metric,
         ).fit_transform(incidence_matrix, vectors=feature_matrix)
 
         return self._embeddings_output_df(embeddings, graph_ids)

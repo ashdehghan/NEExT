@@ -170,13 +170,14 @@ class FeatureImportance:
         collection = copy.copy(self.graph_collection)
         collection.graphs = [graph for graph in self.graph_collection.graphs if graph.graph_id in keep]
         features_df = self.features.features_df[self.features.features_df["graph_id"].isin(keep)].reset_index(drop=True)
-        return collection, Features(features_df, list(self.features.feature_columns))
+        return collection, Features(features_df, list(self.features.feature_columns), self.features.feature_groups)
 
     def evaluate_feature_order(self, ordered_features: List[str]) -> List[float]:
         """
         Score each prefix of ``ordered_features`` on the held-out graphs.
 
-        For prefix j, an embedding of dimension j is built from the first j features,
+        Names may be feature groups (``Features.feature_groups``), which contribute all their columns.
+        For prefix j, an embedding of the prefix's column count is built from the first j names,
         a model is fit on the training graphs only, and accuracy (classifier) or RMSE
         (regressor) is measured on the held-out graphs.
 
@@ -192,9 +193,11 @@ class FeatureImportance:
         is_classifier = self._is_classifier()
         encoder = LabelEncoder().fit([labels[gid] for gid in self.train_graph_ids]) if is_classifier else None
 
+        units = self.features.selection_units()
         scores = []
         for j in range(1, len(ordered_features) + 1):
-            prefix = ordered_features[:j]
+            # A name is a feature group (all its columns) or a single column.
+            prefix = [col for name in ordered_features[:j] for col in units.get(name, [name])]
             embeddings = GraphEmbeddings(
                 graph_collection=self.graph_collection,
                 features=self.features,
@@ -244,8 +247,12 @@ class FeatureImportance:
                 - embedding_algorithm: Name of embedding algorithm used
                 - total_time: Total computation time in seconds
         """
-        available_features = self.features.feature_columns.copy()
+        # Selection units: a feature group (e.g. all columns of one node embedding) enters as a block,
+        # every other column on its own.
+        units = self.train_features.selection_units()
+        available_features = list(units)
         selected_features = []
+        selected_columns: List[str] = []
         performance_scores = []
 
         # Create progress bar for the outer loop
@@ -260,7 +267,7 @@ class FeatureImportance:
 
             # Try each remaining feature
             for feature in inner_pbar:
-                current_features = selected_features + [feature]
+                current_features = selected_columns + units[feature]
                 inner_pbar.set_postfix({"testing": feature}, refresh=True)
 
                 # Create embeddings using current feature set
@@ -301,6 +308,7 @@ class FeatureImportance:
 
             # Add best feature to selected features
             selected_features.append(best_feature)
+            selected_columns.extend(units[best_feature])
             available_features.remove(best_feature)
             performance_scores.append(abs(best_score))  # Convert back to positive RMSE if needed
 
@@ -313,7 +321,12 @@ class FeatureImportance:
 
         # Create results DataFrame
         results_df = pd.DataFrame(
-            {"feature_name": selected_features, "avg_performance": performance_scores, "embedding_algorithm": self.config.embedding_algorithm}
+            {
+                "feature_name": selected_features,
+                "n_columns": [len(units[name]) for name in selected_features],
+                "avg_performance": performance_scores,
+                "embedding_algorithm": self.config.embedding_algorithm,
+            }
         )
 
         return results_df

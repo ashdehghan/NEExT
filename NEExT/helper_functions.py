@@ -36,48 +36,83 @@ def build_adjacency_lists(G: Union[nx.Graph, ig.Graph]) -> Dict[int, np.ndarray]
 def random_walk_visit_counts(
     adjacency: Dict[int, np.ndarray],
     start: int,
-    walk_length: int,
-    n_walks: int,
+    n_steps: int,
     restart_prob: float,
     rng: np.random.RandomState,
 ) -> Dict[int, int]:
     """
-    Visit counts from repeated random walks with restart, started at one node.
+    Visit counts of one random walk with restart, started at one node.
 
-    Each walk contributes walk_length + 1 visit events (the start counts as
-    position zero). At every step the walker restarts at `start` with
-    probability `restart_prob` (personalized-PageRank-style homing), otherwise
-    moves to a uniformly random neighbor; a walker on an isolated node
-    restarts. All randomness comes from the caller's RNG instance.
+    The walk starts at `start` (counted as one visit) and takes `n_steps`
+    steps. At every step it jumps back to `start` with probability
+    `restart_prob`, otherwise it moves to a uniformly random neighbor; a walker
+    on an isolated node jumps back to `start`. Every position reached is
+    counted, so the visit frequencies converge to the personalized PageRank
+    vector of `start` with teleport probability `restart_prob` as `n_steps`
+    grows. All randomness comes from the caller's RNG instance.
 
     Args:
         adjacency: Output of build_adjacency_lists for the parent graph
-        start: Center node ID the walks start (and restart) from
-        walk_length: Number of steps per walk
-        n_walks: Number of independent walks
+        start: Center node ID the walk starts (and restarts) from
+        n_steps: Number of steps of the walk
         restart_prob: Per-step probability of jumping back to `start`
         rng: Self-contained random state (never the global RNG)
 
     Returns:
-        Dict[int, int]: Node ID -> number of visit events.
+        Dict[int, int]: Node ID -> number of visits (sums to n_steps + 1).
     """
     counts: Dict[int, int] = defaultdict(int)
-    counts[start] = n_walks
-    total_steps = walk_length * n_walks
-    restart_draws = rng.random_sample(total_steps) < restart_prob if restart_prob > 0.0 else np.zeros(total_steps, dtype=bool)
-    step_draws = rng.random_sample(total_steps)
-    i = 0
-    for _ in range(n_walks):
-        current = start
-        for _ in range(walk_length):
-            neighbors = adjacency.get(current)
-            if restart_draws[i] or neighbors is None or len(neighbors) == 0:
-                current = start
-            else:
-                current = int(neighbors[int(step_draws[i] * len(neighbors))])
-            counts[current] += 1
-            i += 1
+    counts[start] = 1
+    restart_draws = rng.random_sample(n_steps) < restart_prob if restart_prob > 0.0 else np.zeros(n_steps, dtype=bool)
+    step_draws = rng.random_sample(n_steps)
+    current = start
+    for i in range(n_steps):
+        neighbors = adjacency.get(current)
+        if restart_draws[i] or neighbors is None or len(neighbors) == 0:
+            current = start
+        else:
+            current = int(neighbors[int(step_draws[i] * len(neighbors))])
+        counts[current] += 1
     return dict(counts)
+
+
+def hop_distances(adjacency: Dict[int, np.ndarray], source: int, targets) -> Dict[int, int]:
+    """
+    Hop distance from `source` to each node in `targets`, by breadth-first search over `adjacency`
+    (the output of build_adjacency_lists) that stops once every target is reached.
+
+    Args:
+        adjacency: Node -> neighbor array of the parent graph
+        source: Start node
+        targets: Nodes whose distance is wanted (all must be reachable from `source`)
+
+    Returns:
+        Dict[int, int]: Target node -> hop distance (source -> 0).
+    """
+    remaining = set(targets)
+    found: Dict[int, int] = {}
+    if source in remaining:
+        found[source] = 0
+        remaining.discard(source)
+    seen = {source}
+    frontier = [source]
+    depth = 0
+    while remaining and frontier:
+        depth += 1
+        next_frontier = []
+        for node in frontier:
+            for neighbor in adjacency.get(node, ()):
+                neighbor = int(neighbor)
+                if neighbor not in seen:
+                    seen.add(neighbor)
+                    next_frontier.append(neighbor)
+                    if neighbor in remaining:
+                        found[neighbor] = depth
+                        remaining.discard(neighbor)
+        frontier = next_frontier
+    if remaining:
+        raise ValueError(f"{len(remaining)} target(s) unreachable from node {source}")
+    return found
 
 
 def get_numb_of_nb_x_hops_away(G: Union[nx.Graph, ig.Graph], node: int, max_hop_length: int) -> List[int]:

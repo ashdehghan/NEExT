@@ -12,7 +12,7 @@ from NEExT.collections.graph_collection import GraphCollection
 from NEExT.embeddings.embeddings import Embeddings
 from NEExT.features import Features
 from NEExT.graphs import Egonet, Graph
-from NEExT.helper_functions import build_adjacency_lists, get_nodes_x_hops_away, random_walk_visit_counts
+from NEExT.helper_functions import build_adjacency_lists, get_nodes_x_hops_away, hop_distances, random_walk_visit_counts
 from NEExT.patches.leiden_patches import compute_patch_label, merge_small_communities, relabel_contiguous
 
 
@@ -220,11 +220,13 @@ class EgonetCollection(GraphCollection):
         for graph in graph_collection.graphs:
             parent_index = self._build_parent_index(graph)
             for node_id in valid_nodes[graph.graph_id]:
+                ring_of = {node_id: 0}
                 if k_hop > 0:
                     egonet_nodes_dict = get_nodes_x_hops_away(graph.G, node_id, k_hop)
                     egonet_nodes = {node_id}
-                    for v in egonet_nodes_dict.values():
+                    for hop, v in egonet_nodes_dict.items():
                         egonet_nodes.update(v)
+                        ring_of.update({member: hop for member in v})
                 else:
                     egonet_nodes = [node_id]
                 # egonet_nodes = sorted(graph.G.neighborhood(node_id, order=k_hop))
@@ -238,6 +240,7 @@ class EgonetCollection(GraphCollection):
                     egonet_label=egonet_label,
                     parent_index=parent_index,
                 )
+                egonet.node_rings = {egonet.node_mapping[member]: ring for member, ring in ring_of.items()}
 
                 self.graphs.append(egonet)
                 # Update graph_id_node_array with this egonet's id
@@ -265,32 +268,36 @@ class EgonetCollection(GraphCollection):
         """
         Computes egonets from random walks with restart.
 
-        For each sampled center, runs `n_walks` walks of `walk_length` steps;
-        at every step the walker returns to the center with probability
-        `restart_prob` (personalized-PageRank-style homing), otherwise moves
-        to a uniformly random neighbor. The visited nodes form the egonet and
-        the visit frequencies (L1-normalized per egonet) become the egonet's
+        For each sampled center, runs one random walk with restart of
+        `n_walks * walk_length` steps: at every step the walker jumps back to
+        the center with probability `restart_prob`, otherwise it moves to a
+        uniformly random neighbor. The visited nodes form the egonet and the
+        visit frequencies (L1-normalized per egonet) become the egonet's
         membership weights, stored as `Egonet.node_weights` keyed by internal
-        node ID. Unlike k-hop balls, these neighborhoods conform to community
-        structure, and adjacent centers produce gradually-differing bags.
+        node ID; they estimate the center's personalized PageRank vector with
+        teleport probability `restart_prob`. Unlike k-hop balls, these
+        neighborhoods conform to community structure, and adjacent centers
+        produce gradually-differing bags.
 
         Walks are simulated over precomputed adjacency lists with a
         self-contained RNG (igraph's own random_walk uses a process-global C
-        RNG). Each center gets its own walk RNG, seeded from a draw of the
-        call's RNG, so results are reproducible for a given random_seed and
-        sampled center set (a center's walks depend on its position in that
-        set). The center is always a member.
+        RNG). Each center's walk RNG is seeded from (random_seed, graph
+        position, center node ID), so a center's egonet is reproducible and
+        does not depend on which other centers are sampled. The center is
+        always a member.
 
         Args:
             graph_collection (GraphCollection): The collection of graphs from
                 which to derive egonets.
-            walk_length (int): Steps per walk (default: 10)
-            n_walks (int): Walks per center (default: 100)
+            walk_length (int): Steps per walk segment; the walk takes
+                n_walks * walk_length steps in total (default: 10)
+            n_walks (int): Number of walk segments per center; only the
+                product n_walks * walk_length matters (default: 100)
             restart_prob (float): Per-step probability of returning to the
                 center; 0.0 gives pure walks (default: 0.15)
             min_visits (int): Minimum visit events for membership; the center
                 is always kept. The default of 3 is a noise floor over the
-                ~n_walks*walk_length visit events that cuts the one-visit
+                n_walks*walk_length + 1 visit events that cuts the one-visit
                 fringe (which balloons bag size without adding signal); set
                 1 to keep every visited node (default: 3)
             max_egonet_size (Optional[int]): Keep only the top-N most visited
@@ -330,14 +337,14 @@ class EgonetCollection(GraphCollection):
             forced_nodes = nodes_to_sample.get(graph.graph_id, [])
             valid_nodes[graph.graph_id] = list(set(random_nodes + forced_nodes))
 
-        for graph in graph_collection.graphs:
+        for graph_position, graph in enumerate(graph_collection.graphs):
             parent_index = self._build_parent_index(graph)
             adjacency = build_adjacency_lists(graph.G)
             for node_id in valid_nodes[graph.graph_id]:
-                # Per-center seed drawn from the shared rng: reproducible for a
-                # given seed and center set (draws follow center order).
-                walk_rng = np.random.RandomState(rng.randint(0, 1_000_000))
-                counts = random_walk_visit_counts(adjacency, node_id, walk_length, n_walks, restart_prob, walk_rng)
+                # Per-center seed from (seed, graph, center): independent of the sampled center set.
+                walk_seed = np.random.SeedSequence([random_seed, graph_position, int(node_id)]).generate_state(1)[0]
+                walk_rng = np.random.RandomState(walk_seed)
+                counts = random_walk_visit_counts(adjacency, node_id, n_walks * walk_length, restart_prob, walk_rng)
 
                 if min_visits > 1:
                     counts = {n: c for n, c in counts.items() if c >= min_visits or n == node_id}
@@ -357,6 +364,7 @@ class EgonetCollection(GraphCollection):
                 if weight_by_visits:
                     total = sum(counts.values())
                     egonet.node_weights = {egonet.node_mapping[n]: c / total for n, c in counts.items()}
+                egonet.node_rings = {egonet.node_mapping[n]: ring for n, ring in hop_distances(adjacency, node_id, counts).items()}
 
                 self.graphs.append(egonet)
                 self.graph_id_node_array.extend([egonet_id] * len(egonet.nodes))
@@ -366,7 +374,7 @@ class EgonetCollection(GraphCollection):
         self.egonet_node_features = self._create_egonet_features_df(graph_collection)
         self.source_graph_collection = graph_collection
 
-    def compute_leiden_egonets(self, graph_collection: GraphCollection, n_iterations: int = 10, resolution: float = 1.0):
+    def compute_leiden_egonets(self, graph_collection: GraphCollection, n_iterations: int = 10, resolution: float = 1.0, random_seed: int = 13):
         """
         Computes egonets based on Leiden community detection.
 
@@ -381,6 +389,9 @@ class EgonetCollection(GraphCollection):
                 algorithm. Defaults to 10.
             resolution (float): The resolution parameter for the Leiden
                 algorithm. Defaults to 1.0.
+            random_seed (int): Seed for Leiden, set on igraph's RNG for the
+                call and restored afterwards, as in compute_leiden_patches.
+                Defaults to 13.
 
         """
 
@@ -392,8 +403,16 @@ class EgonetCollection(GraphCollection):
         self.egonet_to_graph_node_mapping = {}
         egonet_id = 0
 
+        import igraph as ig
+
+        seed_rng = random.Random(random_seed)
         for graph in graph_collection.graphs:
-            community_detection = graph.G.community_leiden(objective_function="modularity", n_iterations=n_iterations, resolution=resolution)
+            # Leiden under a private RNG; restore the module default so nothing else observes the change.
+            ig.set_random_number_generator(random.Random(seed_rng.randint(0, 2**31 - 1)))
+            try:
+                community_detection = graph.G.community_leiden(objective_function="modularity", n_iterations=n_iterations, resolution=resolution)
+            finally:
+                ig.set_random_number_generator(random)
             membership = community_detection.membership
             community_members = defaultdict(list)
             for n_id, com_id in enumerate(membership):
@@ -629,7 +648,7 @@ class EgonetCollection(GraphCollection):
             )
 
         projected = merged[["node_id", "graph_id"] + list(source_features.feature_columns)].reset_index(drop=True)
-        return Features(projected, list(source_features.feature_columns))
+        return Features(projected, list(source_features.feature_columns), source_features.feature_groups)
 
     def _create_egonet_features_df(self, graph_collection: GraphCollection):
         """

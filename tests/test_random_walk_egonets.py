@@ -96,15 +96,15 @@ def test_restart_locality():
 
 
 def test_walks_respect_community_boundary():
-    """From deep inside one clique, the far community is barely visited."""
+    """Most of every bag's visit mass stays in the centre's own clique, even at the bridge."""
     nxt, collection = load_collection()
     egonets = build(nxt, collection, n_walks=100, min_visits=2)
     labels = {v: collection.graphs[0].node_attributes[v]["lbl"] for v in collection.graphs[0].nodes}
     for egonet in egonets.graphs:
         _, center = egonets.egonet_to_graph_node_mapping[egonet.graph_id]
-        members = list(egonet.node_mapping)
-        same_side = sum(1 for m in members if labels[m] == labels[center])
-        assert same_side / len(members) > 0.5
+        original = {internal: node for node, internal in egonet.node_mapping.items()}
+        same_side_mass = sum(w for internal, w in egonet.node_weights.items() if labels[original[internal]] == labels[center])
+        assert same_side_mass > 0.75
 
 
 def test_min_visits_and_max_size():
@@ -211,3 +211,50 @@ def test_incidence_matrix_uses_weights_only_when_present():
             assert np.allclose(row_sums, 1.0)
         else:
             assert np.allclose(values, 1.0)
+
+
+def exact_ppr(adjacency, start, alpha, n_iter=500):
+    """Personalized PageRank of `start` by power iteration (isolated nodes teleport)."""
+    nodes = sorted(adjacency)
+    index = {n: i for i, n in enumerate(nodes)}
+    pi = np.zeros(len(nodes))
+    pi[index[start]] = 1.0
+    for _ in range(n_iter):
+        nxt = np.zeros_like(pi)
+        nxt[index[start]] += alpha
+        for n, neighbors in adjacency.items():
+            mass = (1.0 - alpha) * pi[index[n]]
+            if len(neighbors) == 0:
+                nxt[index[start]] += mass
+            else:
+                for m in neighbors:
+                    nxt[index[int(m)]] += mass / len(neighbors)
+        pi = nxt
+    return {n: pi[index[n]] for n in nodes}
+
+
+def test_visit_frequencies_converge_to_personalized_pagerank():
+    """One walk with restart: visit frequencies estimate PPR(restart_prob), with no excess mass on the centre."""
+    from NEExT.helper_functions import build_adjacency_lists, random_walk_visit_counts
+
+    _, collection = load_collection()
+    adjacency = build_adjacency_lists(collection.graphs[0].G)
+    start, alpha, n_steps = 3, 0.15, 400_000
+    counts = random_walk_visit_counts(adjacency, start, n_steps, alpha, np.random.RandomState(0))
+    assert sum(counts.values()) == n_steps + 1
+    expected = exact_ppr(adjacency, start, alpha)
+    for node, p in expected.items():
+        assert abs(counts.get(node, 0) / (n_steps + 1) - p) < 0.005
+    assert abs(counts[start] / (n_steps + 1) - expected[start]) < 0.005
+
+
+def test_center_bag_independent_of_sampled_centers():
+    """A centre's walk is seeded from (seed, graph, centre), so sampling other centres does not change its bag."""
+    nxt, collection = load_collection()
+    full = build(nxt, collection)
+    partial = build(nxt, load_collection()[1], sample_fraction=0.5)
+    by_center = {full.egonet_to_graph_node_mapping[g.graph_id][1]: g for g in full.graphs}
+    for egonet in partial.graphs:
+        center = partial.egonet_to_graph_node_mapping[egonet.graph_id][1]
+        assert sorted(egonet.node_mapping) == sorted(by_center[center].node_mapping)
+        assert egonet.node_weights == by_center[center].node_weights
