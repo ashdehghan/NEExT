@@ -14,6 +14,23 @@ from NEExT.features import Features
 
 logger = logging.getLogger(__name__)
 
+
+def _zero_null_components(embeddings: np.ndarray, singular_values: np.ndarray, n_features: int) -> np.ndarray:
+    """Set to zero the components past the numerical rank of the matrix the vectorizer decomposed.
+
+    When the requested dimension exceeds that rank (for example when some features are rescalings of others), the extra
+    components hold only round-off, in a direction that changes with the seed and the row order. A tree classifier splits
+    on them as if they were features. The tolerance is the usual numerical-rank one.
+    """
+    singular_values = np.asarray(singular_values, dtype=float)
+    if singular_values.size == 0 or singular_values.max() <= 0:
+        return embeddings
+    tol = singular_values.max() * max(embeddings.shape[0], n_features) * np.finfo(float).eps
+    embeddings = np.array(embeddings, dtype=float, copy=True)
+    embeddings[:, singular_values <= tol] = 0.0
+    return embeddings
+
+
 # Ground metric and per-graph point cap of the exact LOT and Sinkhorn vectorizers.
 DEFAULT_OT_METRIC = "euclidean"
 DEFAULT_MAX_DISTRIBUTION_SIZE: Optional[int] = None  # None: no truncation (the largest graph's size)
@@ -211,9 +228,12 @@ class GraphEmbeddings:
         incidence_matrix, feature_matrix, graph_ids = self._prepare_incidence_matrix(node_features_df)
 
         # Compute embeddings
-        embeddings = self.vectorizers.ApproximateWassersteinVectorizer(
+        vectorizer = self.vectorizers.ApproximateWassersteinVectorizer(
             random_state=self.config.random_state, n_components=self.config.embedding_dimension
-        ).fit_transform(incidence_matrix, vectors=feature_matrix)
+        )
+        embeddings = vectorizer.fit_transform(incidence_matrix, vectors=feature_matrix)
+
+        embeddings = _zero_null_components(embeddings, vectorizer.singular_values_, feature_matrix.shape[1])
 
         return self._embeddings_output_df(embeddings, graph_ids)
 
@@ -247,6 +267,8 @@ class GraphEmbeddings:
             metric=self.config.metric,
             max_distribution_size=max_size,
         ).fit_transform(incidence_matrix, vectors=feature_matrix)
+        # the LOT vectorizers return u * s, so each column's norm is its singular value
+        embeddings = _zero_null_components(embeddings, np.linalg.norm(embeddings, axis=0), feature_matrix.shape[1])
 
         return self._embeddings_output_df(embeddings, graph_ids)
 
@@ -270,5 +292,6 @@ class GraphEmbeddings:
             n_components=self.config.embedding_dimension,
             metric=self.config.metric,
         ).fit_transform(incidence_matrix, vectors=feature_matrix)
+        embeddings = _zero_null_components(embeddings, np.linalg.norm(embeddings, axis=0), feature_matrix.shape[1])
 
         return self._embeddings_output_df(embeddings, graph_ids)

@@ -34,3 +34,32 @@ def test_dimension_above_feature_width_raises_clearly():
     nxt, egonets, features = two_cliques()
     with pytest.raises(ValueError, match="embedding_dimension=8 exceeds"):
         nxt.compute_graph_embeddings(egonets, features, embedding_algorithm="approx_wasserstein", embedding_dimension=8)
+
+
+def test_rank_deficient_components_are_zeroed_and_seed_free():
+    """Columns that rescale another leave the bag-mean matrix rank-deficient; the components past its rank are
+    round-off in a seed-dependent direction and must come out as exact zeros, identical for every seed."""
+    import numpy as np
+
+    from NEExT.features import Features
+
+    nxt, egonets, features = two_cliques()
+    df = features.features_df.copy()
+    base = features.feature_columns[0]
+    df["copy_a"] = 2.0 * df[base]
+    df["copy_b"] = -0.5 * df[base] + 1.0
+    columns = features.feature_columns + ["copy_a", "copy_b"]
+    widened = Features(df, columns)
+    rank = np.linalg.matrix_rank(df.groupby("graph_id")[columns].mean().to_numpy())
+    assert rank < len(columns)
+    runs = [
+        nxt.compute_graph_embeddings(egonets, widened, embedding_algorithm="approx_wasserstein", embedding_dimension=len(columns), random_state=seed)
+        .embeddings_df.drop(columns="graph_id")
+        .to_numpy()
+        for seed in (1, 2)
+    ]
+    for emb in runs:
+        zero = (emb == 0.0).all(axis=0)
+        assert zero.sum() == len(columns) - rank
+        assert zero[rank:].all() and not zero[:rank].any()
+    assert abs(abs(runs[0]) - abs(runs[1])).max() < 1e-6
