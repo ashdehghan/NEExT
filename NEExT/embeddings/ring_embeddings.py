@@ -10,6 +10,7 @@ Under ``approx_wasserstein`` a ring's block is a linear map of the (membership-w
 ring; the exact and Sinkhorn vectorizers keep the shape of each ring's distribution.
 """
 
+import copy
 from typing import TYPE_CHECKING, Dict, List, Optional
 
 import pandas as pd
@@ -112,6 +113,41 @@ def compute_ring_embeddings(
     size_columns = [f"ring{ring}_size" for ring in range(max_ring + 1)]
     out = out[["graph_id"] + embedding_columns + size_columns]
     return Embeddings(out, f"{embedding_algorithm}_rings", embedding_columns + size_columns)
+
+
+def reweight_by_ring(egonet_collection: "EgonetCollection", ring_weights: Dict[int, float]) -> "EgonetCollection":
+    """
+    A copy of the collection whose bag mass is reweighted by ring: member mass = ring weight x membership weight.
+
+    Membership weight is the egonet's ``node_weights`` (visit frequencies) or uniform when it has none. Each bag is
+    renormalised to sum to 1; a ring missing from ``ring_weights`` keeps weight 1. Embedding the result with
+    ``compute_graph_embeddings`` gives a pooled bag with distance weighting; all-equal weights give back the pooled
+    bag. The input collection is not modified.
+
+    Args:
+        egonet_collection: Egonets with ``node_rings``.
+        ring_weights: Non-negative weight per ring (ring -> weight); at least one member of each bag must keep
+            positive mass.
+    """
+    if any(w < 0 for w in ring_weights.values()):
+        raise ValueError("ring_weights must be non-negative")
+    out = copy.copy(egonet_collection)
+    out.graphs = []
+    for egonet in egonet_collection.graphs:
+        if egonet.node_rings is None:
+            raise ValueError(f"Egonet {egonet.graph_id} has no node_rings")
+        n = len(egonet.node_rings)
+        mass = {
+            node: float(ring_weights.get(ring, 1.0)) * (egonet.node_weights.get(node, 0.0) if egonet.node_weights else 1.0 / n)
+            for node, ring in egonet.node_rings.items()
+        }
+        total = sum(mass.values())
+        if total <= 0:
+            raise ValueError(f"Egonet {egonet.graph_id} has zero mass under ring_weights {ring_weights}")
+        clone = copy.copy(egonet)
+        clone.node_weights = {node: m / total for node, m in mass.items()}
+        out.graphs.append(clone)
+    return out
 
 
 def ring_importance_map(egonet_collection: "EgonetCollection", centre_egonet_id, ring_weights: Dict[int, float]) -> pd.DataFrame:

@@ -5,6 +5,7 @@ from typing import Dict, List, Optional, Set, Union
 import igraph as ig
 import networkx as nx
 import numpy as np
+import scipy.sparse
 
 
 def divide_chunks(list, chunks):
@@ -74,6 +75,102 @@ def random_walk_visit_counts(
             current = int(neighbors[int(step_draws[i] * len(neighbors))])
         counts[current] += 1
     return dict(counts)
+
+
+def scheduled_walk_visit_counts(
+    adjacency: Dict[int, np.ndarray],
+    start: int,
+    n_steps: int,
+    restart_prob: float,
+    rng: np.random.RandomState,
+) -> Dict[int, int]:
+    """
+    Visit counts of random walks from `start` with a fixed schedule of walk lengths (no restart coin).
+
+    A walk with restart splits at its restarts into segments: each starts at `start` and makes l moves before the next
+    restart, with probability (1 - restart_prob)^l * restart_prob (l = 0, 1, ...), and about n_steps * restart_prob
+    segments fall in the step budget. Here the coin is replaced by its expectation (Pawel's deterministic schedule):
+    round(n_steps * restart_prob^2 * (1 - restart_prob)^l) walks of l moves are run from `start`, for l = 0, 1, ...
+    while that count is positive, about n_steps visits in all. Each walk moves to uniformly random neighbours and every
+    position is counted, its start included. A walker on an isolated node stays there.
+
+    Args:
+        adjacency: Output of build_adjacency_lists for the parent graph
+        start: Center node ID every walk starts from
+        n_steps: Step budget the schedule is computed from
+        restart_prob: Restart probability whose expected segment lengths the schedule reproduces (> 0)
+        rng: Self-contained random state
+
+    Returns:
+        Dict[int, int]: Node ID -> number of visits.
+    """
+    if restart_prob <= 0.0:
+        raise ValueError("The scheduled sampler needs restart_prob > 0 (segment lengths are geometric in restart_prob)")
+    counts: Dict[int, int] = defaultdict(int)
+    length = 0
+    while True:
+        n_walks = int(round(n_steps * restart_prob**2 * (1.0 - restart_prob) ** length))
+        if n_walks <= 0:
+            break
+        for _ in range(n_walks):
+            current = start
+            counts[current] += 1
+            for draw in rng.random_sample(length):
+                neighbors = adjacency.get(current)
+                if neighbors is not None and len(neighbors) > 0:
+                    current = int(neighbors[int(draw * len(neighbors))])
+                counts[current] += 1
+        length += 1
+    return dict(counts)
+
+
+def personalized_pagerank(
+    adjacency: Dict[int, np.ndarray], start: int, restart_prob: float, tol: float = 1e-10, max_iter: int = 10000
+) -> Dict[int, float]:
+    """
+    Exact personalized PageRank of `start` by power iteration: the limit of random-walk-with-restart visit frequencies.
+
+    pi = restart_prob * e_start + (1 - restart_prob) * pi P, with P the uniform-neighbour transition matrix; a node
+    without neighbours sends its mass back to `start` (as the sampled walker does). Iterates over the nodes reachable
+    from `start` only.
+
+    Returns:
+        Dict[int, float]: Node ID -> probability, for nodes with positive mass (sums to 1).
+    """
+    if not 0.0 < restart_prob < 1.0:
+        raise ValueError(f"Exact personalized PageRank needs 0 < restart_prob < 1, got {restart_prob}")
+    seen, queue = {start}, deque([start])
+    while queue:
+        u = queue.popleft()
+        for v in adjacency.get(u, ()):
+            v = int(v)
+            if v not in seen:
+                seen.add(v)
+                queue.append(v)
+    nodes = sorted(seen)
+    index = {n: i for i, n in enumerate(nodes)}
+    src, dst, val = [], [], []
+    dangling = np.zeros(len(nodes))
+    for n in nodes:
+        nb = adjacency.get(n, ())
+        if len(nb) == 0:
+            dangling[index[n]] = 1.0
+        for v in nb:
+            src.append(index[n])
+            dst.append(index[int(v)])
+            val.append(1.0 / len(nb))
+    P = scipy.sparse.csr_matrix((val, (src, dst)), shape=(len(nodes), len(nodes)))
+    e = np.zeros(len(nodes))
+    e[index[start]] = 1.0
+    pi = e.copy()
+    for _ in range(max_iter):
+        step = P.T @ pi
+        new = restart_prob * e + (1.0 - restart_prob) * (step + e * float(dangling @ pi))
+        if np.abs(new - pi).sum() < tol:
+            pi = new
+            break
+        pi = new
+    return {n: float(pi[index[n]]) for n in nodes if pi[index[n]] > 0}
 
 
 def hop_distances(adjacency: Dict[int, np.ndarray], source: int, targets) -> Dict[int, int]:

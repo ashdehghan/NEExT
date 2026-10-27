@@ -142,3 +142,40 @@ def test_draw_importance_map_smoke():
     imp = ring_importance_map(egonets, egonets.graphs[0].graph_id, {0: 1.0, 1: 1.0, 2: 0.2})
     ax = draw_importance_map(collection.graphs[0], imp)
     assert ax is not None
+
+
+def test_reweight_by_ring_scales_mass_and_keeps_input():
+    from NEExT.embeddings import reweight_by_ring
+
+    nxt, collection, egonets = _setup(k_hop=2)
+    before = [dict(g.node_weights) if g.node_weights else None for g in egonets.graphs]
+    weighted = reweight_by_ring(egonets, {0: 1.0, 1: 2.0, 2: 0.5})
+    assert [dict(g.node_weights) if g.node_weights else None for g in egonets.graphs] == before
+    for g in weighted.graphs:
+        assert abs(sum(g.node_weights.values()) - 1.0) < 1e-12
+        w = {0: 1.0, 1: 2.0, 2: 0.5}
+        base = {node: w[ring] for node, ring in g.node_rings.items()}
+        total = sum(base.values())
+        for node, m in g.node_weights.items():
+            assert abs(m - base[node] / total) < 1e-12
+    # all-equal weights give the pooled bag back
+    feats = nxt.compute_node_features(
+        egonets, feature_list=["degree_centrality", "page_rank"], feature_vector_length=1, feature_scope="global", show_progress=False
+    )
+    plain = nxt.compute_graph_embeddings(egonets, feats, embedding_algorithm="approx_wasserstein", embedding_dimension=2, random_state=1)
+    same = nxt.compute_graph_embeddings(
+        reweight_by_ring(egonets, {}), feats, embedding_algorithm="approx_wasserstein", embedding_dimension=2, random_state=1
+    )
+    a = plain.embeddings_df.sort_values("graph_id").drop(columns="graph_id").to_numpy()
+    b = same.embeddings_df.sort_values("graph_id").drop(columns="graph_id").to_numpy()
+    assert np.allclose(np.abs(a), np.abs(b), atol=1e-8)
+
+
+def test_reweight_by_ring_rejects_negative_and_zero_mass():
+    from NEExT.embeddings import reweight_by_ring
+
+    _, _, egonets = _setup(k_hop=1)
+    with pytest.raises(ValueError):
+        reweight_by_ring(egonets, {1: -1.0})
+    with pytest.raises(ValueError):
+        reweight_by_ring(egonets, {0: 0.0, 1: 0.0})

@@ -616,6 +616,8 @@ class NEExT:
         nodes_to_sample: Optional[Dict[int, List[int]]] = None,
         sample_fraction: float = 1.0,
         random_seed: int = 13,
+        sampler: str = "random",
+        weighting: str = "visits",
     ) -> EgonetCollection:
         """
         Decompose graphs into random-walk egonets (visited-node subgraphs).
@@ -648,6 +650,11 @@ class NEExT:
             nodes_to_sample: Dict mapping graph_id to list of nodes to always include
             sample_fraction: Fraction of nodes to sample egonets for (default: 1.0)
             random_seed: Random seed for node sampling and walks (default: 13)
+            sampler: "random" (walk with restart), "scheduled" (fixed number of walks of each length, the
+                restart coin replaced by its expectation) or "exact" (exact personalized PageRank, no sampling)
+                (default: "random")
+            weighting: "visits" or "degree_corrected" (visits divided by degree, then normalised)
+                (default: "visits")
 
         Returns:
             EgonetCollection: Collection of egonets
@@ -670,6 +677,8 @@ class NEExT:
             nodes_to_sample=nodes_to_sample,
             sample_fraction=sample_fraction,
             random_seed=random_seed,
+            sampler=sampler,
+            weighting=weighting,
         )
 
         self.logger.info(f"Created {len(egonet_collection.graphs)} egonets")

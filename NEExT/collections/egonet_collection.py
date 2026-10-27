@@ -12,7 +12,14 @@ from NEExT.collections.graph_collection import GraphCollection
 from NEExT.embeddings.embeddings import Embeddings
 from NEExT.features import Features
 from NEExT.graphs import Egonet, Graph
-from NEExT.helper_functions import build_adjacency_lists, get_nodes_x_hops_away, hop_distances, random_walk_visit_counts
+from NEExT.helper_functions import (
+    build_adjacency_lists,
+    get_nodes_x_hops_away,
+    hop_distances,
+    personalized_pagerank,
+    random_walk_visit_counts,
+    scheduled_walk_visit_counts,
+)
 from NEExT.patches.leiden_patches import compute_patch_label, merge_small_communities, relabel_contiguous
 
 
@@ -264,6 +271,8 @@ class EgonetCollection(GraphCollection):
         nodes_to_sample: Optional[Dict[int, List[int]]] = None,
         sample_fraction: Optional[float] = 1.0,
         random_seed: int = 13,
+        sampler: str = "random",
+        weighting: str = "visits",
     ):
         """
         Computes egonets from random walks with restart.
@@ -308,6 +317,15 @@ class EgonetCollection(GraphCollection):
             nodes_to_sample: Dict mapping graph_id to nodes to always include
             sample_fraction: Fraction of nodes to sample egonets for (default: 1.0)
             random_seed: Random seed for center sampling and walks (default: 13)
+            sampler: How visits are produced (default: "random"):
+                "random": the walk with restart described above;
+                "scheduled": the restart coin replaced by its expectation, a fixed number of walks of each length
+                    (helper_functions.scheduled_walk_visit_counts; needs restart_prob > 0);
+                "exact": no sampling; visit counts are the exact personalized PageRank times the
+                    n_walks * walk_length + 1 visit events, so min_visits applies on the same scale.
+            weighting: Membership weights (default: "visits"): "visits" uses the visit frequencies;
+                "degree_corrected" divides each member's visits by its degree before normalising, removing the
+                walk's proportional-to-degree bias towards hubs.
         """
         if walk_length < 1:
             raise ValueError(f"walk_length must be >= 1, got {walk_length}")
@@ -317,6 +335,10 @@ class EgonetCollection(GraphCollection):
             raise ValueError(f"restart_prob must be in [0, 1), got {restart_prob}")
         if min_visits < 1:
             raise ValueError(f"min_visits must be >= 1, got {min_visits}")
+        if sampler not in ("random", "scheduled", "exact"):
+            raise ValueError(f"sampler must be 'random', 'scheduled' or 'exact', got {sampler!r}")
+        if weighting not in ("visits", "degree_corrected"):
+            raise ValueError(f"weighting must be 'visits' or 'degree_corrected', got {weighting!r}")
         if max_egonet_size is not None and max_egonet_size < 1:
             raise ValueError(f"max_egonet_size must be >= 1, got {max_egonet_size}")
 
@@ -344,7 +366,13 @@ class EgonetCollection(GraphCollection):
                 # Per-center seed from (seed, graph, center): independent of the sampled center set.
                 walk_seed = np.random.SeedSequence([random_seed, graph_position, int(node_id)]).generate_state(1)[0]
                 walk_rng = np.random.RandomState(walk_seed)
-                counts = random_walk_visit_counts(adjacency, node_id, n_walks * walk_length, restart_prob, walk_rng)
+                n_steps = n_walks * walk_length
+                if sampler == "random":
+                    counts = random_walk_visit_counts(adjacency, node_id, n_steps, restart_prob, walk_rng)
+                elif sampler == "scheduled":
+                    counts = scheduled_walk_visit_counts(adjacency, node_id, n_steps, restart_prob, walk_rng)
+                else:
+                    counts = {n: p * (n_steps + 1) for n, p in personalized_pagerank(adjacency, node_id, restart_prob).items()}
 
                 if min_visits > 1:
                     counts = {n: c for n, c in counts.items() if c >= min_visits or n == node_id}
@@ -362,8 +390,9 @@ class EgonetCollection(GraphCollection):
                     parent_index=parent_index,
                 )
                 if weight_by_visits:
-                    total = sum(counts.values())
-                    egonet.node_weights = {egonet.node_mapping[n]: c / total for n, c in counts.items()}
+                    mass = counts if weighting == "visits" else {n: c / max(len(adjacency.get(n, ())), 1) for n, c in counts.items()}
+                    total = sum(mass.values())
+                    egonet.node_weights = {egonet.node_mapping[n]: c / total for n, c in mass.items()}
                 egonet.node_rings = {egonet.node_mapping[n]: ring for n, ring in hop_distances(adjacency, node_id, counts).items()}
 
                 self.graphs.append(egonet)
