@@ -67,6 +67,11 @@ gnn = [
     "torch>=2.0.0,<3.0",
 ]
 
+# Learned structural node embeddings used as node features (struc2vec, Role2Vec skip-gram)
+node-embeddings = [
+    "gensim>=4.3.0",
+]
+
 # Advanced features including visualization and hyperparameter tuning
 advanced = [
     "umap-learn>=0.5.7,!=0.5.9.post2",  # Exclude problematic version
@@ -100,7 +105,7 @@ workbench = [
     "fastapi>=0.111.0,<1.0",
     "uvicorn[standard]>=0.30.0,<1.0",
     "httpx>=0.27.0",
-    "pyarrow>=14.0.0",
+    "pyarrow>=14.0.0,<20",  # numpy is pinned < 2; newer pyarrow needs numpy 2
     "umap-learn>=0.5.7,!=0.5.9.post2",  # UMAP projection in Embedding analysis
     "NEExT[gnn]",  # torch for Graph Neural Network embeddings
 ]
@@ -110,7 +115,7 @@ workbench-mcp = [
     "fastapi>=0.111.0,<1.0",
     "uvicorn[standard]>=0.30.0,<1.0",
     "httpx>=0.27.0",
-    "pyarrow>=14.0.0",
+    "pyarrow>=14.0.0,<20",  # numpy is pinned < 2; newer pyarrow needs numpy 2
     "umap-learn>=0.5.7,!=0.5.9.post2",  # UMAP projection in Embedding analysis
     "mcp>=1.27,<2; python_version >= '3.10'",
     "NEExT[gnn]",  # torch for Graph Neural Network embeddings
@@ -118,7 +123,7 @@ workbench-mcp = [
 
 # All extras combined
 all = [
-    "NEExT[advanced,dev,experiments,workbench,gnn]",
+    "NEExT[advanced,dev,experiments,workbench,gnn,node-embeddings]",
 ]
 
 [project.urls]

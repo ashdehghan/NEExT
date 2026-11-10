@@ -96,15 +96,15 @@ def test_restart_locality():
 
 
 def test_walks_respect_community_boundary():
-    """From deep inside one clique, the far community is barely visited."""
+    """Most of every bag's visit mass stays in the centre's own clique, even at the bridge."""
     nxt, collection = load_collection()
     egonets = build(nxt, collection, n_walks=100, min_visits=2)
     labels = {v: collection.graphs[0].node_attributes[v]["lbl"] for v in collection.graphs[0].nodes}
     for egonet in egonets.graphs:
         _, center = egonets.egonet_to_graph_node_mapping[egonet.graph_id]
-        members = list(egonet.node_mapping)
-        same_side = sum(1 for m in members if labels[m] == labels[center])
-        assert same_side / len(members) > 0.5
+        original = {internal: node for node, internal in egonet.node_mapping.items()}
+        same_side_mass = sum(w for internal, w in egonet.node_weights.items() if labels[original[internal]] == labels[center])
+        assert same_side_mass > 0.75
 
 
 def test_min_visits_and_max_size():
@@ -211,3 +211,111 @@ def test_incidence_matrix_uses_weights_only_when_present():
             assert np.allclose(row_sums, 1.0)
         else:
             assert np.allclose(values, 1.0)
+
+
+def exact_ppr(adjacency, start, alpha, n_iter=500):
+    """Personalized PageRank of `start` by power iteration (isolated nodes teleport)."""
+    nodes = sorted(adjacency)
+    index = {n: i for i, n in enumerate(nodes)}
+    pi = np.zeros(len(nodes))
+    pi[index[start]] = 1.0
+    for _ in range(n_iter):
+        nxt = np.zeros_like(pi)
+        nxt[index[start]] += alpha
+        for n, neighbors in adjacency.items():
+            mass = (1.0 - alpha) * pi[index[n]]
+            if len(neighbors) == 0:
+                nxt[index[start]] += mass
+            else:
+                for m in neighbors:
+                    nxt[index[int(m)]] += mass / len(neighbors)
+        pi = nxt
+    return {n: pi[index[n]] for n in nodes}
+
+
+def test_visit_frequencies_converge_to_personalized_pagerank():
+    """One walk with restart: visit frequencies estimate PPR(restart_prob), with no excess mass on the centre."""
+    from NEExT.helper_functions import build_adjacency_lists, random_walk_visit_counts
+
+    _, collection = load_collection()
+    adjacency = build_adjacency_lists(collection.graphs[0].G)
+    start, alpha, n_steps = 3, 0.15, 400_000
+    counts = random_walk_visit_counts(adjacency, start, n_steps, alpha, np.random.RandomState(0))
+    assert sum(counts.values()) == n_steps + 1
+    expected = exact_ppr(adjacency, start, alpha)
+    for node, p in expected.items():
+        assert abs(counts.get(node, 0) / (n_steps + 1) - p) < 0.005
+    assert abs(counts[start] / (n_steps + 1) - expected[start]) < 0.005
+
+
+def test_center_bag_independent_of_sampled_centers():
+    """A centre's walk is seeded from (seed, graph, centre), so sampling other centres does not change its bag."""
+    nxt, collection = load_collection()
+    full = build(nxt, collection)
+    partial = build(nxt, load_collection()[1], sample_fraction=0.5)
+    by_center = {full.egonet_to_graph_node_mapping[g.graph_id][1]: g for g in full.graphs}
+    for egonet in partial.graphs:
+        center = partial.egonet_to_graph_node_mapping[egonet.graph_id][1]
+        assert sorted(egonet.node_mapping) == sorted(by_center[center].node_mapping)
+        assert egonet.node_weights == by_center[center].node_weights
+
+
+def test_exact_ppr_helper_matches_power_iteration():
+    from NEExT.helper_functions import build_adjacency_lists, personalized_pagerank
+
+    _, collection = load_collection()
+    adjacency = build_adjacency_lists(collection.graphs[0].G)
+    ppr = personalized_pagerank(adjacency, 3, 0.15)
+    expected = exact_ppr(adjacency, 3, 0.15)
+    assert abs(sum(ppr.values()) - 1.0) < 1e-9
+    for node, p in expected.items():
+        assert abs(ppr.get(node, 0.0) - p) < 1e-8
+
+
+def test_scheduled_sampler_approximates_personalized_pagerank():
+    """Fixed walk-length schedule: same visit budget, frequencies close to PPR (lengths are no longer random)."""
+    from NEExT.helper_functions import build_adjacency_lists, scheduled_walk_visit_counts
+
+    _, collection = load_collection()
+    adjacency = build_adjacency_lists(collection.graphs[0].G)
+    start, alpha, n_steps = 3, 0.15, 400_000
+    counts = scheduled_walk_visit_counts(adjacency, start, n_steps, alpha, np.random.RandomState(0))
+    total = sum(counts.values())
+    assert abs(total - n_steps) / n_steps < 0.02
+    for node, p in exact_ppr(adjacency, start, alpha).items():
+        assert abs(counts.get(node, 0) / total - p) < 0.01
+
+
+def test_sampler_and_weighting_options():
+    nxt, collection = load_collection()
+    random_bags = build(nxt, collection)
+    exact = build(nxt, load_collection()[1], sampler="exact")
+    scheduled = build(nxt, load_collection()[1], sampler="scheduled")
+    corrected = build(nxt, load_collection()[1], weighting="degree_corrected")
+    for bags in (exact, scheduled, corrected):
+        assert len(bags.graphs) == len(random_bags.graphs)
+        for g in bags.graphs:
+            assert abs(sum(g.node_weights.values()) - 1.0) < 1e-9
+            assert g.node_rings[g.node_mapping[g.original_node_id]] == 0
+    # exact sampler is deterministic: two builds with different seeds agree
+    again = build(nxt, load_collection()[1], sampler="exact", random_seed=99)
+    assert [g.node_weights for g in exact.graphs] == [g.node_weights for g in again.graphs]
+    # degree correction: same members as the visit-weighted bag, weights proportional to visits / degree
+    degree = dict(collection.graphs[0].G.degree())
+    for g_visits, g_corr in zip(random_bags.graphs, corrected.graphs):
+        assert g_visits.node_mapping == g_corr.node_mapping
+        original = {i: n for n, i in g_visits.node_mapping.items()}
+        ratio = {i: g_corr.node_weights[i] / (g_visits.node_weights[i] / degree[original[i]]) for i in g_visits.node_weights}
+        assert np.allclose(list(ratio.values()), next(iter(ratio.values())))
+
+
+def test_bad_sampler_and_weighting_rejected():
+    import pytest
+
+    nxt, collection = load_collection()
+    with pytest.raises(ValueError):
+        build(nxt, collection, sampler="nope")
+    with pytest.raises(ValueError):
+        build(nxt, collection, weighting="nope")
+    with pytest.raises(ValueError):
+        build(nxt, collection, sampler="scheduled", restart_prob=0.0)

@@ -10,11 +10,14 @@ class Egonet(Graph):
     Attributes:
         node_mapping Optional[Dict[int, int]]: Mapping from original graph node IDs to internal egonet node IDs
         node_weights Optional[Dict[int, float]]: Inherited from Graph; keyed by INTERNAL egonet node ID.
+        node_rings Optional[Dict[int, int]]: Hop distance of each member from the centre in the PARENT graph, keyed by
+            INTERNAL egonet node ID (the centre is ring 0). Set by the k-hop and random-walk constructions.
     """
 
     original_graph_id: Optional[Union[int, str]] = Field(default=None)
     original_node_id: int = Field(default=None)
     node_mapping: Optional[Dict[int, int]] = Field(default_factory=dict)
+    node_rings: Optional[Dict[int, int]] = Field(default=None)
 
     def reindex_nodes(self) -> "Egonet":
         """Reindex nodes to be consecutive integers starting from 0."""
@@ -32,6 +35,9 @@ class Egonet(Graph):
             kept = {node_remap[internal]: weight for internal, weight in self.node_weights.items() if internal in node_remap}
             total = sum(kept.values())
             new_node_weights = {internal: weight / total for internal, weight in kept.items()} if total > 0 else None
+        new_node_rings = None
+        if self.node_rings is not None:
+            new_node_rings = {node_remap[internal]: ring for internal, ring in self.node_rings.items() if internal in node_remap}
 
         # Create new graph with mapped IDs
         return Egonet(
@@ -46,6 +52,7 @@ class Egonet(Graph):
             original_node_id=self.original_node_id,
             node_mapping=new_node_mapping,
             node_weights=new_node_weights,
+            node_rings=new_node_rings,
         )
 
     def filter_largest_component(self) -> "Egonet":
@@ -70,6 +77,7 @@ class Egonet(Graph):
             original_node_id=self.original_node_id,
             node_mapping=self.node_mapping,
             node_weights=self.node_weights,
+            node_rings=self.node_rings,
         )
 
         # Reindex nodes to be consecutive

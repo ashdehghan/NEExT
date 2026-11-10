@@ -76,6 +76,7 @@ class NEExT:
         reindex_nodes: bool = True,
         filter_largest_component: bool = True,
         node_sample_rate: float = 1.0,
+        random_seed: int = 13,
     ) -> GraphCollection:
         """
         Read graph data from CSV files and return a graph collection.
@@ -92,6 +93,7 @@ class NEExT:
                                     component of each graph (default: True)
             node_sample_rate: Rate at which to sample nodes from each graph (default: 1.0).
                             Must be between 0 and 1.
+            random_seed: Seed for node sampling when node_sample_rate < 1 (default: 13)
 
         Returns:
             GraphCollection: Collection of graphs loaded from CSV files
@@ -114,6 +116,7 @@ class NEExT:
                 reindex_nodes=reindex_nodes,
                 filter_largest_component=filter_largest_component,
                 node_sample_rate=node_sample_rate,
+                random_seed=random_seed,
             )
             self.logger.info("Successfully loaded graph collection")
             self.logger.debug(f"Loaded {len(graph_collection.graphs)} graphs")
@@ -129,6 +132,7 @@ class NEExT:
         reindex_nodes: bool = True,
         filter_largest_component: bool = True,
         node_sample_rate: float = 1.0,
+        random_seed: int = 13,
     ) -> GraphCollection:
         """
         Create a GraphCollection from a list of NetworkX graphs.
@@ -141,6 +145,7 @@ class NEExT:
                                            component of each graph (default: True)
             node_sample_rate (float): Rate at which to sample nodes from each graph (default: 1.0).
                                     Must be between 0 and 1.
+            random_seed: Seed for node sampling when node_sample_rate < 1 (default: 13)
 
         Returns:
             GraphCollection: Collection of graphs created from the NetworkX graphs
@@ -158,6 +163,7 @@ class NEExT:
                 reindex_nodes=reindex_nodes,
                 filter_largest_component=filter_largest_component,
                 node_sample_rate=node_sample_rate,
+                random_seed=random_seed,
             )
             self.logger.info("Successfully loaded NetworkX graphs into collection")
             self.logger.debug(f"Loaded {len(graph_collection.graphs)} graphs")
@@ -175,6 +181,7 @@ class NEExT:
         reindex_nodes: bool = True,
         filter_largest_component: bool = True,
         node_sample_rate: float = 1.0,
+        random_seed: int = 13,
     ) -> GraphCollection:
         """
         Load a single graph from DataFrames without a node-graph mapping.
@@ -195,6 +202,7 @@ class NEExT:
                                     component of the graph (default: True)
             node_sample_rate: Rate at which to sample nodes (default: 1.0).
                             Must be between 0 and 1.
+            random_seed: Seed for node sampling when node_sample_rate < 1 (default: 13)
 
         Returns:
             GraphCollection: Collection containing the single graph
@@ -214,6 +222,7 @@ class NEExT:
                 reindex_nodes=reindex_nodes,
                 filter_largest_component=filter_largest_component,
                 node_sample_rate=node_sample_rate,
+                random_seed=random_seed,
             )
             self.logger.info("Successfully loaded single graph into collection")
             self.logger.debug(f"Loaded {len(graph_collection.graphs)} graphs")
@@ -252,6 +261,7 @@ class NEExT:
         profile_features: bool = False,
         joblib_kwargs: Optional[dict[str, Any]] = None,
         feature_scope: Literal["local", "global"] = "local",
+        node_embedding_params: Optional[Dict[str, Dict[str, Any]]] = None,
     ) -> Features:
         """
         Compute node features for all graphs in the collection.
@@ -280,6 +290,10 @@ class NEExT:
                 rows (one row per source node) before projection, so bag
                 overlap cannot skew it; a k_hop=0 singleton bag carries the
                 node's true full-graph features.
+            node_embedding_params: Keyword arguments per structural node embedding named in
+                feature_list ("struc2vec", "role2vec", "graphwave"), e.g. {"struc2vec": {"dim": 32}}.
+                These embeddings are fit on whole graphs, so on an EgonetCollection they require
+                feature_scope="global"; each becomes one feature group (selected as a block).
 
         Returns:
             Features: Container with computed feature data for all nodes
@@ -303,6 +317,15 @@ class NEExT:
                 )
             target_collection = source
 
+        from NEExT.node_embeddings import NODE_EMBEDDING_FEATURES
+
+        requested_embeddings = [name for name in feature_list if name in NODE_EMBEDDING_FEATURES]
+        if requested_embeddings and feature_scope == "local" and isinstance(graph_collection, EgonetCollection):
+            raise ValueError(
+                f"{requested_embeddings} are fit on whole graphs; on an EgonetCollection use feature_scope='global' so they "
+                "are computed on the source graph and projected onto the egonet members."
+            )
+
         self.logger.info(f"Computing node features: {feature_list} (scope: {feature_scope})")
 
         node_features = StructuralNodeFeatures(
@@ -315,6 +338,7 @@ class NEExT:
             parallel_backend=parallel_backend,
             profile_features=profile_features,
             joblib_kwargs=joblib_kwargs,
+            node_embedding_params=node_embedding_params,
         )
 
         if my_feature_methods:
@@ -345,6 +369,8 @@ class NEExT:
         dropout: float = 0.0,
         pooling: str = "mean",
         early_stopping_patience: int = 10,
+        metric: str = "euclidean",
+        max_distribution_size: Optional[int] = None,
     ) -> Embeddings:
         """
         Compute graph embeddings based on node features.
@@ -358,6 +384,10 @@ class NEExT:
             feature_columns: Specific feature columns to use (default: all)
             random_state: Random seed for reproducibility
             memory_size: Memory limit for algorithms that support it
+            metric: Ground metric between node feature vectors for "wasserstein" and
+                "sinkhornvectorizer" (default: "euclidean")
+            max_distribution_size: Nodes kept per graph by "wasserstein" (exact LOT);
+                None keeps every node (default: None)
 
         The remaining arguments apply only when embedding_algorithm == "gnn"
         (ignored otherwise):
@@ -400,12 +430,67 @@ class NEExT:
                 feature_columns=feature_columns,
                 random_state=random_state,
                 memory_size=memory_size,
+                metric=metric,
+                max_distribution_size=max_distribution_size,
             )
             embeddings = graph_embeddings.compute()
 
         self.logger.info(f"Computed embeddings for {len(embeddings.embeddings_df)} graphs")
 
         return embeddings
+
+    def compute_ring_embeddings(
+        self,
+        egonet_collection: EgonetCollection,
+        features: Features,
+        max_ring: int,
+        embedding_algorithm: str = "approx_wasserstein",
+        embedding_dimension: Optional[int] = None,
+        feature_columns: Optional[List[str]] = None,
+        ring_weights: Optional[Dict[int, float]] = None,
+        random_state: int = 42,
+        memory_size: str = "4G",
+        metric: str = "euclidean",
+        max_distribution_size: Optional[int] = None,
+    ) -> Embeddings:
+        """
+        Ring-by-ring egonet embeddings: one block per hop ring around the centre, concatenated.
+
+        Ring 0 is the centre, ring r the members r hops from it in the parent graph; each ring of every
+        egonet is embedded separately with ``embedding_algorithm`` and the blocks are placed side by side
+        as [centre | ring 1 | ... | ring max_ring], followed by one ``ring<r>_size`` column per ring.
+        Needs egonets from compute_k_hop_egonets or compute_random_walk_egonets. See
+        ``NEExT.embeddings.ring_embeddings`` for the details and the importance-map helpers.
+
+        Args:
+            egonet_collection: Egonets carrying node_rings
+            features: Member features (local or global scope)
+            max_ring: Deepest ring embedded
+            embedding_algorithm: "approx_wasserstein", "wasserstein" or "sinkhornvectorizer"
+            embedding_dimension: Dimension per ring block (default and cap: number of feature columns)
+            feature_columns: Feature columns to use (default: all)
+            ring_weights: Optional fixed multiplier per ring
+            random_state, memory_size, metric, max_distribution_size: Vectorizer settings
+
+        Returns:
+            Embeddings: one row per egonet
+        """
+        from NEExT.embeddings.ring_embeddings import compute_ring_embeddings
+
+        self.logger.info(f"Computing ring embeddings (rings 0..{max_ring}, {embedding_algorithm})")
+        return compute_ring_embeddings(
+            egonet_collection,
+            features,
+            max_ring=max_ring,
+            embedding_algorithm=embedding_algorithm,
+            embedding_dimension=embedding_dimension,
+            feature_columns=feature_columns,
+            ring_weights=ring_weights,
+            random_state=random_state,
+            memory_size=memory_size,
+            metric=metric,
+            max_distribution_size=max_distribution_size,
+        )
 
     def compute_embedding_similarity(
         self,
@@ -531,21 +616,27 @@ class NEExT:
         nodes_to_sample: Optional[Dict[int, List[int]]] = None,
         sample_fraction: float = 1.0,
         random_seed: int = 13,
+        sampler: str = "random",
+        weighting: str = "visits",
     ) -> EgonetCollection:
         """
         Decompose graphs into random-walk egonets (visited-node subgraphs).
 
-        Runs n_walks walks of walk_length steps from each sampled center, with
-        per-step restart probability restart_prob (personalized-PageRank-style
-        homing). Visited nodes form the egonet; normalized visit frequencies
-        become membership weights (Egonet.node_weights) consumed by graph
-        embeddings as the bag's distribution mass. Neighborhoods conform to
+        Runs one random walk with restart of n_walks * walk_length steps from
+        each sampled center: each step jumps back to the center with
+        probability restart_prob, otherwise moves to a random neighbor. Visited
+        nodes form the egonet; normalized visit frequencies (an estimate of the
+        center's personalized PageRank) become membership weights
+        (Egonet.node_weights) consumed by graph embeddings as the bag's
+        distribution mass. Neighborhoods conform to
         community structure and vary smoothly between adjacent centers.
 
         Args:
             graph_collection: Collection of graphs to decompose
-            walk_length: Steps per walk (default: 10)
-            n_walks: Walks per center (default: 100)
+            walk_length: Steps per walk segment; the walk takes
+                n_walks * walk_length steps in total (default: 10)
+            n_walks: Walk segments per center; only the product
+                n_walks * walk_length matters (default: 100)
             restart_prob: Per-step probability of returning to the center;
                 0.0 gives pure walks (default: 0.15)
             min_visits: Minimum visit events for membership; noise floor
@@ -559,11 +650,16 @@ class NEExT:
             nodes_to_sample: Dict mapping graph_id to list of nodes to always include
             sample_fraction: Fraction of nodes to sample egonets for (default: 1.0)
             random_seed: Random seed for node sampling and walks (default: 13)
+            sampler: "random" (walk with restart), "scheduled" (fixed number of walks of each length, the
+                restart coin replaced by its expectation) or "exact" (exact personalized PageRank, no sampling)
+                (default: "random")
+            weighting: "visits" or "degree_corrected" (visits divided by degree, then normalised)
+                (default: "visits")
 
         Returns:
             EgonetCollection: Collection of egonets
         """
-        self.logger.info(f"Computing random-walk egonets ({n_walks}x{walk_length} steps, restart={restart_prob})")
+        self.logger.info(f"Computing random-walk egonets ({n_walks * walk_length} steps per center, restart={restart_prob})")
 
         egonet_collection = EgonetCollection(
             graph_type=graph_collection.graph_type,
@@ -581,6 +677,8 @@ class NEExT:
             nodes_to_sample=nodes_to_sample,
             sample_fraction=sample_fraction,
             random_seed=random_seed,
+            sampler=sampler,
+            weighting=weighting,
         )
 
         self.logger.info(f"Created {len(egonet_collection.graphs)} egonets")
@@ -593,6 +691,7 @@ class NEExT:
         skip_features: Optional[List[str]] = None,
         n_iterations: int = 10,
         resolution: float = 1.0,
+        random_seed: int = 13,
     ) -> EgonetCollection:
         """
         Decompose graphs into community-based egonets using Leiden algorithm.
@@ -605,6 +704,7 @@ class NEExT:
             skip_features: Node features to exclude from egonets (default: None)
             n_iterations: Number of Leiden iterations (default: 10)
             resolution: Resolution parameter for Leiden (default: 1.0)
+            random_seed: Seed for Leiden (default: 13)
 
         Returns:
             EgonetCollection: Collection of egonets
@@ -620,10 +720,99 @@ class NEExT:
             graph_collection=graph_collection,
             n_iterations=n_iterations,
             resolution=resolution,
+            random_seed=random_seed,
         )
 
         self.logger.info(f"Created {len(egonet_collection.graphs)} egonets")
         return egonet_collection
+
+    def compute_leiden_patches(
+        self,
+        graph_collection: GraphCollection,
+        egonet_feature_target: Optional[str] = None,
+        skip_features: Optional[List[str]] = None,
+        resolution: float = 1.0,
+        n_iterations: int = 10,
+        min_patch_size: int = 5,
+        expand_one_hop: bool = False,
+        random_seed: int = 13,
+        patch_label: Literal["majority", "centre", "purity", "distribution"] = "majority",
+        purity_threshold: float = 0.8,
+    ) -> EgonetCollection:
+        """
+        Tile each graph into patches: one subgraph per Leiden community.
+
+        Requires iGraph backend. See ``EgonetCollection.compute_leiden_patches`` for the
+        merge, expansion, centre and labelling rules.
+
+        Args:
+            graph_collection: Collection of graphs to tile
+            egonet_feature_target: Node attribute from which patch labels are derived (default: None)
+            skip_features: Node features to exclude from the patches (default: None)
+            resolution: Leiden resolution; higher gives more, smaller patches (default: 1.0)
+            n_iterations: Leiden iterations (default: 10)
+            min_patch_size: Communities below this size are merged into a neighbour (default: 5)
+            expand_one_hop: Add one-hop neighbours to every patch (default: False)
+            random_seed: Seed for Leiden (default: 13)
+            patch_label: "majority", "centre", "purity" or "distribution" (default: "majority")
+            purity_threshold: Threshold for the "purity" scheme (default: 0.8)
+
+        Returns:
+            EgonetCollection: one Egonet per patch, with ``patch_memberships`` per source graph
+        """
+        self.logger.info("Computing Leiden patches")
+
+        patch_collection = EgonetCollection(
+            graph_type=graph_collection.graph_type,
+            egonet_feature_target=egonet_feature_target,
+            skip_features=skip_features or [],
+        )
+        patch_collection.compute_leiden_patches(
+            graph_collection=graph_collection,
+            resolution=resolution,
+            n_iterations=n_iterations,
+            min_patch_size=min_patch_size,
+            expand_one_hop=expand_one_hop,
+            random_seed=random_seed,
+            patch_label=patch_label,
+            purity_threshold=purity_threshold,
+        )
+
+        self.logger.info(f"Created {len(patch_collection.graphs)} patches")
+        return patch_collection
+
+    def compute_membership_patches(
+        self,
+        graph_collection: GraphCollection,
+        memberships: Dict[int, List[int]],
+        egonet_feature_target: Optional[str] = None,
+        skip_features: Optional[List[str]] = None,
+        expand_one_hop: bool = False,
+        patch_label: Literal["majority", "centre", "purity", "distribution"] = "majority",
+        purity_threshold: float = 0.8,
+    ) -> EgonetCollection:
+        """
+        Tile each graph into patches from a given partition (for example METIS parts): one patch per class of
+        ``memberships[graph_id]``, a list with each node's part. Requires iGraph backend. Patches are built as in
+        ``compute_leiden_patches`` (centre, optional one-hop expansion, labels), without merging small parts.
+
+        Returns:
+            EgonetCollection: one Egonet per patch, with ``patch_memberships`` per source graph
+        """
+        patch_collection = EgonetCollection(
+            graph_type=graph_collection.graph_type,
+            egonet_feature_target=egonet_feature_target,
+            skip_features=skip_features or [],
+        )
+        patch_collection.compute_membership_patches(
+            graph_collection=graph_collection,
+            memberships=memberships,
+            expand_one_hop=expand_one_hop,
+            patch_label=patch_label,
+            purity_threshold=purity_threshold,
+        )
+        self.logger.info(f"Created {len(patch_collection.graphs)} patches")
+        return patch_collection
 
     def compute_feature_importance(
         self,

@@ -120,6 +120,7 @@ class GraphCollection(BaseModel):
         reindex_nodes: bool = True,
         filter_largest_component: bool = True,
         node_sample_rate: Optional[float] = None,
+        random_seed: Optional[int] = 13,
     ) -> None:
         """
         Creates Graph instances from a list of dictionaries or NetworkX graphs.
@@ -142,6 +143,7 @@ class GraphCollection(BaseModel):
             node_sample_rate (float, optional): Rate at which to sample nodes from each graph.
                                               If None, uses the collection's default.
                                               Must be between 0 and 1.
+            random_seed (Optional[int]): Seed for node sampling (default: 13; None draws from OS entropy)
         """
         # Use instance graph_type if none provided
         graph_type = graph_type or self.graph_type
@@ -223,7 +225,7 @@ class GraphCollection(BaseModel):
             self.graph_id_node_array.extend([graph.graph_id] * len(graph.nodes))
 
         # Sample nodes after all graphs are added
-        self.sample_nodes()
+        self.sample_nodes(random_seed=random_seed)
 
     def get_graph_by_id(self, graph_id: Union[int, str]) -> Optional[Graph]:
         """

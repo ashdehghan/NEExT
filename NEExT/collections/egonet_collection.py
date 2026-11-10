@@ -1,5 +1,6 @@
+import random
 from collections import defaultdict
-from typing import Callable, Dict, List, Literal, Optional, Set, Tuple, Union, get_args
+from typing import Any, Callable, Dict, List, Literal, Optional, Set, Tuple, Union, get_args
 
 import networkx as nx
 import numpy as np
@@ -11,7 +12,20 @@ from NEExT.collections.graph_collection import GraphCollection
 from NEExT.embeddings.embeddings import Embeddings
 from NEExT.features import Features
 from NEExT.graphs import Egonet, Graph
-from NEExT.helper_functions import build_adjacency_lists, get_nodes_x_hops_away, random_walk_visit_counts
+from NEExT.helper_functions import (
+    build_adjacency_lists,
+    get_nodes_x_hops_away,
+    hop_distances,
+    personalized_pagerank,
+    random_walk_visit_counts,
+    scheduled_walk_visit_counts,
+)
+from NEExT.patches.leiden_patches import compute_patch_label, merge_small_communities, relabel_contiguous
+
+
+def _python_scalar(value: Any) -> Any:
+    """numpy scalars (as node tables deliver them) -> plain Python, so they fit the pydantic label types."""
+    return value.item() if hasattr(value, "item") else value
 
 
 class EgonetCollection(GraphCollection):
@@ -45,6 +59,11 @@ class EgonetCollection(GraphCollection):
     egonet_to_graph_node_mapping: Dict[int, Tuple[int, int]] = Field(default_factory=dict)
     egonet_node_features: Embeddings = Field(default=None)
     source_graph_collection: Optional[GraphCollection] = Field(default=None, exclude=True, repr=False)
+    # Patch tiling (compute_leiden_patches): one egonet per community rather than per node.
+    patch_memberships: Dict[Union[int, str], List[int]] = Field(default_factory=dict)
+    patch_label_fraction: Dict[int, float] = Field(default_factory=dict)
+    patch_label_histogram: Dict[int, Dict[Union[int, float, str], int]] = Field(default_factory=dict)
+    patch_merge_log: Dict[Union[int, str], List[Tuple[int, int]]] = Field(default_factory=dict)
 
     def _build_parent_index(self, graph: Graph) -> dict:
         """
@@ -208,11 +227,13 @@ class EgonetCollection(GraphCollection):
         for graph in graph_collection.graphs:
             parent_index = self._build_parent_index(graph)
             for node_id in valid_nodes[graph.graph_id]:
+                ring_of = {node_id: 0}
                 if k_hop > 0:
                     egonet_nodes_dict = get_nodes_x_hops_away(graph.G, node_id, k_hop)
                     egonet_nodes = {node_id}
-                    for v in egonet_nodes_dict.values():
+                    for hop, v in egonet_nodes_dict.items():
                         egonet_nodes.update(v)
+                        ring_of.update({member: hop for member in v})
                 else:
                     egonet_nodes = [node_id]
                 # egonet_nodes = sorted(graph.G.neighborhood(node_id, order=k_hop))
@@ -226,6 +247,7 @@ class EgonetCollection(GraphCollection):
                     egonet_label=egonet_label,
                     parent_index=parent_index,
                 )
+                egonet.node_rings = {egonet.node_mapping[member]: ring for member, ring in ring_of.items()}
 
                 self.graphs.append(egonet)
                 # Update graph_id_node_array with this egonet's id
@@ -249,36 +271,42 @@ class EgonetCollection(GraphCollection):
         nodes_to_sample: Optional[Dict[int, List[int]]] = None,
         sample_fraction: Optional[float] = 1.0,
         random_seed: int = 13,
+        sampler: str = "random",
+        weighting: str = "visits",
     ):
         """
         Computes egonets from random walks with restart.
 
-        For each sampled center, runs `n_walks` walks of `walk_length` steps;
-        at every step the walker returns to the center with probability
-        `restart_prob` (personalized-PageRank-style homing), otherwise moves
-        to a uniformly random neighbor. The visited nodes form the egonet and
-        the visit frequencies (L1-normalized per egonet) become the egonet's
+        For each sampled center, runs one random walk with restart of
+        `n_walks * walk_length` steps: at every step the walker jumps back to
+        the center with probability `restart_prob`, otherwise it moves to a
+        uniformly random neighbor. The visited nodes form the egonet and the
+        visit frequencies (L1-normalized per egonet) become the egonet's
         membership weights, stored as `Egonet.node_weights` keyed by internal
-        node ID. Unlike k-hop balls, these neighborhoods conform to community
-        structure, and adjacent centers produce gradually-differing bags.
+        node ID; they estimate the center's personalized PageRank vector with
+        teleport probability `restart_prob`. Unlike k-hop balls, these
+        neighborhoods conform to community structure, and adjacent centers
+        produce gradually-differing bags.
 
         Walks are simulated over precomputed adjacency lists with a
         self-contained RNG (igraph's own random_walk uses a process-global C
-        RNG). Each center gets its own walk RNG, seeded from a draw of the
-        call's RNG, so results are reproducible for a given random_seed and
-        sampled center set (a center's walks depend on its position in that
-        set). The center is always a member.
+        RNG). Each center's walk RNG is seeded from (random_seed, graph
+        position, center node ID), so a center's egonet is reproducible and
+        does not depend on which other centers are sampled. The center is
+        always a member.
 
         Args:
             graph_collection (GraphCollection): The collection of graphs from
                 which to derive egonets.
-            walk_length (int): Steps per walk (default: 10)
-            n_walks (int): Walks per center (default: 100)
+            walk_length (int): Steps per walk segment; the walk takes
+                n_walks * walk_length steps in total (default: 10)
+            n_walks (int): Number of walk segments per center; only the
+                product n_walks * walk_length matters (default: 100)
             restart_prob (float): Per-step probability of returning to the
                 center; 0.0 gives pure walks (default: 0.15)
             min_visits (int): Minimum visit events for membership; the center
                 is always kept. The default of 3 is a noise floor over the
-                ~n_walks*walk_length visit events that cuts the one-visit
+                n_walks*walk_length + 1 visit events that cuts the one-visit
                 fringe (which balloons bag size without adding signal); set
                 1 to keep every visited node (default: 3)
             max_egonet_size (Optional[int]): Keep only the top-N most visited
@@ -289,6 +317,15 @@ class EgonetCollection(GraphCollection):
             nodes_to_sample: Dict mapping graph_id to nodes to always include
             sample_fraction: Fraction of nodes to sample egonets for (default: 1.0)
             random_seed: Random seed for center sampling and walks (default: 13)
+            sampler: How visits are produced (default: "random"):
+                "random": the walk with restart described above;
+                "scheduled": the restart coin replaced by its expectation, a fixed number of walks of each length
+                    (helper_functions.scheduled_walk_visit_counts; needs restart_prob > 0);
+                "exact": no sampling; visit counts are the exact personalized PageRank times the
+                    n_walks * walk_length + 1 visit events, so min_visits applies on the same scale.
+            weighting: Membership weights (default: "visits"): "visits" uses the visit frequencies;
+                "degree_corrected" divides each member's visits by its degree before normalising, removing the
+                walk's proportional-to-degree bias towards hubs.
         """
         if walk_length < 1:
             raise ValueError(f"walk_length must be >= 1, got {walk_length}")
@@ -298,6 +335,10 @@ class EgonetCollection(GraphCollection):
             raise ValueError(f"restart_prob must be in [0, 1), got {restart_prob}")
         if min_visits < 1:
             raise ValueError(f"min_visits must be >= 1, got {min_visits}")
+        if sampler not in ("random", "scheduled", "exact"):
+            raise ValueError(f"sampler must be 'random', 'scheduled' or 'exact', got {sampler!r}")
+        if weighting not in ("visits", "degree_corrected"):
+            raise ValueError(f"weighting must be 'visits' or 'degree_corrected', got {weighting!r}")
         if max_egonet_size is not None and max_egonet_size < 1:
             raise ValueError(f"max_egonet_size must be >= 1, got {max_egonet_size}")
 
@@ -318,14 +359,20 @@ class EgonetCollection(GraphCollection):
             forced_nodes = nodes_to_sample.get(graph.graph_id, [])
             valid_nodes[graph.graph_id] = list(set(random_nodes + forced_nodes))
 
-        for graph in graph_collection.graphs:
+        for graph_position, graph in enumerate(graph_collection.graphs):
             parent_index = self._build_parent_index(graph)
             adjacency = build_adjacency_lists(graph.G)
             for node_id in valid_nodes[graph.graph_id]:
-                # Per-center seed drawn from the shared rng: reproducible for a
-                # given seed and center set (draws follow center order).
-                walk_rng = np.random.RandomState(rng.randint(0, 1_000_000))
-                counts = random_walk_visit_counts(adjacency, node_id, walk_length, n_walks, restart_prob, walk_rng)
+                # Per-center seed from (seed, graph, center): independent of the sampled center set.
+                walk_seed = np.random.SeedSequence([random_seed, graph_position, int(node_id)]).generate_state(1)[0]
+                walk_rng = np.random.RandomState(walk_seed)
+                n_steps = n_walks * walk_length
+                if sampler == "random":
+                    counts = random_walk_visit_counts(adjacency, node_id, n_steps, restart_prob, walk_rng)
+                elif sampler == "scheduled":
+                    counts = scheduled_walk_visit_counts(adjacency, node_id, n_steps, restart_prob, walk_rng)
+                else:
+                    counts = {n: p * (n_steps + 1) for n, p in personalized_pagerank(adjacency, node_id, restart_prob).items()}
 
                 if min_visits > 1:
                     counts = {n: c for n, c in counts.items() if c >= min_visits or n == node_id}
@@ -343,8 +390,10 @@ class EgonetCollection(GraphCollection):
                     parent_index=parent_index,
                 )
                 if weight_by_visits:
-                    total = sum(counts.values())
-                    egonet.node_weights = {egonet.node_mapping[n]: c / total for n, c in counts.items()}
+                    mass = counts if weighting == "visits" else {n: c / max(len(adjacency.get(n, ())), 1) for n, c in counts.items()}
+                    total = sum(mass.values())
+                    egonet.node_weights = {egonet.node_mapping[n]: c / total for n, c in mass.items()}
+                egonet.node_rings = {egonet.node_mapping[n]: ring for n, ring in hop_distances(adjacency, node_id, counts).items()}
 
                 self.graphs.append(egonet)
                 self.graph_id_node_array.extend([egonet_id] * len(egonet.nodes))
@@ -354,7 +403,7 @@ class EgonetCollection(GraphCollection):
         self.egonet_node_features = self._create_egonet_features_df(graph_collection)
         self.source_graph_collection = graph_collection
 
-    def compute_leiden_egonets(self, graph_collection: GraphCollection, n_iterations: int = 10, resolution: float = 1.0):
+    def compute_leiden_egonets(self, graph_collection: GraphCollection, n_iterations: int = 10, resolution: float = 1.0, random_seed: int = 13):
         """
         Computes egonets based on Leiden community detection.
 
@@ -369,6 +418,9 @@ class EgonetCollection(GraphCollection):
                 algorithm. Defaults to 10.
             resolution (float): The resolution parameter for the Leiden
                 algorithm. Defaults to 1.0.
+            random_seed (int): Seed for Leiden, set on igraph's RNG for the
+                call and restored afterwards, as in compute_leiden_patches.
+                Defaults to 13.
 
         """
 
@@ -380,8 +432,16 @@ class EgonetCollection(GraphCollection):
         self.egonet_to_graph_node_mapping = {}
         egonet_id = 0
 
+        import igraph as ig
+
+        seed_rng = random.Random(random_seed)
         for graph in graph_collection.graphs:
-            community_detection = graph.G.community_leiden(objective_function="modularity", n_iterations=n_iterations, resolution=resolution)
+            # Leiden under a private RNG; restore the module default so nothing else observes the change.
+            ig.set_random_number_generator(random.Random(seed_rng.randint(0, 2**31 - 1)))
+            try:
+                community_detection = graph.G.community_leiden(objective_function="modularity", n_iterations=n_iterations, resolution=resolution)
+            finally:
+                ig.set_random_number_generator(random)
             membership = community_detection.membership
             community_members = defaultdict(list)
             for n_id, com_id in enumerate(membership):
@@ -407,6 +467,166 @@ class EgonetCollection(GraphCollection):
                 self.egonet_to_graph_node_mapping[egonet_id] = (graph.graph_id, node_id)
                 egonet_id += 1
 
+        self.egonet_node_features = self._create_egonet_features_df(graph_collection)
+        self.source_graph_collection = graph_collection
+
+    def compute_leiden_patches(
+        self,
+        graph_collection: GraphCollection,
+        resolution: float = 1.0,
+        n_iterations: int = 10,
+        min_patch_size: int = 5,
+        expand_one_hop: bool = False,
+        random_seed: int = 13,
+        patch_label: Literal["majority", "centre", "purity", "distribution"] = "majority",
+        purity_threshold: float = 0.8,
+    ):
+        """
+        Tile every graph into patches: one subgraph per Leiden community.
+
+        Unlike ``compute_leiden_egonets`` (one egonet per NODE, equal to that node's
+        community), this builds one ``Egonet`` per COMMUNITY. Communities smaller than
+        ``min_patch_size`` are merged into the neighbouring community they share the
+        most edges with (smallest first, repeated until none remain; a small community
+        with no neighbour is kept). With ``expand_one_hop`` each patch also takes its
+        one-hop neighbours from the source graph, so adjacent patches overlap at their
+        boundary; memberships are always recorded pre-expansion, as a partition.
+
+        The patch's centre (``original_node_id``) is its highest-degree member in the
+        source graph (ties: lowest id), so code that expects a centre keeps working.
+        When ``egonet_feature_target`` names a node attribute, each patch receives a
+        label computed from its members' labels by ``patch_label``: "majority" (most
+        frequent; ties to the lowest label), "centre" (the centre's label), "purity"
+        (1 if the majority fraction is at least ``purity_threshold``) or "distribution"
+        (the histogram; ``graph_label`` then holds the majority). The majority fraction
+        and the histogram are stored for every patch regardless of the scheme.
+
+        Leiden is seeded from ``random_seed`` through igraph's RNG, which is set for
+        the call and restored to Python's ``random`` module afterwards; the global
+        ``random`` stream is not consumed.
+
+        Requires the igraph backend.
+
+        Args:
+            graph_collection: Source graphs (igraph backend).
+            resolution: Leiden resolution; higher gives more, smaller patches.
+            n_iterations: Leiden iterations.
+            min_patch_size: Communities below this size are merged (default: 5).
+            expand_one_hop: Add one-hop neighbours to every patch (default: False).
+            random_seed: Seed for Leiden (default: 13).
+            patch_label: Label scheme, used when ``egonet_feature_target`` is set.
+            purity_threshold: Threshold for the "purity" scheme.
+        """
+        if any(g.graph_type == "networkx" for g in graph_collection.graphs):
+            raise NotImplementedError("Leiden patches require iGraph backend. Use graph_type='igraph' when loading graphs.")
+        if min_patch_size < 1:
+            raise ValueError(f"min_patch_size must be >= 1, got {min_patch_size}")
+
+        import igraph as ig
+
+        self.graphs = []
+        self.graph_id_node_array = []
+        self.egonet_to_graph_node_mapping = {}
+        self.patch_memberships = {}
+        self.patch_label_fraction = {}
+        self.patch_label_histogram = {}
+        self.patch_merge_log = {}
+        patch_id = 0
+        seed_rng = random.Random(random_seed)
+
+        for graph in graph_collection.graphs:
+            # Leiden under a private RNG; restore the module default so nothing else observes the change.
+            ig.set_random_number_generator(random.Random(seed_rng.randint(0, 2**31 - 1)))
+            try:
+                raw_membership = graph.G.community_leiden(
+                    objective_function="modularity", n_iterations=n_iterations, resolution=resolution
+                ).membership
+            finally:
+                ig.set_random_number_generator(random)
+
+            membership, merge_log = merge_small_communities(graph.edges, raw_membership, min_patch_size)
+            membership = relabel_contiguous(membership)
+            self.patch_merge_log[graph.graph_id] = merge_log
+            patch_id = self._add_patches(graph, membership, expand_one_hop, patch_label, purity_threshold, patch_id)
+
+        self.egonet_node_features = self._create_egonet_features_df(graph_collection)
+        self.source_graph_collection = graph_collection
+
+    def _add_patches(self, graph, membership, expand_one_hop, patch_label, purity_threshold, patch_id):
+        """Build one patch per membership class of `graph` (centre = highest-degree member, ties to the lowest id),
+        optionally expanded by one hop, append them to this collection and return the next free patch id."""
+        self.patch_memberships[graph.graph_id] = membership
+        members_by_patch: Dict[int, List[int]] = defaultdict(list)
+        for node_id, com_id in enumerate(membership):
+            members_by_patch[com_id].append(node_id)
+        degrees = graph.G.degree()
+        parent_index = self._build_parent_index(graph)
+
+        for com_id in sorted(members_by_patch):
+            members = members_by_patch[com_id]
+            centre = min(members, key=lambda n: (-degrees[n], n))
+            patch_nodes = list(members)
+            if expand_one_hop:
+                expanded = set(members)
+                for neighbourhood in graph.G.neighborhood(members, order=1):
+                    expanded.update(neighbourhood)
+                patch_nodes = sorted(expanded)
+
+            label = None
+            if self.egonet_feature_target:
+                node_labels = [_python_scalar(graph.node_attributes[n][self.egonet_feature_target]) for n in members]
+                centre_label = _python_scalar(graph.node_attributes[centre][self.egonet_feature_target])
+                label, fraction, histogram = compute_patch_label(
+                    node_labels, patch_label, centre_label=centre_label, purity_threshold=purity_threshold
+                )
+                self.patch_label_fraction[patch_id] = fraction
+                self.patch_label_histogram[patch_id] = histogram
+
+            egonet = self._build_egonet(
+                graph=graph,
+                node_id=centre,
+                egonet_nodes=patch_nodes,
+                egonet_id=patch_id,
+                egonet_label=label,
+                parent_index=parent_index,
+            )
+            self.graphs.append(egonet)
+            self.graph_id_node_array.extend([patch_id] * len(egonet.nodes))
+            self.egonet_to_graph_node_mapping[patch_id] = (graph.graph_id, centre)
+            patch_id += 1
+        return patch_id
+
+    def compute_membership_patches(
+        self,
+        graph_collection: GraphCollection,
+        memberships: Dict[int, List[int]],
+        expand_one_hop: bool = False,
+        patch_label: Literal["majority", "centre", "purity", "distribution"] = "majority",
+        purity_threshold: float = 0.8,
+    ):
+        """
+        Tile every graph into patches from a given partition: one patch per class of ``memberships[graph_id]``
+        (a list giving each node's part, node ids 0..n-1 of the source graph), e.g. METIS parts. Patches are built
+        exactly as in ``compute_leiden_patches`` (centre, optional one-hop expansion, labels), without merging.
+        Requires the igraph backend.
+        """
+        if any(g.graph_type == "networkx" for g in graph_collection.graphs):
+            raise NotImplementedError("Membership patches require iGraph backend. Use graph_type='igraph' when loading graphs.")
+        self.graphs = []
+        self.graph_id_node_array = []
+        self.egonet_to_graph_node_mapping = {}
+        self.patch_memberships = {}
+        self.patch_label_fraction = {}
+        self.patch_label_histogram = {}
+        self.patch_merge_log = {}
+        patch_id = 0
+        for graph in graph_collection.graphs:
+            membership = memberships[graph.graph_id]
+            if len(membership) != len(graph.nodes):
+                raise ValueError(f"graph {graph.graph_id}: membership has {len(membership)} entries for {len(graph.nodes)} nodes")
+            membership = relabel_contiguous(list(membership))
+            self.patch_merge_log[graph.graph_id] = []
+            patch_id = self._add_patches(graph, membership, expand_one_hop, patch_label, purity_threshold, patch_id)
         self.egonet_node_features = self._create_egonet_features_df(graph_collection)
         self.source_graph_collection = graph_collection
 
@@ -457,7 +677,7 @@ class EgonetCollection(GraphCollection):
             )
 
         projected = merged[["node_id", "graph_id"] + list(source_features.feature_columns)].reset_index(drop=True)
-        return Features(projected, list(source_features.feature_columns))
+        return Features(projected, list(source_features.feature_columns), source_features.feature_groups)
 
     def _create_egonet_features_df(self, graph_collection: GraphCollection):
         """
